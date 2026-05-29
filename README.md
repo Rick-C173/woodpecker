@@ -102,65 +102,55 @@ export WOODPECKER_WEBHOOK_SECRET="your-secret"
 ### 3. 配置 Webhook
 服务启动后，GitHub PR 的打开/更新会自动触发审查。
 
-## 开发指南
+## 项目结构
 
-### 项目结构
 ```
 woodpecker/
-├── main.go                        # 入口
-├── config.yaml                    # 配置文件
-├── Makefile / README.md
-│
-├── config/                        # 配置模块（公开）
-│   └── config.go
-│
-├── internal/                      # 私有核心代码
-│   ├── model/
-│   │   └── model.go               # 合并：FileDiff/Hunk/Line + ReviewComment + ReviewResult
-│   ├── engine/
-│   │   ├── diff/
-│   │   │   ├── parser.go
-│   │   │   └── parser_test.go
-│   │   └── llm/
-│   │       ├── interface.go       # 补充：LlmClient 接口 + ReviewRequest/Response
-│   │       ├── mock.go
-│   │       ├── openai.go
-│   │       ├── parser.go
-│   │       ├── parser_test.go
-│   │       └── prompt.go
-│   ├── git/
-│   │   └── executor.go
-│   ├── github/
-│   │   ├── client.go
-│   │   └── webhook.go
-│   ├── pipeline/
-│   │   └── processor.go
-│   ├── service/
-│   │   ├── reviewer.go
-│   │   └── reviewer_test.go
-│   └── handler/
-│       ├── review.go
-│       └── webhook.go
-│
-├── pkg/
-│   └── logger/                    # 可复用日志库
-│       └── logger.go
-│
-└── test/
-    ├── sample.diff
-    ├── verify_stage1.go
-    └── verify_stage23.go
+├── main.go                           # 应用入口，组件初始化和服务启动
+├── config.yaml                       # 配置文件
+├── config.yaml.example               # 配置示例
+├── CODE_WIKI.md                      # 完整的代码文档（详细架构说明）
+├── Makefile                          # 构建和运行脚本
+├── go.mod                            # Go 依赖管理
+├── config/                           # 配置模块（公开）
+├── internal/                         # 私有核心代码
+│   ├── model/                        # 数据模型定义
+│   ├── engine/                      # 核心引擎
+│   │   ├── diff/                    # Diff 解析引擎
+│   │   └── llm/                     # LLM 集成引擎
+│   ├── git/                         # Git 操作封装
+│   ├── github/                      # GitHub 集成
+│   ├── pipeline/                    # 审查流水线
+│   ├── service/                     # 业务服务层
+│   └── handler/                     # HTTP 处理器层
+├── pkg/                             # 可复用工具库
+│   └── logger/                      # 结构化日志库
+└── test/                            # 测试脚本
 ```
 
-### 添加新的 LLM 提供商
-1. 在 `engine/llm/` 下创建新的客户端，实现 `LlmClient` 接口
-2. 在 `config.go` 的 `LLMConfig` 中添加相应配置
-3. 在 `main.go` 的客户端初始化中添加支持
+### 模块职责总览
+
+| 模块 | 目录 | 主要职责 |
+|------|------|----------|
+| 入口 | `main.go` | 应用启动、配置加载、组件初始化 |
+| 配置 | `config/` | YAML 配置加载、环境变量覆盖 |
+| 模型 | `internal/model/` | 核心数据结构定义 |
+| Diff解析 | `internal/engine/diff/` | Git diff 文本解析为结构化数据 |
+| LLM引擎 | `internal/engine/llm/` | LLM API 调用、Prompt 构建、响应解析 |
+| Git操作 | `internal/git/` | Git 命令封装（克隆、Diff、Fetch） |
+| GitHub | `internal/github/` | GitHub API 操作、Webhook 处理 |
+| 流水线 | `internal/pipeline/` | PR 审查完整流程编排 |
+| 服务层 | `internal/service/` | 业务逻辑编排（Diff解析 → LLM调用 → 结果聚合） |
+| 处理器 | `internal/handler/` | HTTP API 和 Webhook 路由处理 |
+| 日志 | `pkg/logger/` | 结构化日志记录 |
+
+
 
 ### 添加新的审查规则
-1. 修改 `engine/llm/prompt.go` 中的提示词模板
-2. 在 `po/reviewComment.go` 中添加新的分类/严重等级
-3. 更新解析器以支持新的输出格式
+
+1. 修改 `internal/engine/llm/prompt.go` 中的 `reviewPromptTemplate` 提示词模板
+2. 在 `internal/model/model.go` 中扩展 `ReviewComment` 结构体添加新字段
+3. 更新 `internal/engine/llm/parser.go` 中的解析逻辑以支持新的输出格式
 
 ## 测试
 
