@@ -4,14 +4,14 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"woodpecker/po"
+	"woodpecker/internal/model"
 )
 
 // MockClient 返回预定义结果的模拟 LLM 客户端
 // 用于：单元测试、本地开发、CI 流水线（不消耗 API 费用）
 type MockClient struct {
 	// 可配置：返回固定的评论列表
-	FixedComments []po.ReviewComment
+	FixedComments []model.ReviewComment
 	// 可配置：模拟延迟（毫秒）
 	DelayMs int
 }
@@ -25,7 +25,7 @@ func NewMockClient() *MockClient {
 }
 
 // NewMockClientWithComments 用自定义评论创建 Mock
-func NewMockClientWithComments(comments []po.ReviewComment) *MockClient {
+func NewMockClientWithComments(comments []model.ReviewComment) *MockClient {
 	return &MockClient{
 		FixedComments: comments,
 		DelayMs:       0,
@@ -50,13 +50,13 @@ func (m *MockClient) Review(ctx context.Context, req ReviewRequest) (*ReviewResp
 }
 
 // generateComments 根据 diff 内容生成相关评论（比完全固定更有测试价值）
-func (m *MockClient) generateComments(req ReviewRequest) []po.ReviewComment {
-	var comments []po.ReviewComment
+func (m *MockClient) generateComments(req ReviewRequest) []model.ReviewComment {
+	var comments []model.ReviewComment
 
 	for _, fd := range req.FileDiffs {
 		// 检查文件名包含 "test" 但没有测试用例
 		if strings.Contains(fd.NewPath, "_test.go") && len(fd.Hunks) == 0 {
-			comments = append(comments, po.ReviewComment{
+			comments = append(comments, model.ReviewComment{
 				FilePath:   fd.NewPath,
 				Line:       1,
 				Category:   "style",
@@ -70,7 +70,7 @@ func (m *MockClient) generateComments(req ReviewRequest) []po.ReviewComment {
 		for _, hunk := range fd.Hunks {
 			for _, line := range hunk.Lines {
 				if line.Type == "+" && strings.Contains(line.Content, "fmt.Println") {
-					comments = append(comments, po.ReviewComment{
+					comments = append(comments, model.ReviewComment{
 						FilePath:   fd.NewPath,
 						Line:       line.NewLineNo,
 						Category:   "suggestion",
@@ -85,7 +85,7 @@ func (m *MockClient) generateComments(req ReviewRequest) []po.ReviewComment {
 				if line.Type == "+" && strings.Contains(line.Content, "err") &&
 					!strings.Contains(line.Content, "if err") &&
 					!strings.Contains(line.Content, "return") {
-					comments = append(comments, po.ReviewComment{
+					comments = append(comments, model.ReviewComment{
 						FilePath:   fd.NewPath,
 						Line:       line.NewLineNo,
 						Category:   "bug",
@@ -107,8 +107,8 @@ func (m *MockClient) generateComments(req ReviewRequest) []po.ReviewComment {
 }
 
 // defaultMockComments 默认的模拟评论
-func defaultMockComments() []po.ReviewComment {
-	return []po.ReviewComment{
+func defaultMockComments() []model.ReviewComment {
+	return []model.ReviewComment{
 		{
 			FilePath:   "main.go",
 			Line:       42,

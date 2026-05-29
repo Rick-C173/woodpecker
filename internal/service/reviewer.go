@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"woodpecker/engine/diff"
-	"woodpecker/engine/llm"
-	"woodpecker/po"
+	"woodpecker/internal/engine/diff"
+	"woodpecker/internal/engine/llm"
+	"woodpecker/internal/model"
 )
 
 // Reviewer 代码审查核心服务，串联 diff 解析 → LLM 调用 → 结果聚合
@@ -40,9 +40,9 @@ type ReviewRequest struct {
 
 // ReviewResponse 上层审查响应
 type ReviewResponse struct {
-	Result  *po.ReviewResult // 聚合后的审查结果
-	Error   string           // 错误信息（如有）
-	Elapsed string           // 耗时
+	Result  *model.ReviewResult // 聚合后的审查结果
+	Error   string              // 错误信息（如有）
+	Elapsed string              // 耗时
 }
 
 // Review 执行完整的代码审查流程
@@ -97,10 +97,10 @@ func (r *Reviewer) Review(ctx context.Context, req ReviewRequest) *ReviewRespons
 }
 
 // buildReviewResult 将 LLM 响应转换为标准 ReviewResult
-func buildReviewResult(llmResp *llm.ReviewResponse, totalFiles int) *po.ReviewResult {
+func buildReviewResult(llmResp *llm.ReviewResponse, totalFiles int) *model.ReviewResult {
 	comments := llmResp.Comments
 	if comments == nil {
-		comments = []po.ReviewComment{}
+		comments = []model.ReviewComment{}
 	}
 
 	stats := struct {
@@ -120,7 +120,7 @@ func buildReviewResult(llmResp *llm.ReviewResponse, totalFiles int) *po.ReviewRe
 		stats.ByCategory[c.Category]++
 	}
 
-	return &po.ReviewResult{
+	return &model.ReviewResult{
 		Comments:  comments,
 		Summary:   llmResp.Summary,
 		Stats:     stats,
@@ -129,7 +129,7 @@ func buildReviewResult(llmResp *llm.ReviewResponse, totalFiles int) *po.ReviewRe
 }
 
 // totalDiffChars 计算所有文件 diff 的总字符数
-func totalDiffChars(files []po.FileDiff) int {
+func totalDiffChars(files []model.FileDiff) int {
 	total := 0
 	for _, f := range files {
 		for _, h := range f.Hunks {

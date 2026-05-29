@@ -5,7 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"woodpecker/service"
+	"woodpecker/internal/service"
 )
 
 // ReviewHandler 代码审查 HTTP 处理器

@@ -7,8 +7,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"woodpecker/github"
-	"woodpecker/pipeline"
+	"woodpecker/internal/github"
+	"woodpecker/internal/pipeline"
 )
 
 // WebhookController GitHub Webhook 处理器

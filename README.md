@@ -107,20 +107,49 @@ export WOODPECKER_WEBHOOK_SECRET="your-secret"
 ### 项目结构
 ```
 woodpecker/
-├── main.go                 # 主程序入口
-├── config/                 # 配置管理
-├── engine/                 # 核心引擎
-│   ├── diff/              # diff 解析器
-│   ├── llm/               # LLM 客户端
-│   └── prompt/            # 提示词构建
-├── service/               # 业务服务层
-├── handler/               # HTTP 处理器
-├── pipeline/              # PR 处理流水线
-├── github/                # GitHub API 客户端
-├── git/                   # Git 操作封装
-├── logger/                # 日志系统
-├── po/                    # 数据模型
-└── test/                  # 测试文件
+├── main.go                        # 入口
+├── config.yaml                    # 配置文件
+├── Makefile / README.md
+│
+├── config/                        # 配置模块（公开）
+│   └── config.go
+│
+├── internal/                      # 私有核心代码
+│   ├── model/
+│   │   └── model.go               # 合并：FileDiff/Hunk/Line + ReviewComment + ReviewResult
+│   ├── engine/
+│   │   ├── diff/
+│   │   │   ├── parser.go
+│   │   │   └── parser_test.go
+│   │   └── llm/
+│   │       ├── interface.go       # 补充：LlmClient 接口 + ReviewRequest/Response
+│   │       ├── mock.go
+│   │       ├── openai.go
+│   │       ├── parser.go
+│   │       ├── parser_test.go
+│   │       └── prompt.go
+│   ├── git/
+│   │   └── executor.go
+│   ├── github/
+│   │   ├── client.go
+│   │   └── webhook.go
+│   ├── pipeline/
+│   │   └── processor.go
+│   ├── service/
+│   │   ├── reviewer.go
+│   │   └── reviewer_test.go
+│   └── handler/
+│       ├── review.go
+│       └── webhook.go
+│
+├── pkg/
+│   └── logger/                    # 可复用日志库
+│       └── logger.go
+│
+└── test/
+    ├── sample.diff
+    ├── verify_stage1.go
+    └── verify_stage23.go
 ```
 
 ### 添加新的 LLM 提供商

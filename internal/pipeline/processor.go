@@ -7,11 +7,11 @@ import (
 	"os"
 	"path/filepath"
 
-	"woodpecker/engine/diff"
-	"woodpecker/git"
-	"woodpecker/github"
-	"woodpecker/po"
-	"woodpecker/service"
+	"woodpecker/internal/engine/diff"
+	"woodpecker/internal/git"
+	"woodpecker/internal/github"
+	"woodpecker/internal/model"
+	"woodpecker/internal/service"
 )
 
 // PRProcessor PR 审查流水线，串联 Git 操作 → Diff 解析 → LLM 审查 → GitHub 评论
@@ -141,7 +141,7 @@ func (p *PRProcessor) prepareRepo(ctx context.Context, pr *github.PRInfo) (strin
 }
 
 // submitReview 将审查结果提交到 GitHub PR
-func (p *PRProcessor) submitReview(ctx context.Context, pr *github.PRInfo, result *po.ReviewResult) error {
+func (p *PRProcessor) submitReview(ctx context.Context, pr *github.PRInfo, result *model.ReviewResult) error {
 	if len(result.Comments) == 0 {
 		// 没有评论，仅提交总结
 		return p.githubClient.CreateReview(pr.Owner, pr.Repo, pr.Number, github.PRReview{
@@ -183,7 +183,7 @@ func (p *PRProcessor) submitReview(ctx context.Context, pr *github.PRInfo, resul
 }
 
 // formatCommentBody 格式化单条评论内容
-func formatCommentBody(c po.ReviewComment) string {
+func formatCommentBody(c model.ReviewComment) string {
 	emoji := map[string]string{
 		"critical": "🔴",
 		"warning":  "🟡",
@@ -213,7 +213,7 @@ func (p *PRProcessor) reportFailure(pr *github.PRInfo, reason string) {
 
 // ParseAndReview 直接解析 diff 文本并审查（不依赖 Git 仓库）
 // 用于 Webhook 直接传入 diff 的场景
-func (p *PRProcessor) ParseAndReview(ctx context.Context, diffText string) (*po.ReviewResult, error) {
+func (p *PRProcessor) ParseAndReview(ctx context.Context, diffText string) (*model.ReviewResult, error) {
 	// 验证 diff 可解析
 	_, err := diff.Parse(diffText)
 	if err != nil {

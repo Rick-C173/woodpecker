@@ -1,29 +1,29 @@
 // internal/engine/llm/mock_test.go
-package main
+package llm
 
 import (
 	"context"
 	"strings"
 	"testing"
-	"woodpecker/engine/llm"
-	"woodpecker/po"
+
+	"woodpecker/internal/model"
 )
 
 func TestMockClient_Review(t *testing.T) {
-	client := llm.NewMockClient()
+	client := NewMockClient()
 	ctx := context.Background()
 
-	req := llm.ReviewRequest{
+	req := ReviewRequest{
 		Language: "Go",
-		FileDiffs: []po.FileDiff{
+		FileDiffs: []model.FileDiff{
 			{
 				OldPath: "main.go",
 				NewPath: "main.go",
 				Status:  "modified",
-				Hunks: []po.Hunk{
+				Hunks: []model.Hunk{
 					{
 						OldStart: 1, NewStart: 1,
-						Lines: []po.Line{
+						Lines: []model.Line{
 							{Type: "+", Content: `fmt.Println("debug")`, NewLineNo: 5},
 						},
 					},
@@ -65,23 +65,23 @@ func TestMockClient_Review(t *testing.T) {
 }
 
 func TestPromptBuilder_Build(t *testing.T) {
-	pb, err := llm.NewPromptBuilder()
+	pb, err := NewPromptBuilder()
 	if err != nil {
 		t.Fatalf("failed to create prompt builder: %v", err)
 	}
 
-	req := llm.ReviewRequest{
+	req := ReviewRequest{
 		Language: "Go",
 		Context:  "这是一个 API 服务，使用 Gin 框架",
-		FileDiffs: []po.FileDiff{
+		FileDiffs: []model.FileDiff{
 			{
 				OldPath: "handler.go",
 				NewPath: "handler.go",
-				Hunks: []po.Hunk{
+				Hunks: []model.Hunk{
 					{
 						OldStart: 10, OldLines: 3,
 						NewStart: 10, NewLines: 5,
-						Lines: []po.Line{
+						Lines: []model.Line{
 							{Type: " ", Content: "func GetUser(c *gin.Context) {", NewLineNo: 10},
 							{Type: "+", Content: "    id := c.Param(\"id\")", NewLineNo: 11},
 							{Type: "+", Content: "    user, _ := db.GetUser(id)", NewLineNo: 12},

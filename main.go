@@ -9,12 +9,12 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"woodpecker/config"
-	"woodpecker/engine/llm"
-	"woodpecker/git"
-	"woodpecker/github"
-	"woodpecker/handler"
-	"woodpecker/pipeline"
-	"woodpecker/service"
+	"woodpecker/internal/engine/llm"
+	"woodpecker/internal/git"
+	"woodpecker/internal/github"
+	"woodpecker/internal/handler"
+	"woodpecker/internal/pipeline"
+	"woodpecker/internal/service"
 )
 
 func main() {

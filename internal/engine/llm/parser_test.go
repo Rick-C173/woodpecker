@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"woodpecker/po"
+	"woodpecker/internal/model"
 )
 
 func TestParseReviewResponse(t *testing.T) {
@@ -160,7 +160,7 @@ func TestNormalizeSeverity(t *testing.T) {
 // 确保 ReviewResponse 可以 JSON 序列化
 func TestReviewResponse_JSONRoundtrip(t *testing.T) {
 	original := ReviewResponse{
-		Comments: []po.ReviewComment{
+		Comments: []model.ReviewComment{
 			{
 				FilePath:   "main.go",
 				Line:       10,

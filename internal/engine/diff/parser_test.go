@@ -3,7 +3,7 @@ package diff
 import (
 	"os"
 	"testing"
-	"woodpecker/po"
+	"woodpecker/internal/model"
 )
 
 // 测试数据：典型的 git diff 输出
@@ -167,7 +167,7 @@ rename to new.go
 
 func TestParse_RealDiff(t *testing.T) {
 	// 使用项目自带的测试文件
-	data, err := os.ReadFile("test/sample.diff")
+	data, err := os.ReadFile("testdata/sample.diff")
 	if err != nil {
 		t.Skip("sample.diff not found, skipping real diff test")
 	}
@@ -198,7 +198,7 @@ func TestInferStatus(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.expected, func(t *testing.T) {
-			fd := &po.FileDiff{OldPath: tt.oldPath, NewPath: tt.newPath}
+			fd := &model.FileDiff{OldPath: tt.oldPath, NewPath: tt.newPath}
 			got := inferStatus(fd)
 			if got != tt.expected {
 				t.Errorf("inferStatus(%q, %q) = %q, want %q",
@@ -208,7 +208,7 @@ func TestInferStatus(t *testing.T) {
 	}
 }
 
-// 确保 Parse 返回的 FileDiff 满足 po.FileDiff 接口
+// 确保 Parse 返回的 FileDiff 满足 model.FileDiff 接口
 func TestParse_ReturnsPOType(t *testing.T) {
 	files, err := Parse(testDiff)
 	if err != nil {

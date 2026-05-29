@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"woodpecker/po"
+	"woodpecker/internal/model"
 )
 
 // llmOutput 对应 LLM 返回的 JSON 结构
@@ -34,9 +34,9 @@ func ParseReviewResponse(rawJSON string) (*ReviewResponse, error) {
 		return nil, fmt.Errorf("parse LLM response JSON: %w\nraw output: %s", err, truncate(rawJSON, 500))
 	}
 
-	comments := make([]po.ReviewComment, 0, len(output.Comments))
+	comments := make([]model.ReviewComment, 0, len(output.Comments))
 	for _, c := range output.Comments {
-		comments = append(comments, po.ReviewComment{
+		comments = append(comments, model.ReviewComment{
 			FilePath:   c.FilePath,
 			Line:       c.Line,
 			Category:   normalizeCategory(c.Category),

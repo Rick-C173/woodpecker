@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"text/template"
-	"woodpecker/po"
+	"woodpecker/internal/model"
 )
 
 // PromptBuilder 构建 LLM 提示词
@@ -60,7 +60,7 @@ type filePromptData struct {
 }
 
 // renderDiffText 将 FileDiff 渲染为统一的 diff 文本
-func renderDiffText(fd po.FileDiff) string {
+func renderDiffText(fd model.FileDiff) string {
 	var b strings.Builder
 	b.WriteString("--- a/" + fd.OldPath + "\n")
 	b.WriteString("+++ b/" + fd.NewPath + "\n")

@@ -6,9 +6,9 @@ import (
 	"os"
 
 	"woodpecker/config"
-	"woodpecker/engine/diff"
-	"woodpecker/engine/llm"
-	"woodpecker/service"
+	"woodpecker/internal/engine/diff"
+	"woodpecker/internal/engine/llm"
+	"woodpecker/internal/service"
 )
 
 func main() {
@@ -16,7 +16,7 @@ func main() {
 
 	// 1. 测试 diff 解析
 	fmt.Println("\n1. 测试 diff 解析...")
-	diffText, err := os.ReadFile("test/sample.diff")
+	diffText, err := os.ReadFile("internal/engine/diff/testdata/sample.diff")
 	if err != nil {
 		log.Fatalf("读取 diff 文件失败: %v", err)
 	}

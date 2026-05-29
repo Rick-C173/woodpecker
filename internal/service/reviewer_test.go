@@ -4,13 +4,13 @@ import (
 	"context"
 	"testing"
 
-	"woodpecker/engine/llm"
-	"woodpecker/po"
+	"woodpecker/internal/engine/llm"
+	"woodpecker/internal/model"
 )
 
 // mockReviewClient 用于测试的 Mock LLM 客户端
 type mockReviewClient struct {
-	comments []po.ReviewComment
+	comments []model.ReviewComment
 	summary  string
 	err      error
 }
@@ -28,7 +28,7 @@ func (m *mockReviewClient) Review(ctx context.Context, req llm.ReviewRequest) (*
 
 func TestReviewer_Success(t *testing.T) {
 	client := &mockReviewClient{
-		comments: []po.ReviewComment{
+		comments: []model.ReviewComment{
 			{
 				FilePath:   "main.go",
 				Line:       10,
@@ -145,7 +145,7 @@ func TestReviewer_DiffTooLarge(t *testing.T) {
 
 func TestReviewer_ZeroComments(t *testing.T) {
 	client := &mockReviewClient{
-		comments: []po.ReviewComment{},
+		comments: []model.ReviewComment{},
 		summary:  "无问题",
 	}
 

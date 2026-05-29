@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"woodpecker/po"
+	"woodpecker/internal/model"
 )
 
 var (
@@ -23,15 +23,15 @@ var (
 )
 
 // Parse 解析 git diff 文本，返回 FileDiff 列表
-func Parse(diffText string) ([]po.FileDiff, error) {
+func Parse(diffText string) ([]model.FileDiff, error) {
 	if strings.TrimSpace(diffText) == "" {
 		return nil, fmt.Errorf("diff text is empty")
 	}
 
 	scanner := bufio.NewScanner(strings.NewReader(diffText))
-	var files []po.FileDiff
-	var currentFile *po.FileDiff
-	var currentHunk *po.Hunk
+	var files []model.FileDiff
+	var currentFile *model.FileDiff
+	var currentHunk *model.Hunk
 	var oldLineNo, newLineNo int
 
 	for scanner.Scan() {
@@ -48,7 +48,7 @@ func Parse(diffText string) ([]po.FileDiff, error) {
 				files = append(files, *currentFile)
 			}
 
-			currentFile = &po.FileDiff{
+			currentFile = &model.FileDiff{
 				OldPath: matches[1],
 				NewPath: matches[2],
 			}
@@ -93,7 +93,7 @@ func Parse(diffText string) ([]po.FileDiff, error) {
 			newStart := parseInt(matches[3])
 			newLines := parseIntOrDefault(matches[4], 1)
 
-			currentHunk = &po.Hunk{
+			currentHunk = &model.Hunk{
 				OldStart: oldStart,
 				OldLines: oldLines,
 				NewStart: newStart,
@@ -112,7 +112,7 @@ func Parse(diffText string) ([]po.FileDiff, error) {
 			switch lineType {
 			case " ":
 				// 上下文行（未变更）
-				currentHunk.Lines = append(currentHunk.Lines, po.Line{
+				currentHunk.Lines = append(currentHunk.Lines, model.Line{
 					Type:      " ",
 					Content:   content,
 					OldLineNo: oldLineNo,
@@ -122,7 +122,7 @@ func Parse(diffText string) ([]po.FileDiff, error) {
 				newLineNo++
 			case "+":
 				// 新增行
-				currentHunk.Lines = append(currentHunk.Lines, po.Line{
+				currentHunk.Lines = append(currentHunk.Lines, model.Line{
 					Type:      "+",
 					Content:   content,
 					OldLineNo: 0,
@@ -131,7 +131,7 @@ func Parse(diffText string) ([]po.FileDiff, error) {
 				newLineNo++
 			case "-":
 				// 删除行
-				currentHunk.Lines = append(currentHunk.Lines, po.Line{
+				currentHunk.Lines = append(currentHunk.Lines, model.Line{
 					Type:      "-",
 					Content:   content,
 					OldLineNo: oldLineNo,
@@ -170,7 +170,7 @@ func Parse(diffText string) ([]po.FileDiff, error) {
 }
 
 // inferStatus 根据路径推断文件变更状态
-func inferStatus(fd *po.FileDiff) string {
+func inferStatus(fd *model.FileDiff) string {
 	if fd.OldPath == "/dev/null" || fd.OldPath == "" {
 		return "added"
 	}
