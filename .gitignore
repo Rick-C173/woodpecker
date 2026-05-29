@@ -27,7 +27,7 @@ go.sum
 
 # env file
 .env
-config.json
+config.yaml
 
 # Editor/IDE
 .idea/
