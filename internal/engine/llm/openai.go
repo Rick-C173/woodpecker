@@ -149,3 +149,67 @@ func (c *OpenAIClient) Review(ctx context.Context, req ReviewRequest) (*ReviewRe
 
 	return reviewResp, nil
 }
+
+// Chat 通用聊天接口
+func (c *OpenAIClient) Chat(ctx context.Context, prompt string) (string, error) {
+	chatReq := chatRequest{
+		Model: c.model,
+		Messages: []chatMessage{
+			{Role: "user", Content: prompt},
+		},
+		Temperature: 0.7,
+	}
+
+	body, err := json.Marshal(chatReq)
+	if err != nil {
+		return "", fmt.Errorf("marshal request: %w", err)
+	}
+
+	url := c.baseURL + "/chat/completions"
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("create request: %w", err)
+	}
+
+	httpReq.Header.Set("Content-Type", "application/json")
+	if c.apiKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return "", fmt.Errorf("send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("read response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("LLM API error (status %d): %s", resp.StatusCode, truncate(string(respBody), 500))
+	}
+
+	var chatResp chatResponse
+	if err := json.Unmarshal(respBody, &chatResp); err != nil {
+		return "", fmt.Errorf("parse API response: %w", err)
+	}
+
+	if chatResp.Error != nil {
+		return "", fmt.Errorf("LLM API error: %s (%s)", chatResp.Error.Message, chatResp.Error.Type)
+	}
+
+	if len(chatResp.Choices) == 0 {
+		return "", fmt.Errorf("LLM returned empty choices")
+	}
+
+	return chatResp.Choices[0].Message.Content, nil
+}
+
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
+}

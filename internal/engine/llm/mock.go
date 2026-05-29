@@ -49,6 +49,11 @@ func (m *MockClient) Review(ctx context.Context, req ReviewRequest) (*ReviewResp
 	}, nil
 }
 
+// Chat 模拟聊天接口
+func (m *MockClient) Chat(ctx context.Context, prompt string) (string, error) {
+	return "这是一个模拟的回答。在真实环境中，这里会调用 LLM API 基于代码库内容生成回答。", nil
+}
+
 // generateComments 根据 diff 内容生成相关评论（比完全固定更有测试价值）
 func (m *MockClient) generateComments(req ReviewRequest) []model.ReviewComment {
 	var comments []model.ReviewComment

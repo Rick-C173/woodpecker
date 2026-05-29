@@ -15,19 +15,30 @@ import (
 	"woodpecker/internal/handler"
 	"woodpecker/internal/pipeline"
 	"woodpecker/internal/service"
+	"woodpecker/internal/store"
 )
 
 func main() {
-	// 1. 加载配置
 	cfg, err := config.Load("config.yaml")
 	if err != nil {
 		log.Fatalf("加载配置失败: %v", err)
 	}
 
-	// 2. 设置 Gin 模式
 	gin.SetMode(cfg.Server.Mode)
 
-	// 3. 初始化 LLM 客户端
+	var db *store.Store
+	if cfg.Database.Host != "" && cfg.Database.Database != "" {
+		db, err = store.NewStore(cfg.Database)
+		if err != nil {
+			log.Printf("警告: 数据库连接失败: %v，将使用无持久化模式", err)
+		} else {
+			log.Printf("数据库连接成功: %s:%d/%s", cfg.Database.Host, cfg.Database.Port, cfg.Database.Database)
+			defer db.Close()
+		}
+	} else {
+		log.Println("警告: 数据库未配置，将使用无持久化模式")
+	}
+
 	var llmClient llm.LlmClient
 	if cfg.LLM.APIKey == "" {
 		log.Println("警告: API_KEY 未配置，使用 Mock 客户端")
@@ -37,17 +48,25 @@ func main() {
 		log.Printf("使用 %s 模型 (%s)", cfg.LLM.Provider, cfg.LLM.Model)
 	}
 
-	// 4. 创建服务层
-	reviewer := service.NewReviewer(
-		llmClient,
-		cfg.Review.MaxDiffChars,
-		cfg.Review.DefaultLanguage,
-	)
+	var reviewer *service.Reviewer
+	if db != nil {
+		reviewer = service.NewReviewerWithStore(
+			llmClient,
+			cfg.Review.MaxDiffChars,
+			cfg.Review.DefaultLanguage,
+			db,
+		)
+	} else {
+		reviewer = service.NewReviewer(
+			llmClient,
+			cfg.Review.MaxDiffChars,
+			cfg.Review.DefaultLanguage,
+		)
+	}
 
-	// 5. 创建处理器
-	reviewHandler := handler.NewReviewHandler(reviewer)
+	reviewHandler := handler.NewReviewHandler(reviewer, db)
+	webhookHandler := github.NewWebhookHandler(cfg.GitHub.WebhookSecret)
 
-	// 6. 初始化 GitHub 集成（可选）
 	var prProcessor *pipeline.PRProcessor
 	if cfg.GitHub.Token != "" {
 		githubClient := github.NewClient(cfg.GitHub.Token, cfg.GitHub.APIURL)
@@ -61,16 +80,22 @@ func main() {
 		log.Println("GitHub 集成已启用")
 	}
 
-	webhookHandler := github.NewWebhookHandler(cfg.GitHub.WebhookSecret)
-	webhookCtrl := handler.NewWebhookController(webhookHandler, prProcessor)
+	webhookCtrl := handler.NewWebhookController(webhookHandler, prProcessor, db)
 
-	// 7. 设置路由
 	router := gin.Default()
 	router.GET("/health", reviewHandler.Health)
 	router.POST("/api/v1/review", reviewHandler.Review)
 	router.POST("/webhook", webhookCtrl.Handle)
 
-	// 8. 启动服务
+	if db != nil {
+		apiHandler := handler.NewAPIHandler(db)
+		router.GET("/api/v1/projects", apiHandler.ListProjects)
+		router.GET("/api/v1/projects/:owner/:repo/reviews", apiHandler.ListReviews)
+		router.GET("/api/v1/reviews/:id", apiHandler.GetReview)
+		router.GET("/api/v1/stats", apiHandler.GetStats)
+		log.Println("历史审查 API 已启用")
+	}
+
 	addr := cfg.Server.Addr()
 	log.Printf("服务启动中，监听地址: %s", addr)
 
@@ -80,7 +105,6 @@ func main() {
 		}
 	}()
 
-	// 9. 优雅关闭
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit

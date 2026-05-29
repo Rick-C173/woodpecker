@@ -4,10 +4,10 @@ server:
   mode: debug
 
 llm:
-  provider: kimi
-  model: moonshot-v1-auto
-  base_url: https://api.moonshot.cn/v1
-  api_key: "sk-xxx"
+  provider: deepseek
+  model: deepseek-chat
+  base_url: https://api.deepseek.com/v1
+  api_key: ""
   max_tokens: 4096
   timeout: 60
 
@@ -28,3 +28,29 @@ review:
     - "node_modules/**"
     - "*.pb.go"
     - "*_gen.go"
+
+database:
+  host: "localhost"
+  port: 5432
+  user: "postgres"
+  password: "142857"
+  database: "woodpecker"
+  ssl_mode: "disable"
+  max_conns: 10
+
+# Embedding API 配置（用于生成代码向量）
+embedding:
+  provider: "openai"            # openai / ollama（本地模型）
+  api_key: ""                  # API 密钥
+  model: "text-embedding-3-small"  # 模型名称
+  base_url: "https://api.openai.com/v1"  # API 端点
+  dimension: 1536              # 向量维度（OpenAI text-embedding-3-small 为 1536）
+  timeout: 30                  # 请求超时（秒）
+  batch_size: 100              # 批量处理大小
+
+# 向量库配置
+vector:
+  enabled: false               # 是否启用向量知识库功能
+  collection_name: "code_chunks"  # 向量 Collection 名称
+  max_results: 5              # 最大返回结果数
+  score_threshold: 0.7        # 相似度阈值（0-1）

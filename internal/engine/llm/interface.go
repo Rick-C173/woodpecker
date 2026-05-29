@@ -9,6 +9,7 @@ import (
 // LlmClient LLM 客户端统一接口
 type LlmClient interface {
 	Review(ctx context.Context, req ReviewRequest) (*ReviewResponse, error)
+	Chat(ctx context.Context, prompt string) (string, error)
 }
 
 // ReviewRequest LLM 审查请求

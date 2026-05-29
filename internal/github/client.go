@@ -38,15 +38,16 @@ func NewClient(token, apiURL string) *Client {
 
 // PRInfo Pull Request 基本信息
 type PRInfo struct {
-	Owner    string
-	Repo     string
-	Number   int
-	BaseRef  string // 目标分支（如 main）
-	HeadRef  string // 源分支
-	BaseSHA  string // 目标分支最新 commit
-	HeadSHA  string // 源分支最新 commit
-	Title    string
-	CloneURL string // 仓库克隆地址
+	ProjectID int // 数据库中的项目 ID
+	Owner     string
+	Repo      string
+	Number    int
+	BaseRef   string // 目标分支（如 main）
+	HeadRef   string // 源分支
+	BaseSHA   string // 目标分支最新 commit
+	HeadSHA   string // 源分支最新 commit
+	Title     string
+	CloneURL  string // 仓库克隆地址
 }
 
 // ReviewComment PR 上的审查评论

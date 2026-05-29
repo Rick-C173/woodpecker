@@ -6,25 +6,32 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"woodpecker/internal/service"
+	"woodpecker/internal/store"
 )
 
-// ReviewHandler 代码审查 HTTP 处理器
 type ReviewHandler struct {
 	reviewer *service.Reviewer
+	store    *store.Store
 }
 
-// NewReviewHandler 创建审查处理器
-func NewReviewHandler(reviewer *service.Reviewer) *ReviewHandler {
-	return &ReviewHandler{reviewer: reviewer}
+func NewReviewHandler(reviewer *service.Reviewer, s *store.Store) *ReviewHandler {
+	return &ReviewHandler{
+		reviewer: reviewer,
+		store:    s,
+	}
 }
 
-// reviewRequest HTTP 请求体
 type reviewRequest struct {
-	Diff     string `json:"diff" binding:"required"` // git diff 文本
-	Language string `json:"language"`                // 编程语言，可选
+	Diff      string `json:"diff" binding:"required"`
+	Language  string `json:"language"`
+	ProjectID int    `json:"project_id"`
+	PRNumber  int    `json:"pr_number"`
+	PRTitle   string `json:"pr_title"`
+	PRURL     string `json:"pr_url"`
+	CommitSHA string `json:"commit_sha"`
+	Branch    string `json:"branch"`
 }
 
-// Review 处理 POST /api/v1/review
 func (h *ReviewHandler) Review(c *gin.Context) {
 	var req reviewRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -37,13 +44,19 @@ func (h *ReviewHandler) Review(c *gin.Context) {
 	}
 
 	svcReq := service.ReviewRequest{
-		DiffText: req.Diff,
-		Language: req.Language,
+		DiffText:  req.Diff,
+		Language:  req.Language,
+		ProjectID: req.ProjectID,
+		PRNumber:  req.PRNumber,
+		PRTitle:   req.PRTitle,
+		PRURL:     req.PRURL,
+		CommitSHA: req.CommitSHA,
+		Branch:    req.Branch,
 	}
 
 	resp := h.reviewer.Review(c.Request.Context(), svcReq)
 
-	if resp.Error != "" {
+	if resp.Error != "" && resp.ReviewID == 0 {
 		c.JSON(http.StatusUnprocessableEntity, gin.H{
 			"error":   resp.Error,
 			"elapsed": resp.Elapsed,
@@ -51,16 +64,33 @@ func (h *ReviewHandler) Review(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"result":  resp.Result,
-		"elapsed": resp.Elapsed,
-	})
+	result := gin.H{
+		"review_id": resp.ReviewID,
+		"elapsed":   resp.Elapsed,
+	}
+
+	if resp.Result != nil {
+		result["result"] = resp.Result
+	}
+
+	if resp.Error != "" {
+		result["warning"] = resp.Error
+	}
+
+	c.JSON(http.StatusOK, result)
 }
 
-// Health 健康检查 GET /health
 func (h *ReviewHandler) Health(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
+	status := gin.H{
 		"status":  "healthy",
 		"service": "woodpecker",
-	})
+	}
+
+	if h.store != nil {
+		status["database"] = "connected"
+	} else {
+		status["database"] = "not configured"
+	}
+
+	c.JSON(http.StatusOK, status)
 }

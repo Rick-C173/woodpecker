@@ -72,8 +72,13 @@ func (p *PRProcessor) Process(ctx context.Context, pr *github.PRInfo) error {
 
 	// 4. 执行审查
 	svcReq := service.ReviewRequest{
-		DiffText: diffText,
-		Language: "go", // TODO: 自动检测语言
+		DiffText:  diffText,
+		Language:  "go",
+		ProjectID: pr.ProjectID,
+		PRNumber:  pr.Number,
+		PRTitle:   pr.Title,
+		CommitSHA: pr.HeadSHA,
+		Branch:    pr.HeadRef,
 	}
 
 	svcResp := p.reviewer.Review(ctx, svcReq)

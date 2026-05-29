@@ -32,4 +32,5 @@ config.yaml
 # Editor/IDE
 .idea/
 .vscode/
-/CODE_WIKI.md
+
+/docs
