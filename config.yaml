@@ -7,7 +7,7 @@ llm:
   provider: kimi
   model: moonshot-v1-auto
   base_url: https://api.moonshot.cn/v1
-  api_key: "sk-1YkKjQgWI4nM9aePrvx0WIR5KzU9edSYak4BV9e0O0UhH4Hf"
+  api_key: "sk-xxx"
   max_tokens: 4096
   timeout: 60
 
