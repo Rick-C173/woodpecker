@@ -10,7 +10,10 @@ import (
 
 	"woodpecker/config"
 	"woodpecker/engine/llm"
+	"woodpecker/git"
+	"woodpecker/github"
 	"woodpecker/handler"
+	"woodpecker/pipeline"
 	"woodpecker/service"
 )
 
@@ -44,12 +47,30 @@ func main() {
 	// 5. 创建处理器
 	reviewHandler := handler.NewReviewHandler(reviewer)
 
-	// 6. 设置路由
+	// 6. 初始化 GitHub 集成（可选）
+	var prProcessor *pipeline.PRProcessor
+	if cfg.GitHub.Token != "" {
+		githubClient := github.NewClient(cfg.GitHub.Token, cfg.GitHub.APIURL)
+		gitExecutor := git.NewExecutor(cfg.GitHub.WorkDir)
+		prProcessor = pipeline.NewPRProcessor(
+			gitExecutor,
+			githubClient,
+			reviewer,
+			cfg.GitHub.WorkDir,
+		)
+		log.Println("GitHub 集成已启用")
+	}
+
+	webhookHandler := github.NewWebhookHandler(cfg.GitHub.WebhookSecret)
+	webhookCtrl := handler.NewWebhookController(webhookHandler, prProcessor)
+
+	// 7. 设置路由
 	router := gin.Default()
 	router.GET("/health", reviewHandler.Health)
 	router.POST("/api/v1/review", reviewHandler.Review)
+	router.POST("/webhook", webhookCtrl.Handle)
 
-	// 7. 启动服务
+	// 8. 启动服务
 	addr := cfg.Server.Addr()
 	log.Printf("服务启动中，监听地址: %s", addr)
 
@@ -59,7 +80,7 @@ func main() {
 		}
 	}()
 
-	// 8. 优雅关闭
+	// 9. 优雅关闭
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit

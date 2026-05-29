@@ -11,6 +11,12 @@ llm:
   max_tokens: 4096
   timeout: 60
 
+github:
+  token: ""
+  webhook_secret: ""
+  api_url: "https://api.github.com"
+  work_dir: "./repos"
+
 review:
   max_files_per_request: 20
   max_diff_chars: 50000

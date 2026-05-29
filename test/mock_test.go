@@ -1,18 +1,19 @@
 // internal/engine/llm/mock_test.go
-package llm
+package main
 
 import (
 	"context"
 	"strings"
 	"testing"
+	"woodpecker/engine/llm"
 	"woodpecker/po"
 )
 
 func TestMockClient_Review(t *testing.T) {
-	client := NewMockClient()
+	client := llm.NewMockClient()
 	ctx := context.Background()
 
-	req := ReviewRequest{
+	req := llm.ReviewRequest{
 		Language: "Go",
 		FileDiffs: []po.FileDiff{
 			{
@@ -64,12 +65,12 @@ func TestMockClient_Review(t *testing.T) {
 }
 
 func TestPromptBuilder_Build(t *testing.T) {
-	pb, err := NewPromptBuilder()
+	pb, err := llm.NewPromptBuilder()
 	if err != nil {
 		t.Fatalf("failed to create prompt builder: %v", err)
 	}
 
-	req := ReviewRequest{
+	req := llm.ReviewRequest{
 		Language: "Go",
 		Context:  "这是一个 API 服务，使用 Gin 框架",
 		FileDiffs: []po.FileDiff{

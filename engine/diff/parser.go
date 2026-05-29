@@ -44,6 +44,7 @@ func Parse(diffText string) ([]po.FileDiff, error) {
 				if currentHunk != nil {
 					currentFile.Hunks = append(currentFile.Hunks, *currentHunk)
 				}
+				currentFile.Status = inferStatus(currentFile)
 				files = append(files, *currentFile)
 			}
 
@@ -72,7 +73,12 @@ func Parse(diffText string) ([]po.FileDiff, error) {
 		}
 
 		// 检测 /dev/null（新增或删除文件）
-		if reDevNull.MatchString(line) {
+		if strings.HasPrefix(line, "--- /dev/null") {
+			currentFile.OldPath = "/dev/null"
+			continue
+		}
+		if strings.HasPrefix(line, "+++ /dev/null") {
+			currentFile.NewPath = "/dev/null"
 			continue
 		}
 

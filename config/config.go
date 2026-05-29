@@ -11,6 +11,7 @@ import (
 type Config struct {
 	Server ServerConfig `yaml:"server"`
 	LLM    LLMConfig    `yaml:"llm"`
+	GitHub GitHubConfig `yaml:"github"`
 	Review ReviewConfig `yaml:"review"`
 }
 
@@ -29,6 +30,14 @@ type LLMConfig struct {
 	BaseURL   string `yaml:"base_url"`   // 自定义 API 端点
 	MaxTokens int    `yaml:"max_tokens"` // 单次请求最大 token 数
 	Timeout   int    `yaml:"timeout"`    // 请求超时（秒），默认 60
+}
+
+// GitHubConfig GitHub 集成配置
+type GitHubConfig struct {
+	Token         string `yaml:"token"`          // GitHub Personal Access Token
+	WebhookSecret string `yaml:"webhook_secret"` // Webhook 签名密钥
+	APIURL        string `yaml:"api_url"`        // GitHub API 地址（企业版自定义）
+	WorkDir       string `yaml:"work_dir"`       // 本地仓库缓存目录
 }
 
 // ReviewConfig 审查行为配置
@@ -52,6 +61,10 @@ func Default() *Config {
 			Model:     "gpt-4o-mini",
 			MaxTokens: 4096,
 			Timeout:   60,
+		},
+		GitHub: GitHubConfig{
+			APIURL:  "https://api.github.com",
+			WorkDir: "./repos",
 		},
 		Review: ReviewConfig{
 			MaxFilesPerRequest: 20,
