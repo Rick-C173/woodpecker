@@ -206,10 +206,3 @@ func (c *OpenAIClient) Chat(ctx context.Context, prompt string) (string, error) 
 
 	return chatResp.Choices[0].Message.Content, nil
 }
-
-func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "..."
-}

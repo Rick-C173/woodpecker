@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"woodpecker/internal/store"
-	"woodpecker/internal/vector"
 )
 
 // DefaultQAService 默认问答服务实现

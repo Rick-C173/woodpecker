@@ -2,7 +2,6 @@ package qa
 
 import (
 	"bytes"
-	"fmt"
 	"text/template"
 
 	"woodpecker/internal/vector"
