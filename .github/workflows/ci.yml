@@ -1,0 +1,45 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go vet ./...
+      - run: go test ./...
+
+  # M4 风险前置：tree-sitter 绑定依赖 cgo，先用独立模块冒烟验证（不影响主模块构建）
+  cgo-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: tools/cgo-smoke/go.mod
+      - run: go build ./...
+        working-directory: tools/cgo-smoke
+      - run: go run .
+        working-directory: tools/cgo-smoke
+
+  # M8 起启用：web 目录落地后解除注释
+  # web:
+  #   runs-on: ubuntu-latest
+  #   defaults:
+  #     run:
+  #       working-directory: web
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: actions/setup-node@v4
+  #       with:
+  #         node-version: 22
+  #     - run: npm ci
+  #     - run: npm run lint
+  #     - run: npm run build
