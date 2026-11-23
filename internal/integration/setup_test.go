@@ -4,8 +4,9 @@
 //   - 优先读 TEST_DSN（CI 用 service 容器注入）
 //   - 缺省连 docker-compose.dev.yml 备用栈（127.0.0.1:5433）
 //   - 都不可达则跳过（不阻塞单元测试）
+//
 // 说明：原计划用 testcontainers，但其 provider 在本机 Windows+Docker Desktop 存在兼容问题
-//（见 开发计划.md §3 风险对策），验证强度不变，改为外部容器 + 环境变量注入。
+// （见 开发计划.md §3 风险对策），验证强度不变，改为外部容器 + 环境变量注入。
 package integration_test
 
 import (
@@ -26,7 +27,9 @@ var testDSN = func() string {
 	if v := os.Getenv("TEST_DSN"); v != "" {
 		return v
 	}
-	return "postgres://woodpecker:woodpecker@127.0.0.1:5433/woodpecker?sslmode=disable"
+	// 默认连本机原生 PostgreSQL 5432；CI 或容器环境用 TEST_DSN 覆盖
+	// （docker-compose.dev.yml 备用栈映射 5433：TEST_DSN=postgres://woodpecker:woodpecker@127.0.0.1:5433/woodpecker?sslmode=disable）
+	return "postgres://woodpecker:woodpecker@127.0.0.1:5432/woodpecker?sslmode=disable"
 }()
 
 func openTestDB(t *testing.T) *gorm.DB {
