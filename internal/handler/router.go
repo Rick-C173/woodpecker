@@ -9,8 +9,13 @@ import (
 	"woodpecker/internal/config"
 	"woodpecker/internal/jwt"
 	"woodpecker/internal/middleware"
-	"woodpecker/internal/repo"
+	"woodpecker/internal/model"
 )
+
+// UserLookupRepo Auth 中间件所需的用户状态查询（*repo.UserRepo 满足该接口）。
+type UserLookupRepo interface {
+	GetByID(ctx context.Context, id int64) (*model.User, error)
+}
 
 // Deps 组合根注入：main.go 构造 repos/services 后传入（技术选型 §5 分层）。
 type Deps struct {
@@ -18,8 +23,10 @@ type Deps struct {
 	DB       *gorm.DB
 	Auth     *AuthHandler
 	Admin    *AdminUsersHandler
-	UserRepo *repo.UserRepo
+	UserRepo UserLookupRepo
 	Issuer   *jwt.Issuer
+
+	Pinger Pinger // 可选：测试注入探针；为空时由 DB 派生
 }
 
 // NewRouter 装配全局中间件与 /api/v1 路由。
@@ -37,11 +44,16 @@ func NewRouter(d Deps) *gin.Engine {
 		gin.Recovery(),
 	)
 
-	sqlDB, err := d.DB.DB()
-	if err != nil {
-		panic(err)
+	var pinger Pinger
+	if d.Pinger != nil {
+		pinger = d.Pinger
+	} else {
+		sqlDB, err := d.DB.DB()
+		if err != nil {
+			panic(err)
+		}
+		pinger = func(ctx context.Context) error { return sqlDB.PingContext(ctx) }
 	}
-	pinger := func(ctx context.Context) error { return sqlDB.PingContext(ctx) }
 
 	v1 := r.Group("/api/v1")
 	v1.GET("/healthz", Health(pinger))
@@ -70,7 +82,7 @@ func NewRouter(d Deps) *gin.Engine {
 }
 
 // userLookup Auth 中间件的用户状态查询（token_version 比对 + 禁用校验）。
-func userLookup(users *repo.UserRepo) func(c *gin.Context, userID int64) (int16, int, error) {
+func userLookup(users UserLookupRepo) func(c *gin.Context, userID int64) (int16, int, error) {
 	return func(c *gin.Context, userID int64) (int16, int, error) {
 		u, err := users.GetByID(c.Request.Context(), userID)
 		if err != nil {

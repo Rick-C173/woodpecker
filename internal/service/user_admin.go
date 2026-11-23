@@ -21,6 +21,9 @@ func NewUserAdminService(users UserRepo, audit *AuditService) *UserAdminService 
 	return &UserAdminService{users: users, audit: audit, now: time.Now}
 }
 
+// SetClock 注入时钟（测试用）。
+func (s *UserAdminService) SetClock(now func() time.Time) { s.now = now }
+
 type AdminUserItem struct {
 	ID                 int64  `json:"id"`
 	Username           string `json:"username"`
@@ -111,7 +114,7 @@ func (s *UserAdminService) Create(ctx context.Context, actorID int64, username, 
 func (s *UserAdminService) SetStatus(ctx context.Context, actorID, targetID int64, disable bool, ip string) error {
 	target, err := s.users.GetByID(ctx, targetID)
 	if err != nil {
-		return NewServiceError(CodeAuthInvalid, "用户不存在")
+		return NewServiceError(CodeNotFound, "用户不存在")
 	}
 	if disable {
 		if targetID == actorID {
@@ -152,7 +155,7 @@ func (s *UserAdminService) SetStatus(ctx context.Context, actorID, targetID int6
 func (s *UserAdminService) SetAdmin(ctx context.Context, actorID, targetID int64, makeAdmin bool, ip string) error {
 	target, err := s.users.GetByID(ctx, targetID)
 	if err != nil {
-		return NewServiceError(CodeAuthInvalid, "用户不存在")
+		return NewServiceError(CodeNotFound, "用户不存在")
 	}
 	if !makeAdmin && target.IsAdmin {
 		admins, err := s.users.CountAdmins(ctx)
@@ -177,7 +180,7 @@ func (s *UserAdminService) SetAdmin(ctx context.Context, actorID, targetID int64
 func (s *UserAdminService) ResetPassword(ctx context.Context, actorID, targetID int64, ip string) (string, error) {
 	target, err := s.users.GetByID(ctx, targetID)
 	if err != nil {
-		return "", NewServiceError(CodeAuthInvalid, "用户不存在")
+		return "", NewServiceError(CodeNotFound, "用户不存在")
 	}
 	newPw, err := crypto.RandomPassword(12)
 	if err != nil {

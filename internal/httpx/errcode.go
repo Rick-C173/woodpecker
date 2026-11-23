@@ -12,6 +12,8 @@ const (
 	CodeAuthStaleToken     = "AUTH_004" // 401 token 失效（版本号不符）
 	CodeRegisterClosed     = "AUTH_005" // 403 自助注册未开放
 	CodePasswordWeak       = "AUTH_006" // 422 密码不符合规则（≥ 8 位）
+	CodeNotFound           = "NOT_FOUND"       // 404 资源不存在
+	CodeValidation         = "VALIDATION_FAILED" // 422 参数校验失败
 	CodeUserExists         = "USER_001" // 409 用户名已存在
 	CodeUserSelfDisable    = "USER_002" // 422 不能禁用自己
 	CodeUserLastAdmin      = "USER_003" // 422 最后一个管理员保护
@@ -37,6 +39,8 @@ var httpStatusByCode = map[string]int{
 	CodeAuthStaleToken:     http.StatusUnauthorized,
 	CodeRegisterClosed:     http.StatusForbidden,
 	CodePasswordWeak:       http.StatusUnprocessableEntity,
+	CodeNotFound:           http.StatusNotFound,
+	CodeValidation:         http.StatusUnprocessableEntity,
 	CodeUserExists:         http.StatusConflict,
 	CodeUserSelfDisable:    http.StatusUnprocessableEntity,
 	CodeUserLastAdmin:      http.StatusUnprocessableEntity,

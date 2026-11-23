@@ -32,3 +32,18 @@ func TestLoadPortFromEnv(t *testing.T) {
 	cfg := Load()
 	assert.Equal(t, 9000, cfg.Port)
 }
+
+func TestLoadInvalidPortFallsBack(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("APP_PORT", "not-a-number")
+	cfg := Load()
+	assert.Equal(t, 8080, cfg.Port, "非法端口应回退默认值")
+}
+
+func TestLoadEnvFileOverride(t *testing.T) {
+	// godotenv 不覆盖已存在的环境变量：显式设置应优先于 .env
+	clearEnv(t)
+	t.Setenv("DATABASE_URL", "postgres://explicit@127.0.0.1:5432/x?sslmode=disable")
+	cfg := Load()
+	assert.Contains(t, cfg.DatabaseURL, "explicit")
+}

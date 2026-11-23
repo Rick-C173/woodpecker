@@ -97,7 +97,6 @@ func runAPI(ctx context.Context, cfg *config.Config) error {
 		UserRepo: users,
 		Issuer:   issuer,
 	})
-
 	srv := &http.Server{
 		Addr:    fmt.Sprintf(":%d", cfg.Port),
 		Handler: router,

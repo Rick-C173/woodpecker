@@ -122,14 +122,14 @@ func (h *AdminUsersHandler) Patch(c *gin.Context) {
 	}
 	var req patchUserReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		httpx.Fail(c, httpx.CodeAuthInvalid, "请求体非法")
+		httpx.Fail(c, httpx.CodeValidation, "请求体非法")
 		return
 	}
 	actor := middleware.UserID(c)
 	ip := c.ClientIP()
 	if req.Status != nil {
 		if *req.Status != 1 && *req.Status != 2 {
-			httpx.Fail(c, httpx.CodeAuthInvalid, "status 取值仅 1=启用 2=禁用")
+			httpx.Fail(c, httpx.CodeValidation, "status 取值仅 1=启用 2=禁用")
 			return
 		}
 		if err := h.svc.SetStatus(c.Request.Context(), actor, id, *req.Status == 2, ip); err != nil {

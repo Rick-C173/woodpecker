@@ -24,17 +24,18 @@ func NewServiceError(code, message string) *ServiceError {
 	return &ServiceError{Code: code, Message: message}
 }
 
-// 错误码常量（与 internal/handler/errcode.go 保持同步）
+// 错误码常量（与 internal/httpx/errcode.go 保持同步）
 const (
-	CodeAuthInvalid    = "AUTH_001"
-	CodeAuthLocked     = "AUTH_002"
-	CodeAuthDisabled   = "AUTH_003"
-	CodeAuthStaleToken = "AUTH_004"
-	CodeRegisterClosed = "AUTH_005"
-	CodePasswordWeak   = "AUTH_006"
-	CodeUserExists     = "USER_001"
+	CodeAuthInvalid     = "AUTH_001"
+	CodeAuthLocked      = "AUTH_002"
+	CodeAuthDisabled    = "AUTH_003"
+	CodeAuthStaleToken  = "AUTH_004"
+	CodeRegisterClosed  = "AUTH_005"
+	CodePasswordWeak    = "AUTH_006"
+	CodeUserExists      = "USER_001"
 	CodeUserSelfDisable = "USER_002"
-	CodeUserLastAdmin  = "USER_003"
+	CodeUserLastAdmin   = "USER_003"
+	CodeNotFound        = "NOT_FOUND"
 )
 
 // 锁定策略（PRD FR-01）：连续错误 5 次锁定 10 分钟
@@ -65,6 +66,9 @@ type AuthService struct {
 func NewAuthService(users UserRepo, settings SettingRepo, audit *AuditService, issuer *jwt.Issuer) *AuthService {
 	return &AuthService{users: users, settings: settings, audit: audit, issuer: issuer, now: time.Now}
 }
+
+// SetClock 注入时钟（测试用）。
+func (s *AuthService) SetClock(now func() time.Time) { s.now = now }
 
 type AuthResult struct {
 	Token              string `json:"token"`
@@ -194,6 +198,7 @@ func (s *AuthService) ChangePassword(ctx context.Context, userID int64, oldPassw
 	if err := s.users.Save(ctx, u); err != nil {
 		return nil, err
 	}
+	s.audit.Record(ctx, &u.ID, "user.change_password", "user", &u.ID, nil, "")
 	return s.result(u)
 }
 
