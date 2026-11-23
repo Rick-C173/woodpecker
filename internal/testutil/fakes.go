@@ -243,6 +243,7 @@ type TestEnv struct {
 	AuthSvc  *service.AuthService
 	AdminSvc *service.UserAdminService
 	KBSvc    *service.KBService
+	AuditSvc *service.AuditService
 	BaseTime time.Time
 }
 
@@ -260,6 +261,7 @@ func NewTestEnv(t *testing.T, settings map[string]bool) *TestEnv {
 		Settings: &FakeSettingRepo{Vals: settings},
 		KBs:      kbs,
 		Issuer:   issuer,
+		AuditSvc: auditSvc,
 		BaseTime: time.Now(),
 	}
 	env.AuthSvc = service.NewAuthService(users, env.Settings, auditSvc, issuer)

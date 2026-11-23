@@ -28,7 +28,9 @@ type Deps struct {
 	UserRepo UserLookupRepo
 	Issuer   *jwt.Issuer
 
-	// KBLookup R6 成员资格查询（*repo.KBRepo 满足该接口）
+	// M3：模型服务配置（FR-12）
+	ModelCfg *ModelCfgHandler
+
 	KBLookup middleware.KBLookup
 	// OnAdminKBAccess 管理员以非成员身份访问库时回调（审计）
 	OnAdminKBAccess func(ctx context.Context, userID, kbID int64, method, path, ip string)
@@ -103,6 +105,18 @@ func NewRouter(d Deps) *gin.Engine {
 		admin.POST("/users", au.Create)
 		admin.PATCH("/users/:id", au.Patch)
 		admin.POST("/users/:id/reset-password", au.ResetPassword)
+
+		// 模型服务配置（FR-12）
+		mc := d.ModelCfg
+		admin.GET("/model-services", mc.ListServices)
+		admin.POST("/model-services", mc.CreateService)
+		admin.PATCH("/model-services/:id", mc.UpdateService)
+		admin.DELETE("/model-services/:id", mc.DeleteService)
+		admin.POST("/model-services/:id/test", mc.TestConnection)
+		admin.GET("/model-entries", mc.ListEntries)
+		admin.POST("/model-entries", mc.CreateEntry)
+		admin.PATCH("/model-entries/:id", mc.UpdateEntry)
+		admin.DELETE("/model-entries/:id", mc.DeleteEntry)
 	}
 
 	r.GET("/healthz", Health(pinger)) // 基础设施探针挂在根路径

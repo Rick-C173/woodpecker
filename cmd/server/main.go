@@ -13,10 +13,13 @@ import (
 	"syscall"
 	"time"
 
+	"woodpecker/internal/cache"
 	"woodpecker/internal/config"
+	"woodpecker/internal/crypto"
 	"woodpecker/internal/database"
 	"woodpecker/internal/handler"
 	"woodpecker/internal/jwt"
+	"woodpecker/internal/llm"
 	"woodpecker/internal/repo"
 	"woodpecker/internal/service"
 	"woodpecker/internal/worker"
@@ -100,12 +103,24 @@ func runAPI(ctx context.Context, cfg *config.Config) error {
 	authSvc.SetPolicy(policy)
 	adminSvc.SetPolicy(policy)
 
+	// M3：模型服务配置（FR-12）—— AES-GCM 加密 + Redis 默认配置缓存 + OpenAI 兼容 Provider
+	cipher, err := crypto.NewAESGCM(cfg.EncryptionKey)
+	if err != nil {
+		return fmt.Errorf("初始化加密组件: %w", err)
+	}
+	modelCfgRepo := repo.NewModelCfgRepo(db)
+	provider := llm.NewOpenAIProvider()
+	kvCache := cache.NewRedisCache(cfg.RedisAddr)
+	defer kvCache.Close()
+	modelCfgSvc := service.NewModelConfigService(modelCfgRepo, cipher, kvCache, provider, auditSvc)
+
 	router := handler.NewRouter(handler.Deps{
 		Cfg:      cfg,
 		DB:       db,
 		Auth:     handler.NewAuthHandler(authSvc),
 		Admin:    handler.NewAdminUsersHandler(adminSvc),
 		KB:       handler.NewKBHandler(kbSvc),
+		ModelCfg: handler.NewModelCfgHandler(modelCfgSvc),
 		UserRepo: users,
 		Issuer:   issuer,
 		KBLookup: kbs,

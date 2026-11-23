@@ -35,3 +35,5 @@ web/dist/
 # local dev artifacts
 *.log
 bin/
+
+.apifox

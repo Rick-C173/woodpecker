@@ -15,23 +15,30 @@ import (
 	"woodpecker/internal/config"
 	"woodpecker/internal/handler"
 	"woodpecker/internal/model"
+	"woodpecker/internal/service"
 	"woodpecker/internal/testutil"
 )
 
 type hEnv struct {
-	ts  *httptest.Server
-	env *testutil.TestEnv
+	ts        *httptest.Server
+	env       *testutil.TestEnv
+	rootToken string
+	mcTester  *testutil.FakeTester
 }
 
 func setup(t *testing.T) *hEnv {
 	t.Helper()
 	env := testutil.NewTestEnv(t, nil)
 	cfg := &config.Config{LogLevel: "debug", CORSOrigins: "*", JWTTLHours: 24}
+	mcRepo := testutil.NewFakeModelCfgRepo()
+	mcTester := &testutil.FakeTester{}
+	mcSvc := service.NewModelConfigService(mcRepo, &testutil.FakeCipher{}, testutil.NewFakeCache(), mcTester, env.AuditSvc)
 	router := handler.NewRouter(handler.Deps{
 		Cfg:      cfg,
 		Auth:     handler.NewAuthHandler(env.AuthSvc),
 		Admin:    handler.NewAdminUsersHandler(env.AdminSvc),
 		KB:       handler.NewKBHandler(env.KBSvc),
+		ModelCfg: handler.NewModelCfgHandler(mcSvc),
 		UserRepo: env.Users,
 		Issuer:   env.Issuer,
 		KBLookup: env.KBs,
@@ -44,7 +51,7 @@ func setup(t *testing.T) *hEnv {
 	})
 	ts := httptest.NewServer(router)
 	t.Cleanup(ts.Close)
-	return &hEnv{ts: ts, env: env}
+	return &hEnv{ts: ts, env: env, mcTester: mcTester}
 }
 
 func post(t *testing.T, ts *httptest.Server, path, token string, payload any) (int, map[string]any) {

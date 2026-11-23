@@ -17,9 +17,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"woodpecker/internal/cache"
 	"woodpecker/internal/config"
+	"woodpecker/internal/crypto"
 	"woodpecker/internal/handler"
 	"woodpecker/internal/jwt"
+	"woodpecker/internal/llm"
 	"woodpecker/internal/repo"
 	"woodpecker/internal/service"
 )
@@ -44,6 +47,11 @@ func setup(t *testing.T) *env {
 	adminSvc := service.NewUserAdminService(users, auditSvc)
 	kbs := repo.NewKBRepo(db)
 	kbSvc := service.NewKBService(kbs, auditSvc)
+	// M3：模型配置（AES-GCM 用独立测试密钥；缓存用 Noop 保持环境封闭）
+	cipher, err := crypto.NewAESGCM("it-encryption-key")
+	require.NoError(t, err)
+	modelCfgRepo := repo.NewModelCfgRepo(db)
+	modelCfgSvc := service.NewModelConfigService(modelCfgRepo, cipher, cache.NoopCache{}, llm.NewOpenAIProvider(), auditSvc)
 
 	router := handler.NewRouter(handler.Deps{
 		Cfg:      cfg,
@@ -51,6 +59,7 @@ func setup(t *testing.T) *env {
 		Auth:     handler.NewAuthHandler(authSvc),
 		Admin:    handler.NewAdminUsersHandler(adminSvc),
 		KB:       handler.NewKBHandler(kbSvc),
+		ModelCfg: handler.NewModelCfgHandler(modelCfgSvc),
 		UserRepo: users,
 		Issuer:   issuer,
 		KBLookup: kbs,

@@ -25,6 +25,7 @@ const (
 	CodeDocTaskRunning     = "DOC_TASK_RUNNING" // 409 已有运行中任务
 	CodeModelNoDefault     = "MODEL_001" // 422 该用途缺少默认条目
 	CodeModelDefaultLocked = "MODEL_002" // 422 默认条目不可删除
+	CodeModelHasEntries    = "MODEL_003" // 409 模型服务下存在条目，不可删除
 	CodeLLMUnavailable     = "LLM_001"  // 502 模型服务不可用
 	CodeLLMBadResponse     = "LLM_002"  // 502 模型服务无有效响应
 	CodeRateLimited        = "RATE_LIMITED" // 429 请求过于频繁
@@ -52,6 +53,7 @@ var httpStatusByCode = map[string]int{
 	CodeDocTaskRunning:     http.StatusConflict,
 	CodeModelNoDefault:     http.StatusUnprocessableEntity,
 	CodeModelDefaultLocked: http.StatusUnprocessableEntity,
+	CodeModelHasEntries:    http.StatusConflict,
 	CodeLLMUnavailable:     http.StatusBadGateway,
 	CodeLLMBadResponse:     http.StatusBadGateway,
 	CodeRateLimited:        http.StatusTooManyRequests,

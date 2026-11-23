@@ -49,5 +49,5 @@ func truncateAll(db *gorm.DB) {
 	// 容器用户为超级用户可直接装扩展；本地库已装则跳过
 	_ = db.Exec("CREATE EXTENSION IF NOT EXISTS vector").Error
 	_ = db.Exec("CREATE EXTENSION IF NOT EXISTS pg_trgm").Error
-	_ = db.Exec("TRUNCATE users, audit_logs, settings RESTART IDENTITY CASCADE").Error
+	_ = db.Exec("TRUNCATE users, audit_logs, settings, model_services, model_entries, knowledge_bases, kb_members RESTART IDENTITY CASCADE").Error
 }
