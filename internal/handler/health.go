@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"woodpecker/internal/httpx"
 )
 
 // Pinger 依赖注入点：production 传 GORM Ping，测试传 fake。
@@ -25,9 +27,9 @@ func Health(pinger Pinger) gin.HandlerFunc {
 		defer cancel()
 
 		if err := pinger(ctx); err != nil {
-			FailWith(c, http.StatusServiceUnavailable, CodeDBUnreachable, "数据库不可用")
+			httpx.FailWith(c, http.StatusServiceUnavailable, httpx.CodeDBUnreachable, "数据库不可用")
 			return
 		}
-		OK(c, gin.H{"status": "ok", "db": "up"})
+		httpx.OK(c, gin.H{"status": "ok", "db": "up"})
 	}
 }

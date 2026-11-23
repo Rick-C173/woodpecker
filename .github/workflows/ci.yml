@@ -8,6 +8,21 @@ on:
 jobs:
   backend:
     runs-on: ubuntu-latest
+    services:
+      # 集成测试用 PG（pgvector 镜像；POSTGRES_USER 即超级用户，可装扩展）
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: woodpecker
+          POSTGRES_PASSWORD: woodpecker
+          POSTGRES_DB: woodpecker
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U woodpecker"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -15,6 +30,9 @@ jobs:
           go-version-file: go.mod
       - run: go vet ./...
       - run: go test ./...
+      - run: go test -tags=integration ./...
+        env:
+          TEST_DSN: postgres://woodpecker:woodpecker@localhost:5432/woodpecker?sslmode=disable
 
   # M4 风险前置：tree-sitter 绑定依赖 cgo，先用独立模块冒烟验证（不影响主模块构建）
   cgo-smoke:

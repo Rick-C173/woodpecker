@@ -16,6 +16,9 @@ import (
 	"woodpecker/internal/config"
 	"woodpecker/internal/database"
 	"woodpecker/internal/handler"
+	"woodpecker/internal/jwt"
+	"woodpecker/internal/repo"
+	"woodpecker/internal/service"
 	"woodpecker/internal/worker"
 )
 
@@ -78,9 +81,26 @@ func runAPI(ctx context.Context, cfg *config.Config) error {
 		return fmt.Errorf("执行迁移: %w", err)
 	}
 
+	// 组合根：repo → service → handler（技术选型 §5 分层）
+	users := repo.NewUserRepo(db)
+	auditSvc := service.NewAuditService(repo.NewAuditRepo(db))
+	settings := repo.NewSettingRepo(db)
+	issuer := jwt.NewIssuer(cfg.JWTSecret, time.Duration(cfg.JWTTLHours)*time.Hour)
+	authSvc := service.NewAuthService(users, settings, auditSvc, issuer)
+	adminSvc := service.NewUserAdminService(users, auditSvc)
+
+	router := handler.NewRouter(handler.Deps{
+		Cfg:      cfg,
+		DB:       db,
+		Auth:     handler.NewAuthHandler(authSvc),
+		Admin:    handler.NewAdminUsersHandler(adminSvc),
+		UserRepo: users,
+		Issuer:   issuer,
+	})
+
 	srv := &http.Server{
 		Addr:    fmt.Sprintf(":%d", cfg.Port),
-		Handler: handler.NewRouter(cfg, db),
+		Handler: router,
 	}
 
 	go func() {
