@@ -25,14 +25,14 @@ type User struct {
 func (User) TableName() string { return "users" }
 
 type AuditLog struct {
-	ID         int64          `gorm:"primaryKey;column:id"`
-	UserID     *int64         `gorm:"column:user_id"`
-	Action     string         `gorm:"column:action;size:50"`
-	ObjectType string         `gorm:"column:object_type;size:30"`
-	ObjectID   *int64         `gorm:"column:object_id"`
-	Detail     []byte         `gorm:"column:detail;type:jsonb"`
-	IP         string         `gorm:"column:ip;size:45"`
-	CreatedAt  time.Time      `gorm:"column:created_at"`
+	ID         int64     `gorm:"primaryKey;column:id"`
+	UserID     *int64    `gorm:"column:user_id"`
+	Action     string    `gorm:"column:action;size:50"`
+	ObjectType string    `gorm:"column:object_type;size:30"`
+	ObjectID   *int64    `gorm:"column:object_id"`
+	Detail     []byte    `gorm:"column:detail;type:jsonb"`
+	IP         string    `gorm:"column:ip;size:45"`
+	CreatedAt  time.Time `gorm:"column:created_at"`
 }
 
 func (AuditLog) TableName() string { return "audit_logs" }

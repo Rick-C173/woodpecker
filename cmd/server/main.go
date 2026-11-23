@@ -25,6 +25,19 @@ import (
 	"woodpecker/internal/worker"
 )
 
+func printBanner(mode string, port int) {
+	fmt.Print(`
+ ██╗    ██╗ ██████╗  ██████╗ ██████╗ ██████╗ ███████╗██████╗  █████╗
+ ██║    ██║██╔═══██╗██╔═══██╗██╔══██╗██╔══██╗██╔════╝██╔══██╗██╔══██╗
+ ██║ █╗ ██║██║   ██║██║   ██║██████╔╝██║  ██║█████╗  ██████╔╝███████║
+ ██║███╗██║██║   ██║██║   ██║██╔══██╗██║  ██║██╔══╝  ██╔══██╗██╔══██║
+ ╚███╔███╔╝╚██████╔╝╚██████╔╝██║  ██║██████╔╝███████╗██║  ██║██║  ██║
+  ╚══╝╚══╝  ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═════╝ ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝
+ 啄木鸟 · AI 代码/技术文档知识库
+`)
+	slog.Info("服务启动", "mode", mode, "port", port)
+}
+
 func main() {
 	mode := flag.String("mode", "all", "运行模式：api | worker | all")
 	flag.Parse()
@@ -48,6 +61,8 @@ func main() {
 		fmt.Fprintf(os.Stderr, "无效的 --mode=%q，可选值：api | worker | all\n", *mode)
 		os.Exit(2)
 	}
+
+	printBanner(*mode, cfg.Port)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

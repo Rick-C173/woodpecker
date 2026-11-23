@@ -97,7 +97,7 @@ func (h *AdminUsersHandler) Create(c *gin.Context) {
 }
 
 type patchUserReq struct {
-	Status  *int16 `json:"status"`  // 1=启用 2=禁用
+	Status  *int16 `json:"status"` // 1=启用 2=禁用
 	IsAdmin *bool  `json:"is_admin"`
 }
 

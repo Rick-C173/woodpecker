@@ -11,10 +11,10 @@ import (
 func TestVerifyMalformedVariants(t *testing.T) {
 	valid, _ := HashPassword("pw")
 	cases := []string{
-		"not-a-hash",                    // 段数不足
-		"$md5$v=19$m=1,t=1,p=1$s$h",     // 非argon2id
-		"$argon2id$vx$m=1,t=1,p=1$s$h",  // 版本解析失败
-		"$argon2id$v=19$mx,t=1,p=1$s$h", // 参数解析失败
+		"not-a-hash",                                  // 段数不足
+		"$md5$v=19$m=1,t=1,p=1$s$h",                   // 非argon2id
+		"$argon2id$vx$m=1,t=1,p=1$s$h",                // 版本解析失败
+		"$argon2id$v=19$mx,t=1,p=1$s$h",               // 参数解析失败
 		"$argon2id$v=19$m=1,t=1,p=1$!! badbase64!!$h", // 盐 base64 非法
 		"$argon2id$v=19$m=1,t=1,p=1$abcd$!! bad!!",    // 哈希 base64 非法
 	}

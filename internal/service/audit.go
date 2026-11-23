@@ -22,8 +22,8 @@ type SettingRepo interface {
 
 // AuditService 统一审计写入器（PRD FR-15）：失败不影响业务主流程，仅记运行日志。
 type AuditService struct {
-	repo   AuditRepo
-	now    func() time.Time
+	repo AuditRepo
+	now  func() time.Time
 }
 
 func NewAuditService(repo AuditRepo) *AuditService {
