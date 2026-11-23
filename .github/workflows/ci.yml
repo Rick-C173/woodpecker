@@ -6,6 +6,18 @@ on:
   pull_request:
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      # golangci-lint v2 官方 action；配置读取 .golangci.yml
+      - uses: golangci/golangci-lint-action@v7
+        with:
+          version: latest
+
   backend:
     runs-on: ubuntu-latest
     services:

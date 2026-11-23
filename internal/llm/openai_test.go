@@ -50,7 +50,7 @@ func TestChatStream(t *testing.T) {
 
 // TestChatStreamUpstreamError 上游中断（连接被截断）时注入错误增量并关闭通道。
 func TestChatStreamUpstreamError(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"部分\"}}]}\n\n")
 		w.(http.Flusher).Flush()
@@ -93,7 +93,7 @@ func TestEmbed(t *testing.T) {
 	assert.Equal(t, []float32{3, 4}, vecs[1])
 
 	// 数量不符 → ErrBadResponse
-	ts2 := mockOpenAI(t, func(w http.ResponseWriter, r *http.Request) {
+	ts2 := mockOpenAI(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprint(w, `{"data":[{"index":0,"embedding":[1]}]}`)
 	})
@@ -124,7 +124,7 @@ func TestRerank(t *testing.T) {
 	assert.Equal(t, 0.9, scores[2])
 
 	// 非 200 → ErrBadResponse
-	ts2 := mockOpenAI(t, func(w http.ResponseWriter, r *http.Request) {
+	ts2 := mockOpenAI(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		fmt.Fprint(w, "boom")
 	})
@@ -164,7 +164,7 @@ func TestTesterImplementations(t *testing.T) {
 // TestChatStreamCtxCancel ctx 取消后通道应关闭。
 func TestChatStreamCtxCancel(t *testing.T) {
 	release := make(chan struct{})
-	ts := mockOpenAI(t, func(w http.ResponseWriter, r *http.Request) {
+	ts := mockOpenAI(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"x\"}}]}\n\n")
 		w.(http.Flusher).Flush()

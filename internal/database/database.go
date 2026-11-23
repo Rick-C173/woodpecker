@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/golang-migrate/migrate/v4"
-	_ "github.com/golang-migrate/migrate/v4/database/postgres"
+	_ "github.com/golang-migrate/migrate/v4/database/postgres" // 注册 postgres driver（副作用导入）
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -44,7 +44,7 @@ func Migrate(dsn string) error {
 	if err != nil {
 		return fmt.Errorf("初始化迁移: %w", err)
 	}
-	defer m.Close()
+	defer func() { _, _ = m.Close() }() // migrate.Close 返回 source/database 两个 error
 	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
 		return err
 	}

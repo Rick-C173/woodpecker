@@ -68,10 +68,10 @@ func RequireKBOwner() gin.HandlerFunc {
 	return requireKBRole(model.KBRoleOwner, "无权限执行该操作（需管理者）")
 }
 
-func requireKBRole(min int16, message string) gin.HandlerFunc {
+func requireKBRole(minRole int16, message string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		role := KBRole(c)
-		if role == 0 || role <= min { // 0=管理员越权放行
+		if role == 0 || role <= minRole { // 0=管理员越权放行
 			c.Next()
 			return
 		}

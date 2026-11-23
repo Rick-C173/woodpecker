@@ -67,7 +67,7 @@ func TestMCAdminFlows(t *testing.T) {
 	assert.True(t, body["is_default"].(bool))
 
 	// 非法 purpose → 422；params 非对象由绑定拦截（数组 → JSON 序列化失败 → 422）
-	sc, body = post(t, h.ts, base+"/model-entries", h.rootToken, map[string]any{
+	sc, _ = post(t, h.ts, base+"/model-entries", h.rootToken, map[string]any{
 		"service_id": svcID, "purpose": "vision", "model_name": "x",
 	})
 	assert.Equal(t, 422, sc)
@@ -82,7 +82,7 @@ func TestMCAdminFlows(t *testing.T) {
 	assert.True(t, e0["is_default"].(bool))
 
 	// purpose 过滤非法值 → 422
-	sc, body = get(t, h.ts, base+"/model-entries?purpose=abc", h.rootToken)
+	sc, _ = get(t, h.ts, base+"/model-entries?purpose=abc", h.rootToken)
 	assert.Equal(t, 422, sc)
 
 	// 存在条目时删服务 → 409 MODEL_003
@@ -122,14 +122,14 @@ func TestMCAdminFlows(t *testing.T) {
 	sc, body = del(t, h.ts, base+"/model-entries/"+i64(entry2ID), h.rootToken)
 	require.Equal(t, 200, sc, body)
 	// 默认条目仍存在 → 仍 MODEL_003
-	sc, body = del(t, h.ts, base+"/model-services/"+i64(svcID), h.rootToken)
+	sc, _ = del(t, h.ts, base+"/model-services/"+i64(svcID), h.rootToken)
 	assert.Equal(t, 409, sc)
 	sc, body = del(t, h.ts, base+"/model-entries/"+i64(entryID), h.rootToken)
 	assert.Equal(t, 422, sc)
 	assert.Equal(t, "MODEL_002", jcode(t, body))
 
 	// 普通用户访问 → 403（由 Admin 中间件拦截）
-	_, body = post(t, h.ts, "/api/v1/admin/users", h.rootToken, map[string]any{"username": "dev", "password": "dev-pass-123"})
+	_, _ = post(t, h.ts, "/api/v1/admin/users", h.rootToken, map[string]any{"username": "dev", "password": "dev-pass-123"})
 	devToken := loginToken(t, h.ts, "dev", "dev-pass-123")
 	sc, body = get(t, h.ts, base+"/model-services", devToken)
 	assert.Equal(t, 403, sc)
@@ -149,13 +149,13 @@ func TestMCAdminFlows(t *testing.T) {
 	sc, body = patch(t, h.ts, base+"/model-services/9999", h.rootToken, map[string]any{"enabled": true})
 	assert.Equal(t, 404, sc)
 	assert.Equal(t, "NOT_FOUND", jcode(t, body))
-	sc, body = del(t, h.ts, base+"/model-services/9999", h.rootToken)
+	sc, _ = del(t, h.ts, base+"/model-services/9999", h.rootToken)
 	assert.Equal(t, 404, sc)
-	sc, body = patch(t, h.ts, base+"/model-entries/9999", h.rootToken, map[string]any{"model_name": "x"})
+	sc, _ = patch(t, h.ts, base+"/model-entries/9999", h.rootToken, map[string]any{"model_name": "x"})
 	assert.Equal(t, 404, sc)
-	sc, body = del(t, h.ts, base+"/model-entries/9999", h.rootToken)
+	sc, _ = del(t, h.ts, base+"/model-entries/9999", h.rootToken)
 	assert.Equal(t, 404, sc)
-	sc, body = post(t, h.ts, base+"/model-services/9999/test", h.rootToken, nil)
+	sc, _ = post(t, h.ts, base+"/model-services/9999/test", h.rootToken, nil)
 	assert.Equal(t, 404, sc)
 
 	// 请求体非法 → 422

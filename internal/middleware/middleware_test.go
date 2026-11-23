@@ -101,7 +101,7 @@ func TestAuthMiddleware(t *testing.T) {
 		1: {ID: 1, Status: model.UserStatusActive, TokenVersion: 2},
 		2: {ID: 2, Status: model.UserStatusDisabled, TokenVersion: 0},
 	}
-	lookup := func(c *gin.Context, id int64) (int16, int, error) {
+	lookup := func(_ *gin.Context, id int64) (int16, int, error) {
 		u, ok := users[id]
 		if !ok {
 			return 0, 0, errors.New("nf")

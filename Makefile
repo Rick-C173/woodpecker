@@ -17,7 +17,7 @@ TEST_DSN   ?= postgres://woodpecker:woodpecker@127.0.0.1:5432/woodpecker?sslmode
 MODE       ?= all
 
 .DEFAULT_GOAL := help
-.PHONY: help banner run api worker build test cover cover-html integration fmt vet tidy clean
+.PHONY: help banner run api worker build test cover cover-html integration fmt vet lint tidy clean
 
 ## ---- 帮助 ----
 help:
@@ -32,21 +32,14 @@ help:
 	@echo   make integration               集成测试（连本机 PostgreSQL 5432）
 	@echo   make fmt                       go fmt ./...
 	@echo   make vet                       go vet ./...
+	@echo   make lint                      golangci-lint run（配置见 .golangci.yml）
 	@echo   make tidy                      go mod tidy
 	@echo   make clean                     清理 bin 与覆盖率产物
 
 ## ---- Banner ----
+# 用户自定义 banner（banner.txt）；经 PowerShell 输出以保持各 shell 下排版一致
 banner:
-	@echo ==============================================================================
-	@echo   ██╗    ██╗ ██████╗  ██████╗ ██████╗ ██████╗ ███████╗██████╗  █████╗
-	@echo   ██║    ██║██╔═══██╗██╔═══██╗██╔══██╗██╔══██╗██╔════╝██╔══██╗██╔══██╗
-	@echo   ██║ █╗ ██║██║   ██║██║   ██║██████╔╝██║  ██║█████╗  ██████╔╝███████║
-	@echo   ██║███╗██║██║   ██║██║   ██║██╔══██╗██║  ██║██╔══╝  ██╔══██╗██╔══██║
-	@echo   ╚███╔███╔╝╚██████╔╝╚██████╔╝██║  ██║██████╔╝███████╗██║  ██║██║  ██║
-	@echo    ╚══╝╚══╝  ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═════╝ ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝
-	@echo   啄木鸟 · AI 代码/技术文档知识库
-	@echo ==============================================================================
-
+	@powershell -NoProfile -Command "Write-Host ''; Get-Content -LiteralPath banner.txt -Encoding UTF8; Write-Host ''"
 ## ---- 运行 ----
 run: banner
 	go run $(SERVER_DIR) --mode=$(MODE)
@@ -85,8 +78,17 @@ fmt:
 vet:
 	go vet $(PKG)
 
+lint:
+	golangci-lint run
+
 tidy:
 	go mod tidy
+
+audit:
+	go build ./...
+	go vet ./...
+	golangci-lint run ./...
+	go test ./... -count=1 -race
 
 ## ---- 清理 ----
 clean:

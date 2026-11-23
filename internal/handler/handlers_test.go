@@ -42,12 +42,12 @@ func setup(t *testing.T) *hEnv {
 		UserRepo: env.Users,
 		Issuer:   env.Issuer,
 		KBLookup: env.KBs,
-		OnAdminKBAccess: func(ctx context.Context, userID, kbID int64, method, path, ip string) {
+		OnAdminKBAccess: func(ctx context.Context, userID, kbID int64, _, _, _ string) {
 			_ = env.Audit.Add(ctx, &model.AuditLog{
 				UserID: &userID, Action: "kb.admin_access", ObjectType: "kb", ObjectID: &kbID,
 			})
 		},
-		Pinger: func(ctx context.Context) error { return nil },
+		Pinger: func(_ context.Context) error { return nil },
 	})
 	ts := httptest.NewServer(router)
 	t.Cleanup(ts.Close)
@@ -138,7 +138,7 @@ func TestAuthHandlerFlows(t *testing.T) {
 	uid64 := int64(body["id"].(float64))
 
 	// 未登录访问管理端点 → 401
-	sc, body = get(t, h.ts, "/api/v1/admin/users", "")
+	sc, _ = get(t, h.ts, "/api/v1/admin/users", "")
 	assert.Equal(t, 401, sc)
 
 	// 非管理员 → 403
@@ -188,7 +188,7 @@ func TestAdminUserHandlerFlows(t *testing.T) {
 	assert.Equal(t, "VALIDATION_FAILED", jcode(t, body))
 
 	// PATCH 非法 body → 422
-	sc, body = patch(t, h.ts, "/api/v1/admin/users/1", rootToken, "not-json")
+	sc, _ = patch(t, h.ts, "/api/v1/admin/users/1", rootToken, "not-json")
 	_ = sc
 	// 重置密码：目标不存在 → 404
 	sc, body = post(t, h.ts, "/api/v1/admin/users/999/reset-password", rootToken, nil)

@@ -68,9 +68,9 @@ const passwordAlphabet = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ2345678
 // RandomPassword 生成 n 位随机初始密码（管理员创建/重置用户时使用）。
 func RandomPassword(n int) (string, error) {
 	out := make([]byte, n)
-	max := big.NewInt(int64(len(passwordAlphabet)))
+	maxVal := big.NewInt(int64(len(passwordAlphabet)))
 	for i := range out {
-		k, err := rand.Int(rand.Reader, max)
+		k, err := rand.Int(rand.Reader, maxVal)
 		if err != nil {
 			return "", err
 		}

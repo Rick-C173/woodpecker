@@ -1,4 +1,67 @@
+# golangci-lint 配置（v2 格式，对应 v2.15.x，由本地 Go 1.27 源码构建）
+# 运行：make lint（= golangci-lint run）
+
 version: "2"
+
 linters:
+  default: none
   enable:
-    - errorlint
+    - errcheck      # 未检查的错误返回
+    - govet         # go vet 全量
+    - staticcheck   # 静态检查主集（含 gosimple/stylecheck）
+    - unused        # 未使用的代码
+    - ineffassign   # 无效赋值
+    - misspell      # 拼写错误
+    - revive        # 基础代码风格
+    - bodyclose     # HTTP 响应体未关闭（llm 包用到原生 http）
+  settings:
+    revive:
+      # 显式启用默认规则集，但关闭 exported（导出注释）与 package-comments：
+      # 本项目以中文包级注释为主，逐符号英文注释性价比低；如需开启删除 disabled 两行即可
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: dot-imports
+        - name: empty-block
+        - name: error-naming
+        - name: error-return
+        - name: error-strings
+        - name: errorf
+        - name: exported
+          disabled: true
+        - name: increment-decrement
+        - name: indent-error-flow
+        - name: package-comments
+          disabled: true
+        - name: range
+        - name: receiver-naming
+        - name: redefines-builtin-id
+        - name: superfluous-else
+        - name: time-naming
+        - name: unexported-return
+        - name: unreachable-code
+        - name: unused-parameter
+        - name: var-declaration
+        - name: var-naming
+  exclusions:
+    rules:
+      # 测试文件放宽
+      - path: _test\.go
+        linters:
+          - errcheck
+      # 测试替身：注释与未用参数不检查
+      - path: internal/testutil/
+        linters:
+          - errcheck
+          - revive
+          - unused
+      # 迁移 SQL 为纯嵌入文件，无 Go 逻辑
+      - path: migrations/
+        linters:
+          - all
+
+formatters:
+  enable:
+    - gofmt
+    - goimports

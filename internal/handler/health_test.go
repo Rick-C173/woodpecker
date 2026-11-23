@@ -19,7 +19,7 @@ func testRouter(pinger Pinger) *gin.Engine {
 }
 
 func TestHealthOK(t *testing.T) {
-	r := testRouter(func(ctx context.Context) error { return nil })
+	r := testRouter(func(_ context.Context) error { return nil })
 
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/healthz", nil))
@@ -29,7 +29,7 @@ func TestHealthOK(t *testing.T) {
 }
 
 func TestHealthDBDown(t *testing.T) {
-	r := testRouter(func(ctx context.Context) error { return errors.New("boom") })
+	r := testRouter(func(_ context.Context) error { return errors.New("boom") })
 
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/healthz", nil))

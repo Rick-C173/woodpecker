@@ -25,19 +25,6 @@ import (
 	"woodpecker/internal/worker"
 )
 
-func printBanner(mode string, port int) {
-	fmt.Print(`
- ██╗    ██╗ ██████╗  ██████╗ ██████╗ ██████╗ ███████╗██████╗  █████╗
- ██║    ██║██╔═══██╗██╔═══██╗██╔══██╗██╔══██╗██╔════╝██╔══██╗██╔══██╗
- ██║ █╗ ██║██║   ██║██║   ██║██████╔╝██║  ██║█████╗  ██████╔╝███████║
- ██║███╗██║██║   ██║██║   ██║██╔══██╗██║  ██║██╔══╝  ██╔══██╗██╔══██║
- ╚███╔███╔╝╚██████╔╝╚██████╔╝██║  ██║██████╔╝███████╗██║  ██║██║  ██║
-  ╚══╝╚══╝  ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═════╝ ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝
- 啄木鸟 · AI 代码/技术文档知识库
-`)
-	slog.Info("服务启动", "mode", mode, "port", port)
-}
-
 func main() {
 	mode := flag.String("mode", "all", "运行模式：api | worker | all")
 	flag.Parse()
@@ -62,7 +49,7 @@ func main() {
 		os.Exit(2)
 	}
 
-	printBanner(*mode, cfg.Port)
+	slog.Info("服务启动", "mode", *mode, "port", cfg.Port)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -93,7 +80,7 @@ func runAPI(ctx context.Context, cfg *config.Config) error {
 		return fmt.Errorf("连接数据库: %w", err)
 	}
 	sqlDB, _ := db.DB()
-	defer sqlDB.Close()
+	defer func() { _ = sqlDB.Close() }()
 
 	if err := database.Migrate(cfg.DatabaseURL); err != nil {
 		return fmt.Errorf("执行迁移: %w", err)
@@ -126,7 +113,7 @@ func runAPI(ctx context.Context, cfg *config.Config) error {
 	modelCfgRepo := repo.NewModelCfgRepo(db)
 	provider := llm.NewOpenAIProvider()
 	kvCache := cache.NewRedisCache(cfg.RedisAddr)
-	defer kvCache.Close()
+	defer func() { _ = kvCache.Close() }()
 	modelCfgSvc := service.NewModelConfigService(modelCfgRepo, cipher, kvCache, provider, auditSvc)
 
 	router := handler.NewRouter(handler.Deps{

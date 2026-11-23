@@ -85,7 +85,7 @@ func (p *OpenAIProvider) ChatStream(ctx context.Context, cfg ResolvedConfig, req
 	ch := make(chan ChatDelta, 16)
 	go func() {
 		defer close(ch)
-		defer stream.Close()
+		defer func() { _ = stream.Close() }()
 		for {
 			resp, err := stream.Recv()
 			if err != nil {
@@ -175,7 +175,7 @@ func (p *OpenAIProvider) Rerank(ctx context.Context, cfg ResolvedConfig, query s
 	if err != nil {
 		return nil, classifyErr(err, "重排")
 	}
-	defer httpResp.Body.Close()
+	defer func() { _ = httpResp.Body.Close() }()
 	if httpResp.StatusCode != http.StatusOK {
 		snippet, _ := io.ReadAll(io.LimitReader(httpResp.Body, 300))
 		return nil, fmt.Errorf("%w（重排）: HTTP %d %s", ErrBadResponse, httpResp.StatusCode, strings.TrimSpace(string(snippet)))
@@ -198,9 +198,9 @@ func (p *OpenAIProvider) Rerank(ctx context.Context, cfg ResolvedConfig, query s
 // TestChat 对话连通性：发起一次 max_tokens=1 的补全。
 func (p *OpenAIProvider) TestChat(ctx context.Context, cfg ResolvedConfig) error {
 	_, err := p.client(cfg).CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-		Model:     cfg.ModelName,
-		Messages:  []openai.ChatCompletionMessage{{Role: openai.ChatMessageRoleUser, Content: "ping"}},
-		MaxTokens: 1,
+		Model:               cfg.ModelName,
+		Messages:            []openai.ChatCompletionMessage{{Role: openai.ChatMessageRoleUser, Content: "ping"}},
+		MaxCompletionTokens: 1,
 	})
 	return classifyErr(err, "对话测试")
 }

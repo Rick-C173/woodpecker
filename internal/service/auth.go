@@ -147,7 +147,7 @@ func (s *AuthService) Login(ctx context.Context, username, password, ip string) 
 }
 
 // Register 自助注册（PRD FR-01）：仅当系统无任何用户（首管理员引导）或管理员开启开关时放行。
-func (s *AuthService) Register(ctx context.Context, username, password, ip string) (*AuthResult, error) {
+func (s *AuthService) Register(ctx context.Context, username, password string, _ string) (*AuthResult, error) {
 	total, err := s.users.Count(ctx)
 	if err != nil {
 		return nil, err
