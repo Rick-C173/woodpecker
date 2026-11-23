@@ -3,6 +3,11 @@
 
 version: "2"
 
+issues:
+  # 显示全部问题（默认 max-same-issues=3 会折叠同类问题导致每次修复后“冒出”新的）
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
 linters:
   default: none
   enable:
@@ -14,6 +19,22 @@ linters:
     - misspell      # 拼写错误
     - revive        # 基础代码风格
     - bodyclose     # HTTP 响应体未关闭（llm 包用到原生 http）
+    - errorlint     # 错误必须用 %w / errors.As 比较
+    - copyloopvar   # Go 1.22+ 循环变量拷贝冗余
+    - durationcheck # 时长相乘检查
+    - errname       # 错误变量命名规范（Err/err 前缀）
+    - makezero      # make(len) 后 append 导致残留零值
+    - nakedret      # 长函数裸返回
+    - nilerr        # err != nil 却返回 nil
+    - noctx         # HTTP 请求缺少 context
+    - prealloc      # 循环 append 预分配
+    - sloglint      # slog 使用规范（key-value 风格统一）
+    - unconvert     # 多余的类型转换
+    - unparam       # 未使用/恒值的函数参数
+    - wastedassign  # 无效赋值
+    - whitespace    # 代码块内多余空行
+    - gocritic      # 常见代码问题（默认检查集）
+    - testifylint   # testify 断言用法规范
   settings:
     revive:
       # 显式启用默认规则集，但关闭 exported（导出注释）与 package-comments：
@@ -44,18 +65,35 @@ linters:
         - name: unused-parameter
         - name: var-declaration
         - name: var-naming
+    gocritic:
+      # 只启用 diagnostic+style 标签（性能类 hugeParam/rangeValCopy 不启用，对内部小结构体噪音大）
+      enabled-tags:
+        - diagnostic
+        - style
+      disabled-checks:
+        - ifElseChain
+        - singleCaseSwitch
+    sloglint:
+      # 统一 key-value 风格（禁用 attr 混用）
+      no-mixed-args: true
   exclusions:
     rules:
       # 测试文件放宽
       - path: _test\.go
         linters:
           - errcheck
+          - errname
+          - gocritic
+          # 测试构造伪 HTTP 请求（httptest.NewRequest + gin TestMode）不经过真实网络，
+          # noctx 对测试属噪音（真实出网点 do()/openai_test 已显式带 context）
+          - noctx
       # 测试替身：注释与未用参数不检查
       - path: internal/testutil/
         linters:
           - errcheck
           - revive
           - unused
+          - gocritic
       # 迁移 SQL 为纯嵌入文件，无 Go 逻辑
       - path: migrations/
         linters:

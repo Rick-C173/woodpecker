@@ -4,6 +4,7 @@ package cache
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -19,7 +20,7 @@ type KVCache interface {
 // NoopCache 空实现（未配置 Redis 或测试用）。
 type NoopCache struct{}
 
-func (NoopCache) Get(context.Context, string) (string, bool, error) { return "", false, nil }
+func (NoopCache) Get(context.Context, string) (val string, ok bool, err error) { return "", false, nil }
 func (NoopCache) Set(context.Context, string, string, time.Duration) error {
 	return nil
 }
@@ -34,9 +35,9 @@ func NewRedisCache(addr string) *RedisCache {
 	return &RedisCache{rdb: redis.NewClient(&redis.Options{Addr: addr})}
 }
 
-func (c *RedisCache) Get(ctx context.Context, key string) (string, bool, error) {
-	val, err := c.rdb.Get(ctx, key).Result()
-	if err == redis.Nil {
+func (c *RedisCache) Get(ctx context.Context, key string) (val string, ok bool, err error) {
+	val, err = c.rdb.Get(ctx, key).Result()
+	if errors.Is(err, redis.Nil) {
 		return "", false, nil
 	}
 	if err != nil {

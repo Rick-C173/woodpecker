@@ -18,8 +18,8 @@ import (
 func svcErr(t *testing.T, err error) *service.ServiceError {
 	t.Helper()
 	require.Error(t, err)
-	se, ok := err.(*service.ServiceError)
-	require.True(t, ok, "期望 ServiceError，实际 %T", err)
+	var se *service.ServiceError
+	require.ErrorAs(t, err, &se, "期望 ServiceError，实际 %T", err)
 	return se
 }
 
@@ -76,7 +76,8 @@ func TestRegisterSettingsError(t *testing.T) {
 
 func svcErrNil(t *testing.T, err error) *service.ServiceError {
 	t.Helper()
-	se, _ := err.(*service.ServiceError)
+	var se *service.ServiceError
+	_ = errors.As(err, &se)
 	return se
 }
 

@@ -30,7 +30,7 @@ func TestHashUniqueSalt(t *testing.T) {
 
 func TestVerifyMalformed(t *testing.T) {
 	ok, err := VerifyPassword("x", "not-a-hash")
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.False(t, ok)
 }
 

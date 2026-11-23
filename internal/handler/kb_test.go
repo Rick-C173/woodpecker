@@ -35,7 +35,7 @@ func TestKBAdminCRUDAndVisibility(t *testing.T) {
 	kbID := int64(body["id"].(float64))
 	assert.Equal(t, "平台文档", body["name"])
 	assert.Equal(t, "admin", body["my_role"])
-	assert.Equal(t, float64(0), body["document_count"])
+	assert.InDelta(t, 0, body["document_count"], 0.001)
 
 	// 重名 → 409 KB_001
 	sc, body = post(t, h.ts, "/api/v1/kbs", rootToken, map[string]any{"name": "平台文档"})

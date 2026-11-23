@@ -66,8 +66,8 @@ type ModelConfigService struct {
 	cacheTTL time.Duration
 }
 
-func NewModelConfigService(repo ModelCfgRepo, cipher ModelCipher, kv cache.KVCache, tester llm.Tester, audit *AuditService) *ModelConfigService {
-	return &ModelConfigService{repo: repo, cipher: cipher, cache: kv, tester: tester, audit: audit, now: time.Now, cacheTTL: modelCacheTTL}
+func NewModelConfigService(cfgRepo ModelCfgRepo, cipher ModelCipher, kv cache.KVCache, tester llm.Tester, audit *AuditService) *ModelConfigService {
+	return &ModelConfigService{repo: cfgRepo, cipher: cipher, cache: kv, tester: tester, audit: audit, now: time.Now, cacheTTL: modelCacheTTL}
 }
 
 // SetClock 注入时钟（测试用）。
@@ -324,7 +324,7 @@ func validateEntryInput(purpose int16, modelName, params string) error {
 }
 
 // CreateEntry 创建条目；isDefault=true 时要求服务启用中并切换默认。
-func (s *ModelConfigService) CreateEntry(ctx context.Context, actorID int64, serviceID int64, purposeStr, modelName, params string, isDefault bool, ip string) (*ModelEntryItem, error) {
+func (s *ModelConfigService) CreateEntry(ctx context.Context, actorID, serviceID int64, purposeStr, modelName, params string, isDefault bool, ip string) (*ModelEntryItem, error) {
 	svc, err := s.repo.GetServiceByID(ctx, serviceID)
 	if err != nil {
 		if errors.Is(err, repo.ErrNotFound) {

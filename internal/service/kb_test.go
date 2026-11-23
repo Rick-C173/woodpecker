@@ -190,75 +190,75 @@ func TestKBRepoErrorPaths(t *testing.T) {
 	// List
 	env.KBs.ErrOnList = injected
 	_, err = env.KBSvc.List(ctx, root.ID, true)
-	assert.ErrorIs(t, err, injected)
+	require.ErrorIs(t, err, injected)
 	_, err = env.KBSvc.List(ctx, dev.ID, false)
-	assert.ErrorIs(t, err, injected)
+	require.ErrorIs(t, err, injected)
 	env.KBs.ErrOnList = nil
 
 	// Create 前的重名查询失败
 	env.KBs.ErrOnGet = injected
 	_, err = env.KBSvc.Create(ctx, root.ID, "新库", "", "")
-	assert.ErrorIs(t, err, injected)
+	require.ErrorIs(t, err, injected)
 	env.KBs.ErrOnGet = nil
 
 	// Create 写入失败
 	env.KBs.ErrOnCreate = injected
 	_, err = env.KBSvc.Create(ctx, root.ID, "新库", "", "")
-	assert.ErrorIs(t, err, injected)
+	require.ErrorIs(t, err, injected)
 	env.KBs.ErrOnCreate = nil
 
 	// 读取失败（Get / Update / Delete / 成员入口）
 	env.KBs.ErrOnGet = injected
 	_, err = env.KBSvc.Get(ctx, kb.ID, root.ID, true)
-	assert.ErrorIs(t, err, injected)
+	require.ErrorIs(t, err, injected)
 	_, err = env.KBSvc.Update(ctx, root.ID, kb.ID, nil, nil, "")
-	assert.ErrorIs(t, err, injected)
+	require.ErrorIs(t, err, injected)
 	err = env.KBSvc.Delete(ctx, root.ID, kb.ID, "")
-	assert.ErrorIs(t, err, injected)
+	require.ErrorIs(t, err, injected)
 	_, err = env.KBSvc.ListMembers(ctx, kb.ID)
-	assert.ErrorIs(t, err, injected)
+	require.ErrorIs(t, err, injected)
 	_, err = env.KBSvc.AddMember(ctx, root.ID, kb.ID, dev.ID, "member", "")
-	assert.ErrorIs(t, err, injected)
+	require.ErrorIs(t, err, injected)
 	err = env.KBSvc.UpdateMemberRole(ctx, root.ID, kb.ID, dev.ID, "member", "")
-	assert.ErrorIs(t, err, injected)
+	require.ErrorIs(t, err, injected)
 	err = env.KBSvc.RemoveMember(ctx, root.ID, kb.ID, dev.ID, "")
-	assert.ErrorIs(t, err, injected)
+	require.ErrorIs(t, err, injected)
 	env.KBs.ErrOnGet = nil
 
 	// 改名时重名查询失败（非 NotFound）
 	env.KBs.ErrOnGet = injected
 	name := "另一个名字"
 	_, err = env.KBSvc.Update(ctx, root.ID, kb.ID, &name, nil, "")
-	assert.ErrorIs(t, err, injected)
+	require.ErrorIs(t, err, injected)
 	env.KBs.ErrOnGet = nil
 
 	// Save / Delete / CountDocuments
 	env.KBs.ErrOnSave = injected
 	_, err = env.KBSvc.Update(ctx, root.ID, kb.ID, nil, nil, "")
-	assert.ErrorIs(t, err, injected)
+	require.ErrorIs(t, err, injected)
 	env.KBs.ErrOnSave = nil
 	env.KBs.ErrOnDocCount = injected
 	_, err = env.KBSvc.Get(ctx, kb.ID, root.ID, true)
-	assert.ErrorIs(t, err, injected)
+	require.ErrorIs(t, err, injected)
 	_, err = env.KBSvc.Update(ctx, root.ID, kb.ID, nil, nil, "")
-	assert.ErrorIs(t, err, injected)
+	require.ErrorIs(t, err, injected)
 	env.KBs.ErrOnDocCount = nil
 	env.KBs.ErrOnDelete = injected
 	err = env.KBSvc.Delete(ctx, root.ID, kb.ID, "")
-	assert.ErrorIs(t, err, injected)
+	require.ErrorIs(t, err, injected)
 	env.KBs.ErrOnDelete = nil
 
 	// 成员存储失败
 	env.KBs.ErrOnMembers = injected
 	_, err = env.KBSvc.ListMembers(ctx, kb.ID)
-	assert.ErrorIs(t, err, injected)
+	require.ErrorIs(t, err, injected)
 	_, err = env.KBSvc.AddMember(ctx, root.ID, kb.ID, dev.ID, "member", "")
-	assert.ErrorIs(t, err, injected)
+	require.ErrorIs(t, err, injected)
 	env.KBs.ErrOnMembers = nil
 
 	// 用户存在性查询失败
 	env.KBs.ErrOnUserExists = injected
 	_, err = env.KBSvc.AddMember(ctx, root.ID, kb.ID, dev.ID, "member", "")
-	assert.ErrorIs(t, err, injected)
+	require.ErrorIs(t, err, injected)
 	env.KBs.ErrOnUserExists = nil
 }

@@ -75,10 +75,10 @@ func TestRateLimitHandler(t *testing.T) {
 }
 
 func TestUserKey(t *testing.T) {
-	c, _ := testCtx()
+	c := testCtx()
 	c.Set(CtxUserID, int64(42))
 	assert.Equal(t, "u:42", UserKey(c))
 
-	c2, _ := testCtx()
+	c2 := testCtx()
 	assert.Contains(t, UserKey(c2), "ip:")
 }

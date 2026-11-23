@@ -2,7 +2,6 @@ package llm_test
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -32,7 +31,7 @@ func mockOpenAI(t *testing.T, handler http.HandlerFunc) *httptest.Server {
 
 func TestChatStream(t *testing.T) {
 	ts := mockOpenAI(t, func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/chat/completions", r.URL.Path)
+		assert.Equal(t, "/chat/completions", r.URL.Path)
 		assert.Equal(t, "Bearer sk-test", r.Header.Get("Authorization"))
 		w.Header().Set("Content-Type", "text/event-stream")
 		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"你\"}}]}\n\n")
@@ -82,7 +81,7 @@ func TestChatStreamDialFail(t *testing.T) {
 // TestEmbed 批量向量化按 index 归位。
 func TestEmbed(t *testing.T) {
 	ts := mockOpenAI(t, func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/embeddings", r.URL.Path)
+		assert.Equal(t, "/embeddings", r.URL.Path)
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprint(w, `{"data":[{"index":1,"embedding":[3,4]},{"index":0,"embedding":[1,2]}],"model":"test-model"}`)
 	})
@@ -98,7 +97,7 @@ func TestEmbed(t *testing.T) {
 		fmt.Fprint(w, `{"data":[{"index":0,"embedding":[1]}]}`)
 	})
 	_, err = provider().Embed(context.Background(), cfgOf(ts2.URL), []string{"a", "b"})
-	assert.ErrorIs(t, err, llm.ErrBadResponse)
+	require.ErrorIs(t, err, llm.ErrBadResponse)
 
 	// 空输入
 	vecs, err = provider().Embed(context.Background(), cfgOf(ts.URL), nil)
@@ -110,7 +109,7 @@ func TestEmbed(t *testing.T) {
 func TestRerank(t *testing.T) {
 	var auth string
 	ts := mockOpenAI(t, func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/rerank", r.URL.Path)
+		assert.Equal(t, "/rerank", r.URL.Path)
 		auth = r.Header.Get("Authorization")
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprint(w, `{"results":[{"index":2,"relevance_score":0.9},{"index":0,"relevance_score":0.5}]}`)
@@ -119,9 +118,9 @@ func TestRerank(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Bearer sk-test", auth)
 	require.Len(t, scores, 3)
-	assert.Equal(t, 0.5, scores[0])
-	assert.Equal(t, 0.0, scores[1])
-	assert.Equal(t, 0.9, scores[2])
+	assert.InDelta(t, 0.5, scores[0], 0.001)
+	assert.InDelta(t, 0.0, scores[1], 0.001)
+	assert.InDelta(t, 0.9, scores[2], 0.001)
 
 	// 非 200 → ErrBadResponse
 	ts2 := mockOpenAI(t, func(w http.ResponseWriter, _ *http.Request) {
@@ -129,7 +128,7 @@ func TestRerank(t *testing.T) {
 		fmt.Fprint(w, "boom")
 	})
 	_, err = provider().Rerank(context.Background(), cfgOf(ts2.URL), "q", []string{"a"})
-	assert.ErrorIs(t, err, llm.ErrBadResponse)
+	require.ErrorIs(t, err, llm.ErrBadResponse)
 
 	// 连接失败 → ErrUnavailable
 	_, err = provider().Rerank(context.Background(), cfgOf("http://127.0.0.1:1"), "q", []string{"a"})
@@ -158,7 +157,7 @@ func TestTesterImplementations(t *testing.T) {
 	assert.NoError(t, p.TestRerank(context.Background(), cfg))
 
 	bad := cfgOf("http://127.0.0.1:1")
-	assert.True(t, errors.Is(p.TestChat(context.Background(), bad), llm.ErrUnavailable))
+	assert.ErrorIs(t, p.TestChat(context.Background(), bad), llm.ErrUnavailable)
 }
 
 // TestChatStreamCtxCancel ctx 取消后通道应关闭。

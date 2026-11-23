@@ -49,12 +49,16 @@ func main() {
 		os.Exit(2)
 	}
 
-	slog.Info("服务启动", "mode", *mode, "port", cfg.Port)
+	os.Exit(run(*mode, cfg))
+}
 
+// run 服务主流程；返回进程退出码（0=正常，1=异常）。
+func run(mode string, cfg *config.Config) int {
+	slog.Info("服务启动", "mode", mode, "port", cfg.Port)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	if *mode == "worker" || *mode == "all" {
+	if mode == "worker" || mode == "all" {
 		go func() {
 			if err := worker.Run(ctx, cfg); err != nil {
 				slog.Error("worker 退出", "err", err)
@@ -63,15 +67,16 @@ func main() {
 		}()
 	}
 
-	if *mode == "api" || *mode == "all" {
+	if mode == "api" || mode == "all" {
 		if err := runAPI(ctx, cfg); err != nil {
 			slog.Error("api 退出", "err", err)
-			os.Exit(1)
+			return 1
 		}
 	}
 
 	<-ctx.Done()
 	slog.Info("进程退出")
+	return 0
 }
 
 func runAPI(ctx context.Context, cfg *config.Config) error {

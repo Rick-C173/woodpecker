@@ -209,49 +209,49 @@ func TestMCRepoErrorPaths(t *testing.T) {
 	// CreateService 存储失败
 	e.repo.ErrOnServiceCreate = boom
 	_, err = e.svc.CreateService(ctx, 1, "Y", "https://y.com/v1", "k", "")
-	assert.ErrorIs(t, err, boom)
+	require.ErrorIs(t, err, boom)
 	e.repo.ErrOnServiceCreate = nil
 
 	// UpdateService 存储失败（回读失败）
 	e.repo.ErrOnServiceGet = boom
 	_, err = e.svc.UpdateService(ctx, 1, svcID.ID, nil, nil, nil, boolPtr(false), "")
-	assert.ErrorIs(t, err, boom)
+	require.ErrorIs(t, err, boom)
 	e.repo.ErrOnServiceGet = nil
 
 	e.repo.ErrOnList = boom
 	_, err = e.svc.ListServices(ctx)
-	assert.ErrorIs(t, err, boom)
+	require.ErrorIs(t, err, boom)
 	_, err = e.svc.TestConnection(ctx, 1, svcID.ID, "")
-	assert.ErrorIs(t, err, boom)
+	require.ErrorIs(t, err, boom)
 	e.repo.ErrOnList = nil
 
 	e.repo.ErrOnServiceSave = boom
 	_, err = e.svc.UpdateService(ctx, 1, svcID.ID, nil, nil, nil, boolPtr(false), "")
-	assert.ErrorIs(t, err, boom)
+	require.ErrorIs(t, err, boom)
 	e.repo.ErrOnServiceSave = nil
 
 	e.repo.ErrOnServiceDelete = boom
 	err = e.svc.DeleteService(ctx, 1, svcID.ID, "")
-	assert.ErrorIs(t, err, boom)
+	require.ErrorIs(t, err, boom)
 	e.repo.ErrOnServiceDelete = nil
 
 	e.repo.ErrOnEntryCreate = boom
 	_, err = e.svc.CreateEntry(ctx, 1, svcID.ID, "chat", "m", "", false, "")
-	assert.ErrorIs(t, err, boom)
+	require.ErrorIs(t, err, boom)
 	e.repo.ErrOnEntryCreate = nil
 
 	e.repo.ErrOnDefault = boom
 	_, err = e.svc.GetDefault(ctx, model.ModelPurposeChat)
-	assert.ErrorIs(t, err, boom)
+	require.ErrorIs(t, err, boom)
 	e.repo.ErrOnDefault = nil
 
 	// 解密失败（缓存未命中回源路径）：需要存在默认条目
 	e.repo.SeedModelEntry(svcID.ID, model.ModelPurposeChat, "m", true)
 	e.cipher.FailOnDecrypt = true
 	_, err = e.svc.TestConnection(ctx, 1, svcID.ID, "")
-	assert.ErrorContains(t, err, "解密")
+	require.ErrorContains(t, err, "解密")
 	_, err = e.svc.GetDefault(ctx, model.ModelPurposeChat)
-	assert.ErrorContains(t, err, "解密")
+	require.ErrorContains(t, err, "解密")
 }
 
 func TestMCUpdateEntryServiceMissing(t *testing.T) {

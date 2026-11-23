@@ -270,7 +270,7 @@ func (s *KBService) ListMembers(ctx context.Context, kbID int64) ([]KBMemberItem
 }
 
 // AddMember 添加成员或直接指派角色（仅管理员）。
-func (s *KBService) AddMember(ctx context.Context, actorID, kbID, userID int64, role string, ip string) (*KBMemberItem, error) {
+func (s *KBService) AddMember(ctx context.Context, actorID, kbID, userID int64, role, ip string) (*KBMemberItem, error) {
 	if _, err := s.kbs.GetByID(ctx, kbID); err != nil {
 		if errors.Is(err, repo.ErrNotFound) {
 			return nil, NewServiceError(CodeNotFound, "知识库不存在")

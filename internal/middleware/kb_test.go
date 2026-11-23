@@ -28,7 +28,7 @@ func (f *fakeKBLookup) GetMemberRole(_ context.Context, kbID, userID int64) (int
 	return 0, repo.ErrNotFound
 }
 
-func kbRouter(lookup KBLookup, userID int64, isAdmin bool, bypass func(*gin.Context, int64, int64), guards ...gin.HandlerFunc) *gin.Engine {
+func kbRouter(lookup KBLookup, userID int64, isAdmin bool, bypass func(*gin.Context, int64, int64)) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
@@ -36,11 +36,9 @@ func kbRouter(lookup KBLookup, userID int64, isAdmin bool, bypass func(*gin.Cont
 		c.Set(CtxIsAdmin, isAdmin)
 		c.Next()
 	})
-	handlers := append([]gin.HandlerFunc{KBAccess(lookup, bypass)}, guards...)
-	handlers = append(handlers, func(c *gin.Context) {
+	r.GET("/kbs/:kb", KBAccess(lookup, bypass), func(c *gin.Context) {
 		c.JSON(200, gin.H{"kb": KBID(c), "role": KBRole(c)})
 	})
-	r.GET("/kbs/:kb", handlers...)
 	return r
 }
 
@@ -130,7 +128,7 @@ func TestKBRoleMatrix(t *testing.T) {
 }
 
 func TestKBHelpersAbsent(t *testing.T) {
-	c, _ := testCtx()
+	c := testCtx()
 	assert.Zero(t, KBRole(c))
 	assert.Zero(t, KBID(c))
 }

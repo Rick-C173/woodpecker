@@ -43,11 +43,11 @@ func TestAESGCMTamperAndWrongKey(t *testing.T) {
 	tampered := append([]byte{}, enc...)
 	tampered[len(tampered)-1] ^= 0xFF
 	_, err = a.Decrypt(tampered)
-	assert.ErrorIs(t, err, crypto.ErrCiphertextInvalid)
+	require.ErrorIs(t, err, crypto.ErrCiphertextInvalid)
 
 	// 截断密文 → ErrCiphertextInvalid
 	_, err = a.Decrypt(enc[:5])
-	assert.ErrorIs(t, err, crypto.ErrCiphertextInvalid)
+	require.ErrorIs(t, err, crypto.ErrCiphertextInvalid)
 
 	// 不同密钥解密 → ErrCiphertextInvalid
 	b, err := crypto.NewAESGCM("key-b")

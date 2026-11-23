@@ -76,7 +76,7 @@ func do(t *testing.T, ts *httptest.Server, method, path, token string, payload a
 		b, _ := json.Marshal(payload)
 		buf = bytes.NewBuffer(b)
 	}
-	req, _ := http.NewRequest(method, ts.URL+path, buf)
+	req, _ := http.NewRequestWithContext(context.Background(), method, ts.URL+path, buf)
 	if payload != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -152,7 +152,7 @@ func TestAuthHandlerFlows(t *testing.T) {
 	// 用户列表（管理员）→ 分页信封
 	sc, body = get(t, h.ts, "/api/v1/admin/users?q=dev&status=1&page=1&page_size=10", rootToken)
 	assert.Equal(t, 200, sc)
-	assert.Equal(t, float64(1), body["total"])
+	assert.InDelta(t, 1, body["total"], 0.001)
 
 	// 强制改密 → 改密成功
 	sc, body = post(t, h.ts, "/api/v1/auth/password", devToken, map[string]any{"old_password": initial, "new_password": "dev01-new-pass"})

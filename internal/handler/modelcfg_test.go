@@ -54,7 +54,7 @@ func TestMCAdminFlows(t *testing.T) {
 	items, _ := body["items"].([]any)
 	require.Len(t, items, 1)
 	first, _ := items[0].(map[string]any)
-	assert.Equal(t, float64(0), first["entry_count"])
+	assert.InDelta(t, 0, first["entry_count"], 0.001)
 
 	// 创建默认对话条目
 	sc, body = post(t, h.ts, base+"/model-entries", h.rootToken, map[string]any{

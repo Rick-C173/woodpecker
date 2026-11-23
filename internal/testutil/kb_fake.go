@@ -260,7 +260,7 @@ func (f *FakeKBRepo) UserExists(ctx context.Context, userID int64) (bool, error)
 	}
 	_, err := f.Users.GetByID(ctx, userID)
 	if err != nil {
-		return false, nil
+		return false, nil //nolint:nilerr // 用户不存在属正常路径（非错误）
 	}
 	return true, nil
 }

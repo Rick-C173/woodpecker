@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // 畸形 PHC 输入的解析分支（语句覆盖）。
@@ -21,11 +22,11 @@ func TestVerifyMalformedVariants(t *testing.T) {
 	for _, in := range cases {
 		ok, err := VerifyPassword("pw", in)
 		assert.False(t, ok, in)
-		assert.Error(t, err, in)
+		require.Error(t, err, in)
 	}
 
 	// 合法格式但错误的哈希值（长度截断路径）
 	ok, err := VerifyPassword("pw", valid+"x")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.False(t, ok)
 }

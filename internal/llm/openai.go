@@ -55,7 +55,7 @@ func classifyErr(err error, action string) error {
 	if errors.As(err, &apiErr) {
 		return fmt.Errorf("%w（%s）: %s", ErrBadResponse, action, apiErr.Error())
 	}
-	return fmt.Errorf("%w（%s）: %v", ErrUnavailable, action, err)
+	return fmt.Errorf("%w（%s）: %s", ErrUnavailable, action, err.Error())
 }
 
 // ChatStream 流式对话（Provider 接口实现）。
@@ -182,7 +182,7 @@ func (p *OpenAIProvider) Rerank(ctx context.Context, cfg ResolvedConfig, query s
 	}
 	var rr rerankResponse
 	if err := json.NewDecoder(httpResp.Body).Decode(&rr); err != nil {
-		return nil, fmt.Errorf("%w（重排）: %v", ErrBadResponse, err)
+		return nil, fmt.Errorf("%w（重排）: %s", ErrBadResponse, err.Error())
 	}
 	scores := make([]float64, len(docs))
 	for _, r := range rr.Results {

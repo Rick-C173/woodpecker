@@ -17,12 +17,11 @@ import (
 	"woodpecker/internal/model"
 )
 
-func testCtx() (*gin.Context, *httptest.ResponseRecorder) {
+func testCtx() *gin.Context {
 	gin.SetMode(gin.TestMode)
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest(http.MethodGet, "/x", nil)
-	return c, w
+	return c
 }
 
 func TestRequestIDGenerateAndPassThrough(t *testing.T) {
@@ -213,7 +212,7 @@ func TestLoggerAddsErrorContext(t *testing.T) {
 }
 
 func TestUserIDAbsent(t *testing.T) {
-	c, _ := testCtx()
+	c := testCtx()
 	assert.Zero(t, UserID(c))
 	_ = context.Background()
 }
