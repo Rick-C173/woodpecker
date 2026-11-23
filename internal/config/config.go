@@ -33,6 +33,9 @@ type Config struct {
 	DBMaxOpenConns           int
 	DBMaxIdleConns           int
 	DBConnMaxLifetimeMinutes int
+
+	// 摄取（M4）：上传文件落地目录
+	UploadDir string
 }
 
 // Load 读取配置：.env 文件（存在则加载，不覆盖已有环境变量）→ 环境变量 → 默认值。
@@ -60,6 +63,8 @@ func Load() *Config {
 		DBMaxOpenConns:           envInt("DB_MAX_OPEN_CONNS", 20),
 		DBMaxIdleConns:           envInt("DB_MAX_IDLE_CONNS", 5),
 		DBConnMaxLifetimeMinutes: envInt("DB_CONN_MAX_LIFETIME_MINUTES", 30),
+
+		UploadDir: envStr("UPLOAD_DIR", "data/uploads"),
 	}
 	if cfg.JWTSecret == "" {
 		cfg.JWTSecret = "dev-only-jwt-secret"

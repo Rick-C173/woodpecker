@@ -1,0 +1,478 @@
+// Package worker asynq 摄取任务：拉取（R1/R1b/R2）→ 切块 → 批量向量化 → 写 chunks。
+// 重试由本包自管理（R3：≤3 次间隔递增），asynq 层关闭自动重试。
+package worker
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+	"strings"
+	"time"
+	"unicode/utf8"
+
+	"github.com/hibiken/asynq"
+
+	"woodpecker/internal/llm"
+	"woodpecker/internal/model"
+	"woodpecker/internal/rag"
+	"woodpecker/internal/repo"
+)
+
+// TypeIngest asynq 任务类型名。
+const TypeIngest = "wp:ingest"
+
+// IngestPayload 任务载荷（队列里只传 task_id，状态以库为准）。
+type IngestPayload struct {
+	TaskID int64 `json:"task_id"`
+}
+
+// retryDelays R3 重试策略：最多 3 次，间隔递增。
+var retryDelays = []time.Duration{30 * time.Second, 2 * time.Minute, 10 * time.Minute}
+
+// embedBatchSize 向量化批大小（技术选型：batch ≈32）。
+const embedBatchSize = 32
+
+// R2 限制（拉取时判定，与 service 保持一致）。
+const (
+	maxRepoBytes = 1 << 30
+	maxRepoFiles = 50000
+)
+
+// Enqueuer asynq 入队抽象（asynq.Client 满足；测试用假实现）。
+type Enqueuer interface {
+	EnqueueContext(ctx context.Context, task *asynq.Task, opts ...asynq.Option) (*asynq.TaskInfo, error)
+}
+
+// Embedder 向量化能力（llm.Provider 满足）。
+type Embedder interface {
+	Embed(ctx context.Context, cfg llm.ResolvedConfig, texts []string) ([][]float32, error)
+}
+
+// ConfigResolver 默认 embedding 模型配置（service.ModelConfigService 满足）。
+type ConfigResolver interface {
+	GetDefault(ctx context.Context, purpose int16) (llm.ResolvedConfig, error)
+}
+
+// CredentialCipher 凭证解密（crypto.AESGCM 满足）。
+type CredentialCipher interface {
+	Decrypt(ciphertext []byte) ([]byte, error)
+}
+
+// DocStore 摄取所需的文档存储（repo.DocumentRepo 满足）。
+type DocStore interface {
+	GetTaskByID(ctx context.Context, id int64) (*model.IngestTask, error)
+	SaveTask(ctx context.Context, t *model.IngestTask) error
+	GetDocumentByID(ctx context.Context, id int64) (*model.Document, error)
+	SaveDocument(ctx context.Context, d *model.Document) error
+	UpsertFile(ctx context.Context, f *model.DocumentFile) error
+	ListFiles(ctx context.Context, documentID int64) ([]model.DocumentFile, error)
+	DeleteFilesByPath(ctx context.Context, documentID int64, paths []string) error
+	DeleteChunksByFile(ctx context.Context, documentID int64, filePath string) error
+	ReplaceChunks(ctx context.Context, documentID int64, chunks []model.Chunk) error
+}
+
+// FailZombieStore 启动恢复所需操作（repo.DocumentRepo 满足）。
+type FailZombieStore interface {
+	FailProcessingDocs(ctx context.Context) (int64, error)
+	FailZombieTasks(ctx context.Context) (int64, error)
+}
+
+// Pipeline 摄取管道。
+type Pipeline struct {
+	docs      DocStore
+	settings  SettingGetter
+	cipher    CredentialCipher
+	resolver  ConfigResolver
+	embedder  Embedder
+	queue     Enqueuer
+	uploadDir string
+	now       func() time.Time
+}
+
+// SettingGetter R1b 排除清单读取（repo.SettingRepo 满足）。
+type SettingGetter interface {
+	GetString(ctx context.Context, key, def string) (string, error)
+}
+
+func NewPipeline(docs DocStore, settings SettingGetter, cipher CredentialCipher, resolver ConfigResolver, embedder Embedder, queue Enqueuer) *Pipeline {
+	return &Pipeline{docs: docs, settings: settings, cipher: cipher, resolver: resolver, embedder: embedder, queue: queue, uploadDir: "data/uploads", now: time.Now}
+}
+
+// SetUploadDir 修改上传目录（与 service.CreateUpload 的落地规则一致）。
+func (p *Pipeline) SetUploadDir(dir string) { p.uploadDir = dir }
+
+// RecoverStartup 重启恢复：遗留的运行中文档与任务全部置失败（FR-06）。
+func (p *Pipeline) RecoverStartup(ctx context.Context, store FailZombieStore) {
+	n, err := store.FailProcessingDocs(ctx)
+	if err != nil {
+		slog.Error("重启恢复：处理中文档置失败", "err", err)
+		return
+	}
+	m, err := store.FailZombieTasks(ctx)
+	if err != nil {
+		slog.Error("重启恢复：遗留任务置失败", "err", err)
+		return
+	}
+	if n+m > 0 {
+		slog.Info("重启恢复：中断任务按失败处理", "docs", n, "tasks", m)
+	}
+}
+
+// Process 处理一次摄取任务。
+// 返回 nil：任务终结（成功/最终失败/已排重试）；返回 error：临时故障（asynq 保留任务，下次重投）。
+func (p *Pipeline) Process(ctx context.Context, taskID int64) error {
+	t, err := p.docs.GetTaskByID(ctx, taskID)
+	if err != nil {
+		if errors.Is(err, repo.ErrNotFound) {
+			slog.Warn("摄取任务不存在，跳过", "task_id", taskID)
+			return nil
+		}
+		return err
+	}
+	if t.Status != model.TaskStatusQueued {
+		return nil // 已被处理或已取消
+	}
+	now := p.now()
+	t.Status = model.TaskStatusRunning
+	t.StartedAt = &now
+	if err := p.docs.SaveTask(ctx, t); err != nil {
+		return err
+	}
+
+	d, err := p.docs.GetDocumentByID(ctx, t.DocumentID)
+	if err != nil {
+		if errors.Is(err, repo.ErrNotFound) {
+			return p.finishTask(ctx, t, model.TaskStatusFailed, "文档已删除") // 删除处理中文档即中止任务
+		}
+		return err
+	}
+
+	// ---- 解析（stage 1）----
+	p.setStage(ctx, d, model.DocStageParse)
+	res, err := p.fetch(ctx, d, t)
+	if err != nil {
+		return p.fail(ctx, t, d, err)
+	}
+
+	// ---- 切块 + 文件清单（stage 2）----
+	p.setStage(ctx, d, model.DocStageChunk)
+	chunks, fileCount, totalSize, err := p.buildChunks(ctx, d, res, t.Type == model.TaskTypeSync)
+	if err != nil {
+		return p.fail(ctx, t, d, err)
+	}
+
+	// ---- 向量化 + 入库（stage 3）----
+	p.setStage(ctx, d, model.DocStageEmbed)
+	if err := p.embedAndStore(ctx, d, chunks); err != nil {
+		return p.fail(ctx, t, d, err)
+	}
+
+	// ---- 完成 ----
+	d.FileCount = &fileCount
+	d.TotalSize = &totalSize
+	if d.Type == model.DocTypeGit && res.Commit != "" {
+		d.LastCommit = &res.Commit
+		synced := p.now()
+		d.LastSyncedAt = &synced
+	}
+	d.Status = model.DocStatusReady
+	d.Stage = nil
+	d.Error = nil
+	d.UpdatedAt = p.now()
+	if err := p.docs.SaveDocument(ctx, d); err != nil {
+		return err
+	}
+	return p.finishTask(ctx, t, model.TaskStatusSuccess, "")
+}
+
+// fetch 按文档类型拉取内容（R1/R1b/R2 过滤在 rag 层完成）。
+func (p *Pipeline) fetch(ctx context.Context, d *model.Document, _ *model.IngestTask) (*rag.FetchResult, error) {
+	raw := ""
+	if p.settings != nil {
+		raw, _ = p.settings.GetString(ctx, "exclusion_rules", "")
+	}
+	excl := rag.ParseExclusionRules(raw)
+	ignore := d.IgnoreRules
+
+	switch d.Type {
+	case model.DocTypeGit:
+		cred := ""
+		if len(d.CredentialEnc) > 0 {
+			plain, derr := p.cipher.Decrypt(d.CredentialEnc)
+			if derr != nil {
+				return nil, fmt.Errorf("解密仓库凭证: %w", derr)
+			}
+			cred = string(plain)
+		}
+		ref := ""
+		if d.GitRef != nil {
+			ref = *d.GitRef
+		}
+		if d.RepoURL == nil {
+			return nil, errors.New("缺少仓库地址")
+		}
+		return rag.FetchGit(ctx, *d.RepoURL, ref, cred, maxRepoBytes, maxRepoFiles, ignore, excl)
+
+	case model.DocTypeUpload:
+		return rag.FetchLocalDir(ctx, p.uploadPath(d), maxRepoBytes, maxRepoFiles, ignore, excl)
+
+	case model.DocTypeURL:
+		if d.SourceURL == nil {
+			return nil, errors.New("缺少源 URL")
+		}
+		body, title, err := rag.FetchURL(ctx, *d.SourceURL)
+		if err != nil {
+			return nil, err
+		}
+		name := title
+		if name == "" {
+			name = *d.SourceURL
+		}
+		res := &rag.FetchResult{}
+		if rag.IsExcluded(name, ignore, excl) {
+			res.Excluded = append(res.Excluded, name)
+		} else {
+			res.Files = []rag.SourceFile{{Path: name, Content: body}}
+			res.TotalSize = int64(len(body))
+			res.FileSeen = 1
+		}
+		return res, nil
+	}
+	return nil, fmt.Errorf("未知文档类型 %d", d.Type)
+}
+
+// uploadPath 上传文档的落地目录（与 service.CreateUpload 一致）。
+func (p *Pipeline) uploadPath(d *model.Document) string {
+	return fmt.Sprintf("%s/%d/%d", p.uploadDir, d.KBID, d.ID)
+}
+
+// buildChunks 切块并维护文件清单；返回待向量化的全部分块。
+// isSync=true 时做文件级增量：hash 未变的文件跳过切块与向量化；远端已删除的清理分块与清单。
+func (p *Pipeline) buildChunks(ctx context.Context, d *model.Document, res *rag.FetchResult, isSync bool) (chunks []model.Chunk, fileCount int, totalSize int64, err error) {
+	existing := map[string]model.DocumentFile{}
+	if isSync {
+		files, err := p.docs.ListFiles(ctx, d.ID)
+		if err != nil {
+			return nil, 0, 0, err
+		}
+		for _, f := range files {
+			existing[f.Path] = f
+		}
+	}
+
+	// 远端已删除：清分块 + 清清单
+	if isSync {
+		var removed []string
+		for fp := range existing {
+			if _, ok := fetchPath(res, fp); !ok {
+				removed = append(removed, fp)
+			}
+		}
+		if len(removed) > 0 {
+			if err := p.docs.DeleteFilesByPath(ctx, d.ID, removed); err != nil {
+				return nil, 0, 0, err
+			}
+			for _, fp := range removed {
+				if err := p.docs.DeleteChunksByFile(ctx, d.ID, fp); err != nil {
+					return nil, 0, 0, err
+				}
+			}
+		}
+	}
+
+	chunks = nil
+	fileCount = len(res.Files) + len(res.Excluded) + len(res.Oversized)
+	totalSize = 0
+
+	// 排除文件 → "已排除"标记
+	for _, fp := range res.Excluded {
+		f := &model.DocumentFile{DocumentID: d.ID, Path: fp, Status: model.FileStatusExcluded, UpdatedAt: p.now()}
+		if err := p.docs.UpsertFile(ctx, f); err != nil {
+			return nil, 0, 0, err
+		}
+	}
+	// 超大文件 → "失败"标记
+	for _, fp := range res.Oversized {
+		msg := "超过单文件 5MB 上限"
+		f := &model.DocumentFile{DocumentID: d.ID, Path: fp, Status: model.FileStatusFailed, Error: &msg, UpdatedAt: p.now()}
+		if err := p.docs.UpsertFile(ctx, f); err != nil {
+			return nil, 0, 0, err
+		}
+	}
+
+	// 受支持文件：切块
+	for _, sf := range res.Files {
+		totalSize += int64(len(sf.Content))
+		hash := contentHash(sf.Content)
+		if old, ok := existing[sf.Path]; ok && old.ContentHash != nil && *old.ContentHash == hash {
+			// 未变更：跳过切块与向量化（同步只处理变更文件）
+			continue
+		}
+		f := &model.DocumentFile{
+			DocumentID: d.ID, Path: sf.Path, Status: model.FileStatusIndexed,
+			Language: langPtr(sf.Path), Size: sizePtr(int64(len(sf.Content))),
+			ContentHash: &hash, UpdatedAt: p.now(),
+		}
+		if err := p.docs.UpsertFile(ctx, f); err != nil {
+			return nil, 0, 0, err
+		}
+		if isSync { // 变更文件：先清旧分块
+			if err := p.docs.DeleteChunksByFile(ctx, d.ID, sf.Path); err != nil {
+				return nil, 0, 0, err
+			}
+		}
+		for _, b := range rag.Chunk(rag.ContentKind(sf.Path), string(sf.Content)) {
+			chunks = append(chunks, makeChunk(d, f.ID, sf.Path, b, len(chunks)))
+		}
+	}
+	return chunks, fileCount, totalSize, nil
+}
+
+// makeChunk 组装单块（标题路径前缀进内容，增强检索上下文）。
+func makeChunk(d *model.Document, fileID int64, filePath string, b rag.ChunkBlock, index int) model.Chunk {
+	content := b.Content
+	hp := b.HeadingPath
+	if hp != "" {
+		content = hp + "\n" + content
+	} else {
+		hp = ""
+	}
+	tc := utf8.RuneCountInString(content)
+	ls, le := b.LineStart, b.LineEnd
+	c := model.Chunk{
+		DocumentID: d.ID, KBID: d.KBID,
+		Content: content, ChunkIndex: index,
+		TokenCount: &tc, FilePath: &filePath,
+		LineStart: &ls, LineEnd: &le,
+	}
+	if fileID > 0 {
+		c.FileID = &fileID
+	}
+	if hp != "" {
+		c.HeadingPath = &hp
+	}
+	return c
+}
+
+// embedAndStore 批量向量化并整体替换分块。
+func (p *Pipeline) embedAndStore(ctx context.Context, d *model.Document, chunks []model.Chunk) error {
+	if len(chunks) == 0 {
+		return p.docs.ReplaceChunks(ctx, d.ID, nil)
+	}
+	cfg, err := p.resolver.GetDefault(ctx, model.ModelPurposeEmbedding)
+	if err != nil {
+		return fmt.Errorf("获取默认向量化模型: %w", err)
+	}
+	for start := 0; start < len(chunks); start += embedBatchSize {
+		end := start + embedBatchSize
+		if end > len(chunks) {
+			end = len(chunks)
+		}
+		texts := make([]string, 0, end-start)
+		for _, c := range chunks[start:end] {
+			texts = append(texts, c.Content)
+		}
+		vecs, err := p.embedder.Embed(ctx, cfg, texts)
+		if err != nil {
+			return fmt.Errorf("向量化: %w", err)
+		}
+		if len(vecs) != len(texts) {
+			return fmt.Errorf("向量化返回数量不符: 期望 %d 实际 %d", len(texts), len(vecs))
+		}
+		for i, v := range vecs {
+			chunks[start+i].Embedding = v
+		}
+	}
+	return p.docs.ReplaceChunks(ctx, d.ID, chunks)
+}
+
+// setStage 更新处理阶段。
+func (p *Pipeline) setStage(ctx context.Context, d *model.Document, stage int16) {
+	d.Status = model.DocStatusProcessing
+	d.Stage = &stage
+	d.UpdatedAt = p.now()
+	if err := p.docs.SaveDocument(ctx, d); err != nil {
+		slog.Error("更新文档阶段失败", "doc", d.ID, "stage", stage, "err", err)
+	}
+}
+
+// fail 单次失败：重试未达上限 → 复位任务状态并按递增间隔重排；达到上限 → 文档与任务置失败（R3）。
+func (p *Pipeline) fail(ctx context.Context, t *model.IngestTask, d *model.Document, cause error) error {
+	msg := classifyFail(cause)
+	if t.Retries < len(retryDelays) && p.queue != nil {
+		t.Retries++
+		t.Status = model.TaskStatusQueued // 重排后等待下一次投递重新进入 running
+		if err := p.docs.SaveTask(ctx, t); err != nil {
+			return err
+		}
+		delay := retryDelays[t.Retries-1]
+		payload, _ := json.Marshal(IngestPayload{TaskID: t.ID})
+		if _, qerr := p.queue.EnqueueContext(ctx, asynq.NewTask(TypeIngest, payload, asynq.MaxRetry(0), asynq.ProcessIn(delay))); qerr != nil {
+			slog.Error("重试入队失败，按最终失败处理", "task", t.ID, "err", qerr)
+		} else {
+			slog.Warn("摄取失败，已排重试", "task", t.ID, "doc", d.ID, "retries", t.Retries, "delay", delay.String(), "err", msg)
+			return nil
+		}
+	}
+	d.Status = model.DocStatusFailed
+	d.Stage = nil
+	d.Error = &msg
+	d.UpdatedAt = p.now()
+	if err := p.docs.SaveDocument(ctx, d); err != nil {
+		slog.Error("置文档失败态出错", "doc", d.ID, "err", err)
+	}
+	return p.finishTask(ctx, t, model.TaskStatusFailed, msg)
+}
+
+// finishTask 收尾任务状态。
+func (p *Pipeline) finishTask(ctx context.Context, t *model.IngestTask, status int16, errMsg string) error {
+	t.Status = status
+	now := p.now()
+	t.FinishedAt = &now
+	if errMsg != "" {
+		t.Error = &errMsg
+	}
+	return p.docs.SaveTask(ctx, t)
+}
+
+// classifyFail 归类错误为对外可见的失败摘要。
+func classifyFail(err error) string {
+	switch {
+	case errors.Is(err, rag.ErrRepoTooLarge):
+		return "仓库超过大小或文件数限制（DOC_001）"
+	case errors.Is(err, rag.ErrRepoUnreachable):
+		return "仓库地址不可达或凭证无效（DOC_003）"
+	case errors.Is(err, rag.ErrURLUnreachable):
+		return "URL 无法访问（DOC_003）"
+	case errors.Is(err, rag.ErrURLNotHTML):
+		return "URL 内容不是 HTML 页面（DOC_002）"
+	default:
+		return strings.TrimSpace(err.Error())
+	}
+}
+
+func contentHash(b []byte) string {
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
+}
+
+func langPtr(p string) *string {
+	l := rag.DetectLanguage(p)
+	return &l
+}
+
+func sizePtr(s int64) *int64 { return &s }
+
+// fetchPath 查找拉取结果中的路径。
+func fetchPath(res *rag.FetchResult, path string) (rag.SourceFile, bool) {
+	for _, f := range res.Files {
+		if f.Path == path {
+			return f, true
+		}
+	}
+	return rag.SourceFile{}, false
+}

@@ -195,6 +195,28 @@ func (f *FakeSettingRepo) GetBool(context.Context, string, bool) (bool, error) {
 	return f.Vals["self_register_enabled"], nil
 }
 
+// GetString 字符串设置（M4：exclusion_rules 用；返回 def，可按需扩展）。
+func (f *FakeSettingRepo) GetString(_ context.Context, _, def string) (string, error) {
+	if f.Err != nil {
+		return def, f.Err
+	}
+	return def, nil
+}
+
+// FakeQueue 摄取任务入队替身（记录 task_id）。
+type FakeQueue struct {
+	IDs []int64
+	Err error
+}
+
+func (f *FakeQueue) EnqueueIngest(_ context.Context, taskID int64) error {
+	if f.Err != nil {
+		return f.Err
+	}
+	f.IDs = append(f.IDs, taskID)
+	return nil
+}
+
 type FakeAuditRepo struct {
 	mu       sync.Mutex
 	Entries  []model.AuditLog

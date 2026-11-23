@@ -121,6 +121,12 @@ func runAPI(ctx context.Context, cfg *config.Config) error {
 	defer func() { _ = kvCache.Close() }()
 	modelCfgSvc := service.NewModelConfigService(modelCfgRepo, cipher, kvCache, provider, auditSvc)
 
+	// M4：文档与摄取（FR-03/04/05/11）—— asynq 入队 + Document API
+	docQueue := worker.NewClient(cfg.RedisAddr)
+	defer func() { _ = docQueue.Close() }()
+	docSvc := service.NewDocumentService(repo.NewDocumentRepo(db), settings, cipher, docQueue, auditSvc)
+	docSvc.SetUploadDir(cfg.UploadDir)
+
 	router := handler.NewRouter(handler.Deps{
 		Cfg:      cfg,
 		DB:       db,
@@ -128,6 +134,7 @@ func runAPI(ctx context.Context, cfg *config.Config) error {
 		Admin:    handler.NewAdminUsersHandler(adminSvc),
 		KB:       handler.NewKBHandler(kbSvc),
 		ModelCfg: handler.NewModelCfgHandler(modelCfgSvc),
+		Document: handler.NewDocumentHandler(docSvc),
 		UserRepo: users,
 		Issuer:   issuer,
 		KBLookup: kbs,

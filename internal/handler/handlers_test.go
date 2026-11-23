@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -25,6 +26,9 @@ type hEnv struct {
 	rootToken string
 	mcTester  *testutil.FakeTester
 	mcRepo    *testutil.FakeModelCfgRepo
+	docDocs   *testutil.FakeDocRepo
+	docQueue  *testutil.FakeQueue
+	docSvc    *service.DocumentService
 }
 
 func setup(t *testing.T) *hEnv {
@@ -34,12 +38,18 @@ func setup(t *testing.T) *hEnv {
 	mcRepo := testutil.NewFakeModelCfgRepo()
 	mcTester := &testutil.FakeTester{}
 	mcSvc := service.NewModelConfigService(mcRepo, &testutil.FakeCipher{}, testutil.NewFakeCache(), mcTester, env.AuditSvc)
+	// M4：文档 handler（fake 存储与队列）
+	docDocs := testutil.NewFakeDocs()
+	docQueue := &testutil.FakeQueue{}
+	docSvc := service.NewDocumentService(docDocs, env.Settings, &testutil.FakeCipher{}, docQueue, env.AuditSvc)
+	docSvc.SetUploadDir(t.TempDir())
 	router := handler.NewRouter(handler.Deps{
 		Cfg:      cfg,
 		Auth:     handler.NewAuthHandler(env.AuthSvc),
 		Admin:    handler.NewAdminUsersHandler(env.AdminSvc),
 		KB:       handler.NewKBHandler(env.KBSvc),
 		ModelCfg: handler.NewModelCfgHandler(mcSvc),
+		Document: handler.NewDocumentHandler(docSvc),
 		UserRepo: env.Users,
 		Issuer:   env.Issuer,
 		KBLookup: env.KBs,
@@ -52,7 +62,30 @@ func setup(t *testing.T) *hEnv {
 	})
 	ts := httptest.NewServer(router)
 	t.Cleanup(ts.Close)
-	return &hEnv{ts: ts, env: env, mcTester: mcTester, mcRepo: mcRepo}
+	return &hEnv{ts: ts, env: env, mcTester: mcTester, mcRepo: mcRepo, docDocs: docDocs, docQueue: docQueue, docSvc: docSvc}
+}
+
+// postMultipart 提交 multipart/form-data（files[] 字段）。
+func postMultipart(t *testing.T, ts *httptest.Server, path, token string, names []string, contents [][]byte) (int, map[string]any) {
+	t.Helper()
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	for i, name := range names {
+		fw, _ := w.CreateFormFile("files[]", name)
+		_, _ = fw.Write(contents[i])
+	}
+	_ = w.Close()
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, ts.URL+path, &buf)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := ts.Client().Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	var out map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&out)
+	return resp.StatusCode, out
 }
 
 func post(t *testing.T, ts *httptest.Server, path, token string, payload any) (int, map[string]any) {

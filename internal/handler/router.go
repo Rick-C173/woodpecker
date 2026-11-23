@@ -31,6 +31,9 @@ type Deps struct {
 	// M3：模型服务配置（FR-12）
 	ModelCfg *ModelCfgHandler
 
+	// M4：文档与摄取（FR-03/04/05/11）
+	Document *DocumentHandler
+
 	KBLookup middleware.KBLookup
 	// OnAdminKBAccess 管理员以非成员身份访问库时回调（审计）
 	OnAdminKBAccess func(ctx context.Context, userID, kbID int64, method, path, ip string)
@@ -96,6 +99,21 @@ func NewRouter(d Deps) *gin.Engine {
 	members.POST("", d.KB.AddMember)
 	members.PATCH("/:user", d.KB.UpdateMemberRole)
 	members.DELETE("/:user", d.KB.RemoveMember)
+
+	// 文档与摄取（FR-03/04/05/11，API设计.md §3.6）
+	// 读取=成员（KBAccess 已拦截）；接入/重试/同步=编辑者+；删除/重建索引=管理者+（R6）
+	if d.Document != nil {
+		docs := kb.Group("/documents")
+		docs.GET("", d.Document.List)
+		docs.GET("/:doc", d.Document.Get)
+		docs.POST("/git", middleware.RequireKBEditor(), d.Document.CreateGit)
+		docs.POST("/upload", middleware.RequireKBEditor(), d.Document.CreateUpload)
+		docs.POST("/url", middleware.RequireKBEditor(), d.Document.CreateURL)
+		docs.POST("/:doc/retry", middleware.RequireKBEditor(), d.Document.Retry)
+		docs.POST("/:doc/sync", middleware.RequireKBEditor(), d.Document.Sync)
+		docs.DELETE("/:doc", middleware.RequireKBOwner(), d.Document.Delete)
+		docs.POST("/:doc/reindex", middleware.RequireKBOwner(), d.Document.Reindex)
+	}
 
 	// admin（管理员）
 	admin := v1.Group("/admin", middleware.Auth(d.Issuer, userLookup(d.UserRepo)), middleware.Admin())

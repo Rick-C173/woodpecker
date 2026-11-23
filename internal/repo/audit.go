@@ -37,3 +37,16 @@ func (r *SettingRepo) GetBool(ctx context.Context, key string, def bool) (bool, 
 	}
 	return v, nil
 }
+
+// GetString 读取字符串设置（如 exclusion_rules 的 JSON 文本）；键不存在返回 def。
+func (r *SettingRepo) GetString(ctx context.Context, key, def string) (string, error) {
+	var s model.Setting
+	err := r.db.WithContext(ctx).First(&s, "key = ?", key).Error
+	if err != nil {
+		if isNoRows(err) {
+			return def, nil
+		}
+		return def, err
+	}
+	return string(s.Value), nil
+}
