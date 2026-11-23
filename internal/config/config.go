@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"os"
 	"strconv"
+
+	"github.com/joho/godotenv"
 )
 
 type Config struct {
@@ -16,9 +18,14 @@ type Config struct {
 	EncryptionKey string // AES-256-GCM 密钥（M3 模型凭证加密用）
 	LogLevel      string
 	CORSOrigins   string
+	JWTTLHours    int
 }
 
+// Load 读取配置：.env 文件（存在则加载，不覆盖已有环境变量）→ 环境变量 → 默认值。
 func Load() *Config {
+	if err := godotenv.Load(); err != nil && !os.IsNotExist(err) {
+		slog.Debug("未加载 .env", "err", err)
+	}
 	cfg := &Config{
 		Port:          envInt("APP_PORT", 8080),
 		DatabaseURL:   envStr("DATABASE_URL", "postgres://woodpecker:woodpecker@127.0.0.1:5432/woodpecker?sslmode=disable"),
@@ -27,6 +34,7 @@ func Load() *Config {
 		EncryptionKey: envStr("ENCRYPTION_KEY", ""),
 		LogLevel:      envStr("LOG_LEVEL", "info"),
 		CORSOrigins:   envStr("CORS_ORIGINS", "*"),
+		JWTTLHours:    envInt("JWT_TTL_HOURS", 24),
 	}
 	if cfg.JWTSecret == "" {
 		cfg.JWTSecret = "dev-only-jwt-secret"

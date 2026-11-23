@@ -13,6 +13,9 @@ import (
 // NewRouter 装配全局中间件与 /api/v1 路由骨架。
 // 后续里程碑在此按模块挂载：auth(M1) → kbs/documents(M2/M4) → search(M5) → conversations(M6) → admin(M1/M3/M7)。
 func NewRouter(cfg *config.Config, db *gorm.DB) *gin.Engine {
+	if cfg.LogLevel != "debug" {
+		gin.SetMode(gin.ReleaseMode)
+	}
 	r := gin.New()
 	r.Use(
 		middleware.RequestID(),

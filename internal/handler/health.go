@@ -12,6 +12,13 @@ import (
 type Pinger func(ctx context.Context) error
 
 // Health GET /healthz：进程与数据库连通性探针（M0 验收标准）。
+//
+//	@Summary	健康检查
+//	@Tags		infra
+//	@Produce	json
+//	@Success	200	{object}	object{status=string,db=string}
+//	@Failure	503	{object}	object{code=string,message=string,request_id=string}
+//	@Router		/healthz [get]
 func Health(pinger Pinger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
