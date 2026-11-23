@@ -10,7 +10,8 @@ func clearEnv(t *testing.T) {
 	t.Helper()
 	for _, k := range []string{"APP_PORT", "DATABASE_URL", "REDIS_ADDR", "JWT_SECRET", "ENCRYPTION_KEY", "LOG_LEVEL", "CORS_ORIGINS",
 		"RATE_LIMIT_PER_MIN", "PASSWORD_MIN_LEN", "PASSWORD_LOCK_THRESHOLD", "PASSWORD_LOCK_MINUTES", "INITIAL_PASSWORD_LEN",
-		"DB_MAX_OPEN_CONNS", "DB_MAX_IDLE_CONNS", "DB_CONN_MAX_LIFETIME_MINUTES"} {
+		"DB_MAX_OPEN_CONNS", "DB_MAX_IDLE_CONNS", "DB_CONN_MAX_LIFETIME_MINUTES",
+		"BANNER_ENABLED", "LOG_TO_FILE", "LOG_FILE_PATH", "UPLOAD_DIR"} {
 		t.Setenv(k, "")
 		osUnset(k)
 	}
@@ -35,6 +36,11 @@ func TestLoadDefaults(t *testing.T) {
 	assert.Equal(t, 20, cfg.DBMaxOpenConns)
 	assert.Equal(t, 5, cfg.DBMaxIdleConns)
 	assert.Equal(t, 30, cfg.DBConnMaxLifetimeMinutes)
+	// banner / 日志文件 / 上传目录默认值
+	assert.True(t, cfg.BannerEnabled, "banner 缺省开启")
+	assert.False(t, cfg.LogToFile, "日志写文件缺省关闭")
+	assert.Equal(t, "logs/app.log", cfg.LogFilePath)
+	assert.Equal(t, "data/uploads", cfg.UploadDir)
 }
 
 func TestLoadPolicyFromEnv(t *testing.T) {
@@ -85,4 +91,23 @@ func TestLoadEnvFileOverride(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://explicit@127.0.0.1:5432/x?sslmode=disable")
 	cfg := Load()
 	assert.Contains(t, cfg.DatabaseURL, "explicit")
+}
+
+func TestLoadBannerAndLogSwitches(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("BANNER_ENABLED", "false")
+	t.Setenv("LOG_TO_FILE", "true")
+	t.Setenv("LOG_FILE_PATH", "var/log/wp.log")
+	cfg := Load()
+	assert.False(t, cfg.BannerEnabled)
+	assert.True(t, cfg.LogToFile)
+	assert.Equal(t, "var/log/wp.log", cfg.LogFilePath)
+
+	// 非法布尔值回退默认
+	clearEnv(t)
+	t.Setenv("BANNER_ENABLED", "not-bool")
+	t.Setenv("LOG_TO_FILE", "yes!")
+	cfg = Load()
+	assert.True(t, cfg.BannerEnabled, "非法布尔应回退默认（开）")
+	assert.False(t, cfg.LogToFile, "非法布尔应回退默认（关）")
 }

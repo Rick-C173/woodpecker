@@ -20,6 +20,13 @@ type Config struct {
 	CORSOrigins   string
 	JWTTLHours    int
 
+	// 启动展示（PRD FR-00 体验项）
+	BannerEnabled bool // 启动 banner 开关（BANNER_ENABLED，缺省开）
+
+	// 日志输出
+	LogToFile   bool   // 日志写文件开关（LOG_TO_FILE，缺省关=仅控制台）
+	LogFilePath string // 日志文件路径（LOG_FILE_PATH，append 追加；开=true 时与控制台双写）
+
 	// 限流（API 设计 §1）：登录态全局窗口限流，req/min/用户，<=0 关闭
 	RateLimitPerMin int
 
@@ -52,6 +59,10 @@ func Load() *Config {
 		LogLevel:      envStr("LOG_LEVEL", "info"),
 		CORSOrigins:   envStr("CORS_ORIGINS", "*"),
 		JWTTLHours:    envInt("JWT_TTL_HOURS", 24),
+
+		BannerEnabled: envBool("BANNER_ENABLED", true),
+		LogToFile:     envBool("LOG_TO_FILE", false),
+		LogFilePath:   envStr("LOG_FILE_PATH", "logs/app.log"),
 
 		RateLimitPerMin: envInt("RATE_LIMIT_PER_MIN", 100),
 
@@ -90,6 +101,16 @@ func envInt(key string, def int) int {
 			return n
 		}
 		slog.Warn("环境变量非整数，使用默认值", "key", key, "value", v, "default", def)
+	}
+	return def
+}
+
+func envBool(key string, def bool) bool {
+	if v := os.Getenv(key); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			return b
+		}
+		slog.Warn("环境变量非布尔值，使用默认值", "key", key, "value", v, "default", def)
 	}
 	return def
 }

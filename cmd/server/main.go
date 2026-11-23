@@ -6,10 +6,14 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -40,7 +44,12 @@ func main() {
 	case "error":
 		logLevel = slog.LevelError
 	}
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel})))
+	logWriter := setupLogWriter(cfg)
+	slog.SetDefault(slog.New(slog.NewTextHandler(logWriter, &slog.HandlerOptions{Level: logLevel})))
+
+	if cfg.BannerEnabled {
+		printBanner()
+	}
 
 	switch *mode {
 	case "api", "worker", "all":
@@ -52,9 +61,77 @@ func main() {
 	os.Exit(run(*mode, cfg))
 }
 
+// setupLogWriter 组装日志输出：LOG_TO_FILE=true 时控制台与文件双写（目录自动创建）；
+// 文件打开失败降级为仅控制台并告警。
+func setupLogWriter(cfg *config.Config) io.Writer {
+	out := io.Writer(os.Stdout)
+	if !cfg.LogToFile {
+		return out
+	}
+	if err := os.MkdirAll(filepath.Dir(cfg.LogFilePath), 0o750); err != nil {
+		fmt.Fprintf(os.Stderr, "创建日志目录失败（降级为仅控制台）: %v\n", err)
+		return out
+	}
+	f, err := os.OpenFile(cfg.LogFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "打开日志文件失败（降级为仅控制台）: %v\n", err)
+		return out
+	}
+	// 进程退出前冲刷关闭（run 返回后由 main os.Exit 结束）
+	closer = f
+	return io.MultiWriter(os.Stdout, f)
+}
+
+// closer 日志文件句柄（LOG_TO_FILE=true 时非空），进程退出前关闭。
+var closer io.Closer
+
+// printBanner 启动横幅 + 关键配置摘要（BANNER_ENABLED=false 关闭）。
+func printBanner() {
+	fmt.Print(`
+   ██╗    ██╗ ██████╗  ██████╗ ██████╗ ██████╗ ███████╗██████╗  █████╗
+   ██║    ██║██╔═══██╗██╔═══██╗██╔══██╗██╔══██╗██╔════╝██╔══██╗██╔══██╗
+   ██║ █╗ ██║██║   ██║██║   ██║██████╔╝██║  ██║█████╗  ██████╔╝███████║
+   ██║███╗██║██║   ██║██║   ██║██╔══██╗██║  ██║██╔══╝  ██╔══██╗██╔══██║
+   ╚███╔███╔╝╚██████╔╝╚██████╔╝██║  ██║██████╔╝███████╗██║  ██║██║  ██║
+    ╚══╝╚══╝  ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═════╝ ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝
+   啄木鸟 · AI 代码/技术文档知识库   v0.1.0-dev
+`)
+}
+
+// maskDSN 脱敏数据源连接串（密码替换为 ***）。
+func maskDSN(dsn string) string {
+	u, err := url.Parse(dsn)
+	if err != nil || u.User == nil {
+		return dsn
+	}
+	if _, ok := u.User.Password(); ok {
+		u.User = url.UserPassword(u.User.Username(), "***")
+	}
+	// url.String() 会把 *** 编码为 %2A%2A%2A，还原为可读形式
+	return strings.ReplaceAll(u.String(), "%2A%2A%2A", "***")
+}
+
+// logFileForSummary 配置摘要里的日志文件展示（未开启时显示关闭态）。
+func logFileForSummary(cfg *config.Config) string {
+	if cfg.LogToFile {
+		return cfg.LogFilePath
+	}
+	return "（关闭）"
+}
+
 // run 服务主流程；返回进程退出码（0=正常，1=异常）。
 func run(mode string, cfg *config.Config) int {
+	if closer != nil {
+		defer func() { _ = closer.Close() }()
+	}
 	slog.Info("服务启动", "mode", mode, "port", cfg.Port)
+	slog.Info("配置摘要",
+		"db", maskDSN(cfg.DatabaseURL),
+		"redis", cfg.RedisAddr,
+		"upload_dir", cfg.UploadDir,
+		"log_file", logFileForSummary(cfg),
+		"rate_limit_per_min", cfg.RateLimitPerMin,
+	)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
