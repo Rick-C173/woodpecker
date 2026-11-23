@@ -37,6 +37,9 @@ type Deps struct {
 	// M5：混合检索（FR-10）
 	Search *SearchHandler
 
+	// M6：会话与问答（FR-07/08/09/14）
+	Chat *ChatHandler
+
 	KBLookup middleware.KBLookup
 	// OnAdminKBAccess 管理员以非成员身份访问库时回调（审计）
 	OnAdminKBAccess func(ctx context.Context, userID, kbID int64, method, path, ip string)
@@ -108,6 +111,12 @@ func NewRouter(d Deps) *gin.Engine {
 		kb.GET("/search", d.Search.Search)
 	}
 
+	// 会话（FR-09，API设计.md §3.7）：库内建/列（成员），详情/问答在顶层 /conversations 组
+	if d.Chat != nil {
+		kb.GET("/conversations", d.Chat.ListConversations)
+		kb.POST("/conversations", d.Chat.CreateConversation)
+	}
+
 	// 文档与摄取（FR-03/04/05/11，API设计.md §3.6）
 	// 读取=成员（KBAccess 已拦截）；接入/重试/同步=编辑者+；删除/重建索引=管理者+（R6）
 	if d.Document != nil {
@@ -121,6 +130,20 @@ func NewRouter(d Deps) *gin.Engine {
 		docs.POST("/:doc/sync", middleware.RequireKBEditor(), d.Document.Sync)
 		docs.DELETE("/:doc", middleware.RequireKBOwner(), d.Document.Delete)
 		docs.POST("/:doc/reindex", middleware.RequireKBOwner(), d.Document.Reindex)
+	}
+
+	// 会话与问答（FR-07/09，API设计.md §3.7）：
+	// 访问规则在 service 层（先校验库成员资格再校验所属用户，非成员/他人会话统一 404）；
+	// 提问挂问答限流 10 req/min（API 设计 §1）
+	if d.Chat != nil {
+		convs := authed.Group("/conversations", chatAccess(d.Chat, d.KBLookup))
+		convs.GET("/:c", d.Chat.GetConversation)
+		convs.PATCH("/:c", d.Chat.RenameConversation)
+		convs.DELETE("/:c", d.Chat.DeleteConversation)
+		convs.POST("/:c/messages", middleware.NewRateLimiter(10, time.Minute).Handler(middleware.UserKey), d.Chat.Ask)
+		authed.POST("/messages/:m/regenerate", d.Chat.Regenerate)
+		authed.POST("/messages/:m/feedback", d.Chat.Feedback)
+		authed.DELETE("/messages/:m/feedback", d.Chat.DeleteFeedback)
 	}
 
 	// admin（管理员）
@@ -159,4 +182,10 @@ func userLookup(users UserLookupRepo) func(c *gin.Context, userID int64) (int16,
 		}
 		return u.Status, u.TokenVersion, nil
 	}
+}
+
+// chatAccess 会话端点不做路径级拦截：成员资格与所属用户校验在 service.canAccess 统一处理
+// （非成员与他人的会话统一 404，不泄露存在性）；该函数仅为分组占位（保持路由组结构清晰）。
+func chatAccess(_ *ChatHandler, _ middleware.KBLookup) gin.HandlerFunc {
+	return func(c *gin.Context) { c.Next() }
 }

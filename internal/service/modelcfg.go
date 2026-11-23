@@ -480,7 +480,7 @@ func (s *ModelConfigService) GetDefault(ctx context.Context, purpose int16) (llm
 			if derr == nil {
 				if plain, perr := s.cipher.Decrypt(enc); perr == nil {
 					return llm.ResolvedConfig{
-						BaseURL: cd.BaseURL, APIKey: string(plain),
+						EntryID: cd.EntryID, BaseURL: cd.BaseURL, APIKey: string(plain),
 						ModelName: cd.ModelName, Params: cd.Params,
 					}, nil
 				}
@@ -500,7 +500,7 @@ func (s *ModelConfigService) GetDefault(ctx context.Context, purpose int16) (llm
 	if err != nil {
 		return llm.ResolvedConfig{}, fmt.Errorf("解密 API Key: %w", err)
 	}
-	cfg := llm.ResolvedConfig{BaseURL: svc.BaseURL, APIKey: string(plain), ModelName: e.ModelName, Params: string(e.Params)}
+	cfg := llm.ResolvedConfig{EntryID: e.ID, BaseURL: svc.BaseURL, APIKey: string(plain), ModelName: e.ModelName, Params: string(e.Params)}
 	if payload, jerr := json.Marshal(cachedDefault{
 		EntryID: e.ID, ServiceID: svc.ID, BaseURL: svc.BaseURL,
 		APIKeyEnc: base64.StdEncoding.EncodeToString(svc.APIKeyEnc),

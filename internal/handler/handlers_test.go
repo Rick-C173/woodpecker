@@ -30,6 +30,9 @@ type hEnv struct {
 	docQueue    *testutil.FakeQueue
 	docSvc      *service.DocumentService
 	searchStore *fakeSearchHandlerStore
+	chatStore   *fakeChatStore
+	chatStream  *fakeChatStreamH
+	chatSearch  *fakeChatSearchH
 }
 
 func setup(t *testing.T) *hEnv {
@@ -47,6 +50,11 @@ func setup(t *testing.T) *hEnv {
 	// M5：检索 handler（fake 存储与配置/向量化）
 	searchStore := &fakeSearchHandlerStore{}
 	searchSvc := service.NewSearchService(searchStore, &fakeSearchResolverHandler{}, &fakeSearchEmbedderHandler{}, nil)
+	// M6：会话问答 handler（fake 存储与流式器）
+	chatStore := newFakeChatStore()
+	chatStream := &fakeChatStreamH{deltas: []string{"回答内容"}}
+	chatSearch := &fakeChatSearchH{}
+	chatSvc := service.NewChatService(chatStore, env.KBs, &fakeChatResolverH{}, chatStream, chatSearch)
 	router := handler.NewRouter(handler.Deps{
 		Cfg:      cfg,
 		Auth:     handler.NewAuthHandler(env.AuthSvc),
@@ -55,6 +63,7 @@ func setup(t *testing.T) *hEnv {
 		ModelCfg: handler.NewModelCfgHandler(mcSvc),
 		Document: handler.NewDocumentHandler(docSvc),
 		Search:   handler.NewSearchHandler(searchSvc),
+		Chat:     handler.NewChatHandler(chatSvc),
 		UserRepo: env.Users,
 		Issuer:   env.Issuer,
 		KBLookup: env.KBs,
@@ -67,7 +76,7 @@ func setup(t *testing.T) *hEnv {
 	})
 	ts := httptest.NewServer(router)
 	t.Cleanup(ts.Close)
-	return &hEnv{ts: ts, env: env, mcTester: mcTester, mcRepo: mcRepo, docDocs: docDocs, docQueue: docQueue, docSvc: docSvc, searchStore: searchStore}
+	return &hEnv{ts: ts, env: env, mcTester: mcTester, mcRepo: mcRepo, docDocs: docDocs, docQueue: docQueue, docSvc: docSvc, searchStore: searchStore, chatStore: chatStore, chatStream: chatStream, chatSearch: chatSearch}
 }
 
 // postMultipart 提交 multipart/form-data（files[] 字段）。

@@ -14,6 +14,7 @@ const (
 
 // ResolvedConfig 一条可用的模型配置（service 层解密后注入）。
 type ResolvedConfig struct {
+	EntryID   int64 // 默认条目 ID（问答溯源 messages.model_entry_id；测试/直连场景为 0）
 	BaseURL   string
 	APIKey    string
 	ModelName string

@@ -192,6 +192,9 @@ func runAPI(ctx context.Context, cfg *config.Config) error {
 	// M5：混合检索（FR-10）—— 查询向量化 + RRF 融合 + rerank 精排
 	searchSvc := service.NewSearchService(repo.NewSearchRepo(db), modelCfgSvc, provider, provider)
 
+	// M6：对话问答（FR-07/08/09/14）—— SSE 流式问答 + 会话管理 + 引用落库 + 点踩反馈
+	chatSvc := service.NewChatService(repo.NewConversationRepo(db), kbs, modelCfgSvc, provider, searchSvc)
+
 	router := handler.NewRouter(handler.Deps{
 		Cfg:      cfg,
 		DB:       db,
@@ -201,6 +204,7 @@ func runAPI(ctx context.Context, cfg *config.Config) error {
 		ModelCfg: handler.NewModelCfgHandler(modelCfgSvc),
 		Document: handler.NewDocumentHandler(docSvc),
 		Search:   handler.NewSearchHandler(searchSvc),
+		Chat:     handler.NewChatHandler(chatSvc),
 		UserRepo: users,
 		Issuer:   issuer,
 		KBLookup: kbs,
