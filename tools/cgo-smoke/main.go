@@ -15,10 +15,7 @@ func main() {
 	src := []byte("package main\n\nfunc main() {\n\tprintln(\"woodpecker\")\n}\n")
 
 	parser := sitter.NewParser()
-	if err := parser.SetLanguage(golang.GetLanguage()); err != nil {
-		fmt.Fprintln(os.Stderr, "set language:", err)
-		os.Exit(1)
-	}
+	parser.SetLanguage(golang.GetLanguage())
 	tree, err := parser.ParseCtx(context.Background(), nil, src)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "parse:", err)
