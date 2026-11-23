@@ -39,3 +39,9 @@ data/
 bin/
 
 .apifox
+
+# coverprofile 排查产物（Go 1.27 剥后缀行为）
+it_nocoverpkg
+jwt_coverpkg
+coverage
+wp_cov*
