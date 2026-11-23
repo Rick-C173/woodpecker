@@ -2,7 +2,6 @@ package rag
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -27,7 +26,7 @@ func TestFetchLocalDir(t *testing.T) {
 	write("data.bin", "unsupported")      // R1 之外：静默跳过，不进清单
 	write(".env", "SECRET=1")             // R1b 默认排除
 	write("secrets/key.pem", "key")       // R1b 默认排除（目录规则）
-	write("docs/drafts/wip.md", "草稿")    // 用户 ignore_rules 命中
+	write("docs/drafts/wip.md", "草稿")     // 用户 ignore_rules 命中
 	write("node_modules/dep.js", "var x") // skipDirs 跳过
 
 	excl := ParseExclusionRules("")
@@ -43,10 +42,10 @@ func TestFetchLocalDir(t *testing.T) {
 	// 目录级命中（secrets/、docs/drafts/**）走 SkipDir 整体跳过，不进清单；
 	// 仅文件级命中才记录 Excluded。
 	assert.Equal(t, []string{".env"}, res.Excluded)
-	assert.Zero(t, res.Commit, "本地目录无 commit")
+	assert.Empty(t, res.Commit, "本地目录无 commit")
 	assert.Positive(t, res.TotalSize)
 	assert.Positive(t, res.FileSeen)
-	assert.Zero(t, res.Oversized)
+	assert.Empty(t, res.Oversized)
 }
 
 // 单文件超限 → Oversized 标记；仓库总量超限 → ErrRepoTooLarge。
@@ -127,7 +126,6 @@ func TestFetchURLFailures(t *testing.T) {
 	defer ts404.Close()
 	_, _, err = FetchURL(context.Background(), ts404.URL)
 	require.ErrorIs(t, err, ErrURLUnreachable)
-	assert.True(t, errors.Is(err, ErrURLUnreachable))
 }
 
 // ---- IsCodeExt / looksLikeCode ----
