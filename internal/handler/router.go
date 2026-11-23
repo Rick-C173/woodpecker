@@ -34,6 +34,9 @@ type Deps struct {
 	// M4：文档与摄取（FR-03/04/05/11）
 	Document *DocumentHandler
 
+	// M5：混合检索（FR-10）
+	Search *SearchHandler
+
 	KBLookup middleware.KBLookup
 	// OnAdminKBAccess 管理员以非成员身份访问库时回调（审计）
 	OnAdminKBAccess func(ctx context.Context, userID, kbID int64, method, path, ip string)
@@ -99,6 +102,11 @@ func NewRouter(d Deps) *gin.Engine {
 	members.POST("", d.KB.AddMember)
 	members.PATCH("/:user", d.KB.UpdateMemberRole)
 	members.DELETE("/:user", d.KB.RemoveMember)
+
+	// 检索（FR-10，API设计.md §3.7）：成员可用（KBAccess 已拦截）
+	if d.Search != nil {
+		kb.GET("/search", d.Search.Search)
+	}
 
 	// 文档与摄取（FR-03/04/05/11，API设计.md §3.6）
 	// 读取=成员（KBAccess 已拦截）；接入/重试/同步=编辑者+；删除/重建索引=管理者+（R6）

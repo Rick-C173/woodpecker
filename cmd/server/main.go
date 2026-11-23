@@ -127,6 +127,9 @@ func runAPI(ctx context.Context, cfg *config.Config) error {
 	docSvc := service.NewDocumentService(repo.NewDocumentRepo(db), settings, cipher, docQueue, auditSvc)
 	docSvc.SetUploadDir(cfg.UploadDir)
 
+	// M5：混合检索（FR-10）—— 查询向量化 + RRF 融合 + rerank 精排
+	searchSvc := service.NewSearchService(repo.NewSearchRepo(db), modelCfgSvc, provider, provider)
+
 	router := handler.NewRouter(handler.Deps{
 		Cfg:      cfg,
 		DB:       db,
@@ -135,6 +138,7 @@ func runAPI(ctx context.Context, cfg *config.Config) error {
 		KB:       handler.NewKBHandler(kbSvc),
 		ModelCfg: handler.NewModelCfgHandler(modelCfgSvc),
 		Document: handler.NewDocumentHandler(docSvc),
+		Search:   handler.NewSearchHandler(searchSvc),
 		UserRepo: users,
 		Issuer:   issuer,
 		KBLookup: kbs,

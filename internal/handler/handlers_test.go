@@ -21,14 +21,15 @@ import (
 )
 
 type hEnv struct {
-	ts        *httptest.Server
-	env       *testutil.TestEnv
-	rootToken string
-	mcTester  *testutil.FakeTester
-	mcRepo    *testutil.FakeModelCfgRepo
-	docDocs   *testutil.FakeDocRepo
-	docQueue  *testutil.FakeQueue
-	docSvc    *service.DocumentService
+	ts          *httptest.Server
+	env         *testutil.TestEnv
+	rootToken   string
+	mcTester    *testutil.FakeTester
+	mcRepo      *testutil.FakeModelCfgRepo
+	docDocs     *testutil.FakeDocRepo
+	docQueue    *testutil.FakeQueue
+	docSvc      *service.DocumentService
+	searchStore *fakeSearchHandlerStore
 }
 
 func setup(t *testing.T) *hEnv {
@@ -43,6 +44,9 @@ func setup(t *testing.T) *hEnv {
 	docQueue := &testutil.FakeQueue{}
 	docSvc := service.NewDocumentService(docDocs, env.Settings, &testutil.FakeCipher{}, docQueue, env.AuditSvc)
 	docSvc.SetUploadDir(t.TempDir())
+	// M5：检索 handler（fake 存储与配置/向量化）
+	searchStore := &fakeSearchHandlerStore{}
+	searchSvc := service.NewSearchService(searchStore, &fakeSearchResolverHandler{}, &fakeSearchEmbedderHandler{}, nil)
 	router := handler.NewRouter(handler.Deps{
 		Cfg:      cfg,
 		Auth:     handler.NewAuthHandler(env.AuthSvc),
@@ -50,6 +54,7 @@ func setup(t *testing.T) *hEnv {
 		KB:       handler.NewKBHandler(env.KBSvc),
 		ModelCfg: handler.NewModelCfgHandler(mcSvc),
 		Document: handler.NewDocumentHandler(docSvc),
+		Search:   handler.NewSearchHandler(searchSvc),
 		UserRepo: env.Users,
 		Issuer:   env.Issuer,
 		KBLookup: env.KBs,
@@ -62,7 +67,7 @@ func setup(t *testing.T) *hEnv {
 	})
 	ts := httptest.NewServer(router)
 	t.Cleanup(ts.Close)
-	return &hEnv{ts: ts, env: env, mcTester: mcTester, mcRepo: mcRepo, docDocs: docDocs, docQueue: docQueue, docSvc: docSvc}
+	return &hEnv{ts: ts, env: env, mcTester: mcTester, mcRepo: mcRepo, docDocs: docDocs, docQueue: docQueue, docSvc: docSvc, searchStore: searchStore}
 }
 
 // postMultipart 提交 multipart/form-data（files[] 字段）。
