@@ -32,6 +32,7 @@ type FakeKBRepo struct {
 	ErrOnList       error
 	ErrOnDocCount   error
 	ErrOnMembers    error // ListMembers / UpsertMember / DeleteMember
+	ErrOnRole       error // GetMemberRole（与 ErrOnMembers 分开注入）
 	ErrOnUserExists error
 }
 
@@ -175,6 +176,9 @@ func (f *FakeKBRepo) row(kb *model.KnowledgeBase, role int16) repo.KBRow {
 func (f *FakeKBRepo) GetMemberRole(_ context.Context, kbID, userID int64) (int16, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.ErrOnRole != nil {
+		return 0, f.ErrOnRole
+	}
 	roles, ok := f.members[kbID]
 	if !ok {
 		return 0, repo.ErrNotFound

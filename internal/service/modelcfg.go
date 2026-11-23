@@ -409,6 +409,8 @@ func (s *ModelConfigService) UpdateEntry(ctx context.Context, actorID, id int64,
 		if err := s.repo.SetDefaultEntry(ctx, e.Purpose, e.ID); err != nil {
 			return nil, err
 		}
+		// 与 SetDefaultEntry 结果保持一致：随后的 SaveEntry 全字段写回时不会覆盖掉默认标记
+		e.IsDefault = true
 		detail["is_default"] = true
 	}
 	if isDefault != nil && !*isDefault && e.IsDefault {

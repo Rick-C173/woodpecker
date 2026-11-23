@@ -262,3 +262,33 @@ func TestKBRepoErrorPaths(t *testing.T) {
 	require.ErrorIs(t, err, injected)
 	env.KBs.ErrOnUserExists = nil
 }
+
+// TestKBMemberErrorPaths 成员角色查询/删除失败与审计写入失败（不抛错）。
+func TestKBMemberErrorPaths(t *testing.T) {
+	env, root, dev := kbEnv(t)
+	ctx := context.Background()
+	kb, err := env.KBSvc.Create(ctx, root.ID, "成员错误库", "", "")
+	require.NoError(t, err)
+	injected := errors.New("member store down")
+	_, err = env.KBSvc.AddMember(ctx, root.ID, kb.ID, dev.ID, "editor", "")
+	require.NoError(t, err)
+
+	env.KBs.ErrOnMembers = injected
+	// 角色查询失败 → 透传（UpdateMemberRole / RemoveMember）
+	env.KBs.ErrOnRole = injected
+	err = env.KBSvc.UpdateMemberRole(ctx, root.ID, kb.ID, dev.ID, "member", "")
+	require.ErrorIs(t, err, injected)
+	err = env.KBSvc.RemoveMember(ctx, root.ID, kb.ID, dev.ID, "")
+	require.ErrorIs(t, err, injected)
+	env.KBs.ErrOnRole = nil
+
+	// 删除成员失败
+	err = env.KBSvc.RemoveMember(ctx, root.ID, kb.ID, dev.ID, "")
+	require.ErrorIs(t, err, injected)
+	env.KBs.ErrOnMembers = nil
+
+	// 审计写入失败不抛错（静默降级）
+	env.Audit.FailNext = true
+	require.NoError(t, env.KBSvc.RemoveMember(ctx, root.ID, kb.ID, dev.ID, "ip"))
+	assert.Equal(t, 0, env.KBs.MemberCount(kb.ID))
+}

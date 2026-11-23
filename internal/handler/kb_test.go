@@ -182,3 +182,25 @@ func TestKBMembersFlows(t *testing.T) {
 	sc, _ = get(t, h.ts, "/api/v1/kbs/9999/members", rootToken)
 	assert.Equal(t, 404, sc)
 }
+
+// TestKBMemberPathParamBounds 成员路径参数非法 → 404（不泄露存在性）。
+func TestKBMemberPathParamBounds(t *testing.T) {
+	h := setup(t)
+	_, _ = post(t, h.ts, "/api/v1/auth/register", "", map[string]any{"username": "root", "password": "password8"})
+	rootToken := loginToken(t, h.ts, "root", "password8")
+	sc, body := post(t, h.ts, "/api/v1/kbs", rootToken, map[string]any{"name": "边界库"})
+	require.Equal(t, 201, sc, body)
+	kbID := int64(body["id"].(float64))
+
+	// 非数字 / 非正数 userID → 404
+	sc, _ = del(t, h.ts, "/api/v1/kbs/"+i64(kbID)+"/members/abc", rootToken)
+	assert.Equal(t, 404, sc)
+	sc, _ = del(t, h.ts, "/api/v1/kbs/"+i64(kbID)+"/members/0", rootToken)
+	assert.Equal(t, 404, sc)
+	sc, _ = patch(t, h.ts, "/api/v1/kbs/"+i64(kbID)+"/members/abc", rootToken, map[string]any{"role": "editor"})
+	assert.Equal(t, 404, sc)
+
+	// 角色绑定失败 → 422
+	sc, _ = patch(t, h.ts, "/api/v1/kbs/"+i64(kbID)+"/members/5", rootToken, "not-json")
+	assert.Equal(t, 422, sc)
+}

@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"woodpecker/internal/model"
+	"woodpecker/internal/repo"
 	"woodpecker/internal/service"
 	"woodpecker/internal/testutil"
 )
@@ -289,4 +290,173 @@ func strPtr(v string) *string { return &v }
 func jsonOf(v any) (string, error) {
 	b, err := json.Marshal(v)
 	return string(b), err
+}
+
+// ---- 边界与分支补测 ----
+
+// TestMCDeleteServiceBranches 删除服务的 NotFound/成功路径与条目计数错误。
+func TestMCDeleteServiceBranches(t *testing.T) {
+	e := mcSetup(t)
+	ctx := context.Background()
+	svcID, err := e.svc.CreateService(ctx, 1, "X", "https://x.com/v1", "k", "")
+	require.NoError(t, err)
+
+	// 不存在 → NOT_FOUND
+	err = e.svc.DeleteService(ctx, 1, 9999, "")
+	assert.Equal(t, service.CodeNotFound, svcErr(t, err).Code)
+
+	// TestConnection 的解密失败分支（服务存在但 key 解密失败）
+	e.cipher.FailOnDecrypt = true
+	_, err = e.svc.TestConnection(ctx, 1, svcID.ID, "")
+	require.ErrorContains(t, err, "解密")
+	e.cipher.FailOnDecrypt = false
+
+	// 无条目 → 成功删除 + 审计
+	before := e.env.Audit.CountAction("model.service_update")
+	require.NoError(t, e.svc.DeleteService(ctx, 1, svcID.ID, "ip"))
+	assert.Greater(t, e.env.Audit.CountAction("model.service_update"), before)
+	_, err = e.repo.GetServiceByID(ctx, svcID.ID)
+	assert.ErrorIs(t, err, repo.ErrNotFound)
+}
+
+// TestMCUpdateEntryValidation 更新条目的参数校验边界。
+func TestMCUpdateEntryValidation(t *testing.T) {
+	e := mcSetup(t)
+	ctx := context.Background()
+	svcID, err := e.svc.CreateService(ctx, 1, "X", "https://x.com/v1", "k", "")
+	require.NoError(t, err)
+	entryID := e.repo.SeedModelEntry(svcID.ID, model.ModelPurposeChat, "m", false)
+
+	// purpose 非法
+	_, err = e.svc.UpdateEntry(ctx, 1, entryID, strPtr("vision"), nil, nil, nil, "")
+	assert.Equal(t, service.CodeValidation, svcErr(t, err).Code)
+	// 模型名空 / 超长
+	_, err = e.svc.UpdateEntry(ctx, 1, entryID, nil, strPtr(" "), nil, nil, "")
+	assert.Equal(t, service.CodeValidation, svcErr(t, err).Code)
+	_, err = e.svc.UpdateEntry(ctx, 1, entryID, nil, strPtr(strings.Repeat("m", 201)), nil, nil, "")
+	assert.Equal(t, service.CodeValidation, svcErr(t, err).Code)
+	// params 非法 JSON 对象（数组）
+	bad := "[1,2]"
+	_, err = e.svc.UpdateEntry(ctx, 1, entryID, nil, nil, &bad, nil, "")
+	assert.Equal(t, service.CodeValidation, svcErr(t, err).Code)
+
+	// 停用服务后设默认 → VALIDATION
+	_, err = e.svc.UpdateService(ctx, 1, svcID.ID, nil, nil, nil, boolPtr(false), "")
+	require.NoError(t, err)
+	_, err = e.svc.UpdateEntry(ctx, 1, entryID, nil, nil, nil, boolPtr(true), "")
+	assert.Equal(t, service.CodeValidation, svcErr(t, err).Code)
+
+	// 非默认条目传 isDefault=false → 正常保存（无副作用）
+	updated, err := e.svc.UpdateEntry(ctx, 1, entryID, nil, nil, nil, boolPtr(false), "")
+	require.NoError(t, err)
+	assert.False(t, updated.IsDefault)
+}
+
+// TestMCUpdateEntryDefaultGuards 默认条目守卫与设默认成功路径。
+func TestMCUpdateEntryDefaultGuards(t *testing.T) {
+	e := mcSetup(t)
+	ctx := context.Background()
+	svcID, err := e.svc.CreateService(ctx, 1, "X", "https://x.com/v1", "k", "")
+	require.NoError(t, err)
+	defID := e.repo.SeedModelEntry(svcID.ID, model.ModelPurposeChat, "m1", true)
+	nonID := e.repo.SeedModelEntry(svcID.ID, model.ModelPurposeChat, "m2", false)
+
+	// 默认条目取消默认 → MODEL_002
+	_, err = e.svc.UpdateEntry(ctx, 1, defID, nil, nil, nil, boolPtr(false), "")
+	assert.Equal(t, service.CodeModelDefaultDel, svcErr(t, err).Code)
+
+	// 设默认成功：is_default 切换并重读
+	updated, err := e.svc.UpdateEntry(ctx, 1, nonID, nil, nil, nil, boolPtr(true), "")
+	require.NoError(t, err)
+	assert.True(t, updated.IsDefault)
+
+	// 更新不存在的条目 → NOT_FOUND
+	_, err = e.svc.UpdateEntry(ctx, 1, 9999, nil, nil, nil, nil, "")
+	assert.Equal(t, service.CodeNotFound, svcErr(t, err).Code)
+}
+
+// TestMCUpdateEntryRepoErrors 更新条目的存储错误分支。
+func TestMCUpdateEntryRepoErrors(t *testing.T) {
+	e := mcSetup(t)
+	ctx := context.Background()
+	svcID, err := e.svc.CreateService(ctx, 1, "X", "https://x.com/v1", "k", "")
+	require.NoError(t, err)
+	entryID := e.repo.SeedModelEntry(svcID.ID, model.ModelPurposeChat, "m", false)
+	boom := errors.New("db down")
+
+	// SaveEntry 失败
+	e.repo.ErrOnEntrySave = boom
+	_, err = e.svc.UpdateEntry(ctx, 1, entryID, nil, strPtr("m2"), nil, nil, "")
+	require.ErrorIs(t, err, boom)
+	e.repo.ErrOnEntrySave = nil
+
+	// 设默认成功但重读失败
+	e.repo.ErrOnEntryGet = boom
+	_, err = e.svc.UpdateEntry(ctx, 1, entryID, nil, nil, nil, boolPtr(true), "")
+	require.ErrorIs(t, err, boom)
+	e.repo.ErrOnEntryGet = nil
+
+	// DeleteEntry 存储失败
+	e.repo.ErrOnEntryDelete = boom
+	err = e.svc.DeleteEntry(ctx, 1, entryID, "")
+	require.ErrorIs(t, err, boom)
+	e.repo.ErrOnEntryDelete = nil
+
+	// DeleteEntry 不存在 → NOT_FOUND
+	err = e.svc.DeleteEntry(ctx, 1, 9999, "")
+	assert.Equal(t, service.CodeNotFound, svcErr(t, err).Code)
+
+	// ListEntries 存储失败
+	e.repo.ErrOnList = boom
+	_, err = e.svc.ListEntries(ctx, svcID.ID, 0)
+	require.ErrorIs(t, err, boom)
+	e.repo.ErrOnList = nil
+}
+
+// TestMCUpdateServiceFields 更新服务的字段替换边界。
+func TestMCUpdateServiceFields(t *testing.T) {
+	e := mcSetup(t)
+	ctx := context.Background()
+	svcID, err := e.svc.CreateService(ctx, 1, "X", "https://x.com/v1", "sk-old", "")
+	require.NoError(t, err)
+
+	// 非法 baseURL → VALIDATION
+	bad := "ftp://x.com"
+	_, err = e.svc.UpdateService(ctx, 1, svcID.ID, nil, &bad, nil, nil, "")
+	assert.Equal(t, service.CodeValidation, svcErr(t, err).Code)
+	// 超长 baseURL → VALIDATION
+	long := "https://" + strings.Repeat("x", 500)
+	_, err = e.svc.CreateService(ctx, 1, "L", long, "k", "")
+	assert.Equal(t, service.CodeValidation, svcErr(t, err).Code)
+
+	// apiKey 替换 + 启用切换成功
+	newKey := "sk-new"
+	updated, err := e.svc.UpdateService(ctx, 1, svcID.ID, nil, nil, &newKey, boolPtr(true), "")
+	require.NoError(t, err)
+	assert.True(t, updated.Enabled)
+	stored, err := e.repo.GetServiceByID(ctx, svcID.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "enc:sk-new", string(stored.APIKeyEnc), "新 Key 应加密落库")
+}
+
+// TestMCCreateEntryValidation 创建条目的参数校验边界。
+func TestMCCreateEntryValidation(t *testing.T) {
+	e := mcSetup(t)
+	ctx := context.Background()
+	svcID, err := e.svc.CreateService(ctx, 1, "X", "https://x.com/v1", "k", "")
+	require.NoError(t, err)
+
+	// 模型名空 / 超长
+	_, err = e.svc.CreateEntry(ctx, 1, svcID.ID, "chat", "", "", false, "")
+	assert.Equal(t, service.CodeValidation, svcErr(t, err).Code)
+	_, err = e.svc.CreateEntry(ctx, 1, svcID.ID, "chat", strings.Repeat("m", 201), "", false, "")
+	assert.Equal(t, service.CodeValidation, svcErr(t, err).Code)
+	// params 非法 JSON
+	_, err = e.svc.CreateEntry(ctx, 1, svcID.ID, "chat", "m", "{", false, "")
+	assert.Equal(t, service.CodeValidation, svcErr(t, err).Code)
+	// 默认成功路径（服务启用中）
+	item, err := e.svc.CreateEntry(ctx, 1, svcID.ID, "rerank", "bge-reranker", `{"top_n":5}`, true, "ip")
+	require.NoError(t, err)
+	assert.True(t, item.IsDefault)
+	assert.Equal(t, "rerank", item.Purpose)
 }

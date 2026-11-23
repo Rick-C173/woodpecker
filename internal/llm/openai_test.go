@@ -180,3 +180,28 @@ func TestChatStreamCtxCancel(t *testing.T) {
 	assert.GreaterOrEqual(t, n, 1)
 	close(release)
 }
+
+// TestAPIErrorClassification 上游返回 OpenAI 错误结构 → ErrBadResponse（classifyErr 的 APIError 分支）。
+func TestAPIErrorClassification(t *testing.T) {
+	ts := mockOpenAI(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprint(w, `{"error":{"message":"invalid model","type":"invalid_request_error","code":"bad"}}`)
+	})
+	_, err := provider().Embed(context.Background(), cfgOf(ts.URL), []string{"a"})
+	require.ErrorIs(t, err, llm.ErrBadResponse)
+
+	// 同样结构作用于对话流
+	_, err = provider().ChatStream(context.Background(), cfgOf(ts.URL), llm.ChatRequest{})
+	require.ErrorIs(t, err, llm.ErrBadResponse)
+}
+
+// TestEmbedNegativeIndex 向量化返回越界 index → ErrBadResponse（防护分支）。
+func TestEmbedNegativeIndex(t *testing.T) {
+	ts := mockOpenAI(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"data":[{"index":-1,"embedding":[1]}]}`)
+	})
+	_, err := provider().Embed(context.Background(), cfgOf(ts.URL), []string{"a"})
+	require.ErrorIs(t, err, llm.ErrBadResponse)
+}

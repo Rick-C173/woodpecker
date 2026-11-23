@@ -173,3 +173,24 @@ func TestMCAdminFlows(t *testing.T) {
 	assert.Contains(t, body["chat"], "err:")
 	h.mcTester.ChatErr = nil
 }
+
+// TestMCRepoErrorToHTTP 存储层错误 → 500 INTERNAL（不泄露内部细节）。
+func TestMCRepoErrorToHTTP(t *testing.T) {
+	h := mcSetupHandler(t)
+	base := "/api/v1/admin"
+	boom := errors.New("db down")
+
+	h.mcRepo.ErrOnList = boom
+	sc, body := get(t, h.ts, base+"/model-services", h.rootToken)
+	assert.Equal(t, 500, sc)
+	assert.Equal(t, "INTERNAL", jcode(t, body))
+	sc, _ = get(t, h.ts, base+"/model-entries", h.rootToken)
+	assert.Equal(t, 500, sc)
+	h.mcRepo.ErrOnList = nil
+
+	// 创建服务绑定失败（缺 base_url / api_key）→ 422
+	sc, _ = post(t, h.ts, base+"/model-services", h.rootToken, map[string]any{"name": "x"})
+	assert.Equal(t, 422, sc)
+	sc, _ = post(t, h.ts, base+"/model-services", h.rootToken, "not-json")
+	assert.Equal(t, 422, sc)
+}

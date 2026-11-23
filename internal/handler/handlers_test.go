@@ -24,6 +24,7 @@ type hEnv struct {
 	env       *testutil.TestEnv
 	rootToken string
 	mcTester  *testutil.FakeTester
+	mcRepo    *testutil.FakeModelCfgRepo
 }
 
 func setup(t *testing.T) *hEnv {
@@ -51,7 +52,7 @@ func setup(t *testing.T) *hEnv {
 	})
 	ts := httptest.NewServer(router)
 	t.Cleanup(ts.Close)
-	return &hEnv{ts: ts, env: env, mcTester: mcTester}
+	return &hEnv{ts: ts, env: env, mcTester: mcTester, mcRepo: mcRepo}
 }
 
 func post(t *testing.T, ts *httptest.Server, path, token string, payload any) (int, map[string]any) {
@@ -220,3 +221,75 @@ func TestAdminUserHandlerFlows(t *testing.T) {
 }
 
 func i64(v int64) string { return strconv.FormatInt(v, 10) }
+
+// TestAuthBindFailures 注册与改密的请求体绑定失败分支（边界：非法/缺字段）。
+func TestAuthBindFailures(t *testing.T) {
+	h := setup(t)
+
+	// 注册：非 JSON body → 401 AUTH_001
+	sc, body := post(t, h.ts, "/api/v1/auth/register", "", "not-json")
+	assert.Equal(t, 401, sc)
+	assert.Equal(t, "AUTH_001", jcode(t, body))
+	// 缺密码字段
+	sc, body = post(t, h.ts, "/api/v1/auth/register", "", map[string]any{"username": "x"})
+	assert.Equal(t, 401, sc)
+	assert.Equal(t, "AUTH_001", jcode(t, body))
+
+	// 改密：非 JSON / 缺新密码
+	_, _ = post(t, h.ts, "/api/v1/auth/register", "", map[string]any{"username": "root", "password": "password8"})
+	token := loginToken(t, h.ts, "root", "password8")
+	sc, body = post(t, h.ts, "/api/v1/auth/password", token, "not-json")
+	assert.Equal(t, 401, sc)
+	assert.Equal(t, "AUTH_001", jcode(t, body))
+	sc, _ = post(t, h.ts, "/api/v1/auth/password", token, map[string]any{"old_password": "password8"})
+	assert.Equal(t, 401, sc)
+}
+
+// TestAdminListPaginationBounds 管理员列表分页参数归一化（边界值）。
+func TestAdminListPaginationBounds(t *testing.T) {
+	h := setup(t)
+	_, _ = post(t, h.ts, "/api/v1/auth/register", "", map[string]any{"username": "root", "password": "password8"})
+	token := loginToken(t, h.ts, "root", "password8")
+
+	// page=0 / page_size 超上限 101 → 归一化 page=1、page_size=20
+	sc, body := get(t, h.ts, "/api/v1/admin/users?page=0&page_size=101", token)
+	assert.Equal(t, 200, sc)
+	assert.InDelta(t, 1, body["page"], 0.001)
+	assert.InDelta(t, 20, body["page_size"], 0.001)
+
+	// 非数字 / 负数 → 归一化
+	sc, body = get(t, h.ts, "/api/v1/admin/users?page=abc&page_size=xyz", token)
+	assert.Equal(t, 200, sc)
+	assert.InDelta(t, 1, body["page"], 0.001)
+	assert.InDelta(t, 20, body["page_size"], 0.001)
+	sc, _ = get(t, h.ts, "/api/v1/admin/users?page=-5&page_size=0", token)
+	assert.Equal(t, 200, sc)
+
+	// 合法上限：page_size=100 透传
+	sc, body = get(t, h.ts, "/api/v1/admin/users?page=2&page_size=100", token)
+	assert.Equal(t, 200, sc)
+	assert.InDelta(t, 2, body["page"], 0.001)
+	assert.InDelta(t, 100, body["page_size"], 0.001)
+
+	// status 非法值不报错（0=不过滤）
+	sc, _ = get(t, h.ts, "/api/v1/admin/users?status=abc", token)
+	assert.Equal(t, 200, sc)
+}
+
+// TestAdminBindFailures 创建用户与重置密码的绑定失败分支。
+func TestAdminBindFailures(t *testing.T) {
+	h := setup(t)
+	_, _ = post(t, h.ts, "/api/v1/auth/register", "", map[string]any{"username": "root", "password": "password8"})
+	token := loginToken(t, h.ts, "root", "password8")
+
+	// 创建用户：非 JSON / 缺用户名
+	sc, body := post(t, h.ts, "/api/v1/admin/users", token, "not-json")
+	assert.Equal(t, 401, sc)
+	assert.Equal(t, "AUTH_001", jcode(t, body))
+	sc, _ = post(t, h.ts, "/api/v1/admin/users", token, map[string]any{})
+	assert.Equal(t, 401, sc)
+
+	// 重置密码：目标用户不存在 → 404
+	sc, _ = post(t, h.ts, "/api/v1/admin/users/9999/reset-password", token, nil)
+	assert.Equal(t, 404, sc)
+}
