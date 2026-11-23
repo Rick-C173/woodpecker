@@ -47,9 +47,7 @@ func main() {
 	logWriter := setupLogWriter(cfg)
 	slog.SetDefault(slog.New(slog.NewTextHandler(logWriter, &slog.HandlerOptions{Level: logLevel})))
 
-	if cfg.BannerEnabled {
-		printBanner()
-	}
+	printBanner(cfg)
 
 	switch *mode {
 	case "api", "worker", "all":
@@ -84,19 +82,6 @@ func setupLogWriter(cfg *config.Config) io.Writer {
 
 // closer 日志文件句柄（LOG_TO_FILE=true 时非空），进程退出前关闭。
 var closer io.Closer
-
-// printBanner 启动横幅 + 关键配置摘要（BANNER_ENABLED=false 关闭）。
-func printBanner() {
-	fmt.Print(`
-   ██╗    ██╗ ██████╗  ██████╗ ██████╗ ██████╗ ███████╗██████╗  █████╗
-   ██║    ██║██╔═══██╗██╔═══██╗██╔══██╗██╔══██╗██╔════╝██╔══██╗██╔══██╗
-   ██║ █╗ ██║██║   ██║██║   ██║██████╔╝██║  ██║█████╗  ██████╔╝███████║
-   ██║███╗██║██║   ██║██║   ██║██╔══██╗██║  ██║██╔══╝  ██╔══██╗██╔══██║
-   ╚███╔███╔╝╚██████╔╝╚██████╔╝██║  ██║██████╔╝███████╗██║  ██║██║  ██║
-    ╚══╝╚══╝  ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═════╝ ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝
-   啄木鸟 · AI 代码/技术文档知识库   v0.1.0-dev
-`)
-}
 
 // maskDSN 脱敏数据源连接串（密码替换为 ***）。
 func maskDSN(dsn string) string {
