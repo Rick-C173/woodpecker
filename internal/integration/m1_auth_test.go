@@ -6,6 +6,7 @@ package integration_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -41,14 +42,22 @@ func setup(t *testing.T) *env {
 	issuer := jwt.NewIssuer(cfg.JWTSecret, time.Hour)
 	authSvc := service.NewAuthService(users, settings, auditSvc, issuer)
 	adminSvc := service.NewUserAdminService(users, auditSvc)
+	kbs := repo.NewKBRepo(db)
+	kbSvc := service.NewKBService(kbs, auditSvc)
 
 	router := handler.NewRouter(handler.Deps{
 		Cfg:      cfg,
 		DB:       db,
 		Auth:     handler.NewAuthHandler(authSvc),
 		Admin:    handler.NewAdminUsersHandler(adminSvc),
+		KB:       handler.NewKBHandler(kbSvc),
 		UserRepo: users,
 		Issuer:   issuer,
+		KBLookup: kbs,
+		OnAdminKBAccess: func(ctx context.Context, userID, kbID int64, method, path, ip string) {
+			auditSvc.Record(ctx, &userID, "kb.admin_access", "kb", &kbID,
+				map[string]any{"method": method, "path": path}, ip)
+		},
 	})
 	ts := httptest.NewServer(router)
 	t.Cleanup(ts.Close)

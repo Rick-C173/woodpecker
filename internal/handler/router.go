@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -23,8 +24,14 @@ type Deps struct {
 	DB       *gorm.DB
 	Auth     *AuthHandler
 	Admin    *AdminUsersHandler
+	KB       *KBHandler
 	UserRepo UserLookupRepo
 	Issuer   *jwt.Issuer
+
+	// KBLookup R6 成员资格查询（*repo.KBRepo 满足该接口）
+	KBLookup middleware.KBLookup
+	// OnAdminKBAccess 管理员以非成员身份访问库时回调（审计）
+	OnAdminKBAccess func(ctx context.Context, userID, kbID int64, method, path, ip string)
 
 	Pinger Pinger // 可选：测试注入探针；为空时由 DB 派生
 }
@@ -62,9 +69,31 @@ func NewRouter(d Deps) *gin.Engine {
 	v1.POST("/auth/login", d.Auth.Login)
 	v1.POST("/auth/register", d.Auth.Register)
 
-	// auth（登录态）
-	authed := v1.Group("", middleware.Auth(d.Issuer, userLookup(d.UserRepo)))
+	// auth（登录态）：全局限流 100 req/min/用户（API 设计 §1）
+	limiter := middleware.NewRateLimiter(100, time.Minute)
+	authed := v1.Group("", middleware.Auth(d.Issuer, userLookup(d.UserRepo)), limiter.Handler(middleware.UserKey))
 	authed.POST("/auth/password", d.Auth.ChangePassword)
+
+	// 知识库（FR-02）：建/改/删与成员授权仅管理员；库内读取需成员资格（R6 不可见原则）
+	var adminBypass func(*gin.Context, int64, int64)
+	if d.OnAdminKBAccess != nil {
+		adminBypass = func(c *gin.Context, userID, kbID int64) {
+			d.OnAdminKBAccess(c.Request.Context(), userID, kbID,
+				c.Request.Method, c.Request.URL.Path, c.ClientIP())
+		}
+	}
+	kbs := authed.Group("/kbs")
+	kbs.GET("", d.KB.List)
+	kbs.POST("", middleware.Admin(), d.KB.Create)
+	kb := kbs.Group("/:kb", middleware.KBAccess(d.KBLookup, adminBypass))
+	kb.GET("", d.KB.Get)
+	kb.PATCH("", middleware.Admin(), d.KB.Update)
+	kb.DELETE("", middleware.Admin(), d.KB.Delete)
+	members := kb.Group("/members", middleware.Admin())
+	members.GET("", d.KB.ListMembers)
+	members.POST("", d.KB.AddMember)
+	members.PATCH("/:user", d.KB.UpdateMemberRole)
+	members.DELETE("/:user", d.KB.RemoveMember)
 
 	// admin（管理员）
 	admin := v1.Group("/admin", middleware.Auth(d.Issuer, userLookup(d.UserRepo)), middleware.Admin())

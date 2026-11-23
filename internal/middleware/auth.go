@@ -22,25 +22,25 @@ func Auth(issuer *jwt.Issuer, lookup func(c *gin.Context, userID int64) (status 
 	return func(c *gin.Context) {
 		tokenStr, ok := strings.CutPrefix(c.GetHeader("Authorization"), "Bearer ")
 		if !ok || tokenStr == "" {
-			httpx.FailWith(c, http.StatusUnauthorized, httpx.CodeAuthStaleToken, "未登录或凭证无效")
+			httpx.AbortFailWith(c, http.StatusUnauthorized, httpx.CodeAuthStaleToken, "未登录或凭证无效")
 			return
 		}
 		claims, err := issuer.Parse(tokenStr)
 		if err != nil {
-			httpx.FailWith(c, http.StatusUnauthorized, httpx.CodeAuthStaleToken, "登录状态已失效，请重新登录")
+			httpx.AbortFailWith(c, http.StatusUnauthorized, httpx.CodeAuthStaleToken, "登录状态已失效，请重新登录")
 			return
 		}
 		status, version, err := lookup(c, claims.UserID)
 		if err != nil {
-			httpx.FailWith(c, http.StatusUnauthorized, httpx.CodeAuthStaleToken, "登录状态已失效，请重新登录")
+			httpx.AbortFailWith(c, http.StatusUnauthorized, httpx.CodeAuthStaleToken, "登录状态已失效，请重新登录")
 			return
 		}
 		if status != 1 {
-			httpx.FailWith(c, http.StatusUnauthorized, httpx.CodeAuthDisabled, "账号已被禁用，请联系管理员")
+			httpx.AbortFailWith(c, http.StatusUnauthorized, httpx.CodeAuthDisabled, "账号已被禁用，请联系管理员")
 			return
 		}
 		if version != claims.TokenVersion {
-			httpx.FailWith(c, http.StatusUnauthorized, httpx.CodeAuthStaleToken, "登录状态已失效，请重新登录")
+			httpx.AbortFailWith(c, http.StatusUnauthorized, httpx.CodeAuthStaleToken, "登录状态已失效，请重新登录")
 			return
 		}
 		c.Set(CtxUserID, claims.UserID)
@@ -53,7 +53,7 @@ func Auth(issuer *jwt.Issuer, lookup func(c *gin.Context, userID int64) (status 
 func Admin() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if adm, _ := c.Get(CtxIsAdmin); adm != true {
-			httpx.FailWith(c, http.StatusForbidden, httpx.CodeForbidden, "无权限执行该操作")
+			httpx.AbortFailWith(c, http.StatusForbidden, httpx.CodeForbidden, "无权限执行该操作")
 			return
 		}
 		c.Next()
@@ -70,3 +70,8 @@ func UserID(c *gin.Context) int64 {
 	return 0
 }
 
+// IsAdmin 当前登录用户是否管理员。
+func IsAdmin(c *gin.Context) bool {
+	v, ok := c.Get(CtxIsAdmin)
+	return ok && v == true
+}

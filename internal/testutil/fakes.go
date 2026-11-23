@@ -20,15 +20,15 @@ import (
 // ---- 用户存储替身 ----
 
 type FakeUserRepo struct {
-	mu              sync.Mutex
-	byName          map[string]*model.User
-	nextID          int64
-	ErrOnList       error // 注入 List 错误
-	ErrOnSave       error // 注入 Save 错误
-	ErrOnCreate     error // 注入 Create 错误
-	ErrOnCount      error // 注入 Count 错误
+	mu               sync.Mutex
+	byName           map[string]*model.User
+	nextID           int64
+	ErrOnList        error // 注入 List 错误
+	ErrOnSave        error // 注入 Save 错误
+	ErrOnCreate      error // 注入 Create 错误
+	ErrOnCount       error // 注入 Count 错误
 	ErrOnCountAdmins error // 注入 CountAdmins 错误
-	ErrOnKBCount    error // 注入 CountKBMemberships 错误
+	ErrOnKBCount     error // 注入 CountKBMemberships 错误
 }
 
 func NewFakeUsers() *FakeUserRepo {
@@ -237,10 +237,12 @@ type TestEnv struct {
 	Users    *FakeUserRepo
 	Audit    *FakeAuditRepo
 	Settings *FakeSettingRepo
+	KBs      *FakeKBRepo
 	Issuer   *jwt.Issuer
 
 	AuthSvc  *service.AuthService
 	AdminSvc *service.UserAdminService
+	KBSvc    *service.KBService
 	BaseTime time.Time
 }
 
@@ -250,17 +252,22 @@ func NewTestEnv(t *testing.T, settings map[string]bool) *TestEnv {
 	audit := &FakeAuditRepo{}
 	issuer := jwt.NewIssuer("test-secret", time.Hour)
 	auditSvc := service.NewAuditService(audit)
+	kbs := NewFakeKBs()
+	kbs.Users = users
 	env := &TestEnv{
 		Users:    users,
 		Audit:    audit,
 		Settings: &FakeSettingRepo{Vals: settings},
+		KBs:      kbs,
 		Issuer:   issuer,
 		BaseTime: time.Now(),
 	}
 	env.AuthSvc = service.NewAuthService(users, env.Settings, auditSvc, issuer)
 	env.AdminSvc = service.NewUserAdminService(users, auditSvc)
+	env.KBSvc = service.NewKBService(kbs, auditSvc)
 	env.AuthSvc.SetClock(func() time.Time { return env.BaseTime })
 	env.AdminSvc.SetClock(func() time.Time { return env.BaseTime })
+	env.KBSvc.SetClock(func() time.Time { return env.BaseTime })
 	return env
 }
 

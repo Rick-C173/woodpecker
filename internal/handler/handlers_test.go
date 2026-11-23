@@ -14,6 +14,7 @@ import (
 
 	"woodpecker/internal/config"
 	"woodpecker/internal/handler"
+	"woodpecker/internal/model"
 	"woodpecker/internal/testutil"
 )
 
@@ -30,9 +31,16 @@ func setup(t *testing.T) *hEnv {
 		Cfg:      cfg,
 		Auth:     handler.NewAuthHandler(env.AuthSvc),
 		Admin:    handler.NewAdminUsersHandler(env.AdminSvc),
+		KB:       handler.NewKBHandler(env.KBSvc),
 		UserRepo: env.Users,
 		Issuer:   env.Issuer,
-		Pinger:   func(ctx context.Context) error { return nil },
+		KBLookup: env.KBs,
+		OnAdminKBAccess: func(ctx context.Context, userID, kbID int64, method, path, ip string) {
+			_ = env.Audit.Add(ctx, &model.AuditLog{
+				UserID: &userID, Action: "kb.admin_access", ObjectType: "kb", ObjectID: &kbID,
+			})
+		},
+		Pinger: func(ctx context.Context) error { return nil },
 	})
 	ts := httptest.NewServer(router)
 	t.Cleanup(ts.Close)

@@ -65,3 +65,15 @@ func FailServiceError(c *gin.Context, err error) {
 	}
 	Fail(c, "INTERNAL", "服务内部错误")
 }
+
+// AbortFail 渲染错误并终止后续 handler（中间件拦截场景）。
+func AbortFail(c *gin.Context, code, message string) {
+	Fail(c, code, message)
+	c.Abort()
+}
+
+// AbortFailWith 渲染指定状态码错误并终止后续 handler（中间件兜底场景）。
+func AbortFailWith(c *gin.Context, status int, code, message string) {
+	FailWith(c, status, code, message)
+	c.Abort()
+}

@@ -35,7 +35,10 @@ const (
 	CodeUserExists      = "USER_001"
 	CodeUserSelfDisable = "USER_002"
 	CodeUserLastAdmin   = "USER_003"
+	CodeKBNameExists    = "KB_001"
 	CodeNotFound        = "NOT_FOUND"
+	CodeValidation      = "VALIDATION_FAILED"
+	CodeForbidden       = "FORBIDDEN"
 )
 
 // 锁定策略（PRD FR-01）：连续错误 5 次锁定 10 分钟

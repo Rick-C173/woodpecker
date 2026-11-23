@@ -71,3 +71,15 @@ func TestFailServiceError(t *testing.T) {
 	assert.Equal(t, 500, w.Code)
 	assert.Contains(t, w.Body.String(), "INTERNAL")
 }
+
+func TestAbortHelpers(t *testing.T) {
+	c, w := newCtx()
+	AbortFail(c, CodeNotFound, "不存在")
+	assert.Equal(t, 404, w.Code)
+	assert.True(t, c.IsAborted())
+
+	c, w = newCtx()
+	AbortFailWith(c, http.StatusTooManyRequests, CodeRateLimited, "限流")
+	assert.Equal(t, 429, w.Code)
+	assert.True(t, c.IsAborted())
+}

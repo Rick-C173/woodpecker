@@ -88,14 +88,22 @@ func runAPI(ctx context.Context, cfg *config.Config) error {
 	issuer := jwt.NewIssuer(cfg.JWTSecret, time.Duration(cfg.JWTTLHours)*time.Hour)
 	authSvc := service.NewAuthService(users, settings, auditSvc, issuer)
 	adminSvc := service.NewUserAdminService(users, auditSvc)
+	kbs := repo.NewKBRepo(db)
+	kbSvc := service.NewKBService(kbs, auditSvc)
 
 	router := handler.NewRouter(handler.Deps{
 		Cfg:      cfg,
 		DB:       db,
 		Auth:     handler.NewAuthHandler(authSvc),
 		Admin:    handler.NewAdminUsersHandler(adminSvc),
+		KB:       handler.NewKBHandler(kbSvc),
 		UserRepo: users,
 		Issuer:   issuer,
+		KBLookup: kbs,
+		OnAdminKBAccess: func(ctx context.Context, userID, kbID int64, method, path, ip string) {
+			auditSvc.Record(ctx, &userID, "kb.admin_access", "kb", &kbID,
+				map[string]any{"method": method, "path": path}, ip)
+		},
 	})
 	srv := &http.Server{
 		Addr:    fmt.Sprintf(":%d", cfg.Port),
