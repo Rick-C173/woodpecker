@@ -1,0 +1,14 @@
+# 行尾规范：Go 生态工具链（gofmt/golangci-lint）要求 LF
+* text=auto
+*.go text eol=lf
+*.mod text eol=lf
+*.sum text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.sql text eol=lf
+*.sh text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.svg text eol=lf
+*.ps1 text eol=crlf
+*.bat text eol=crlf
