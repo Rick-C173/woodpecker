@@ -31,7 +31,7 @@ var testDSN = func() string {
 
 func openTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	db, err := database.Open(testDSN)
+	db, err := database.Open(testDSN, 20, 5, 30)
 	if err == nil {
 		sqlDB, _ := db.DB()
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)

@@ -12,17 +12,21 @@ import (
 
 // UserAdminService 管理员用户管理（PRD FR-13），含 USER_002/003 保护。
 type UserAdminService struct {
-	users UserRepo
-	audit *AuditService
-	now   func() time.Time
+	users  UserRepo
+	audit  *AuditService
+	policy PasswordPolicy
+	now    func() time.Time
 }
 
 func NewUserAdminService(users UserRepo, audit *AuditService) *UserAdminService {
-	return &UserAdminService{users: users, audit: audit, now: time.Now}
+	return &UserAdminService{users: users, audit: audit, policy: DefaultPasswordPolicy(), now: time.Now}
 }
 
 // SetClock 注入时钟（测试用）。
 func (s *UserAdminService) SetClock(now func() time.Time) { s.now = now }
+
+// SetPolicy 注入密码策略（默认 DefaultPasswordPolicy）。
+func (s *UserAdminService) SetPolicy(p PasswordPolicy) { s.policy = p }
 
 type AdminUserItem struct {
 	ID                 int64  `json:"id"`
@@ -76,20 +80,20 @@ func (s *UserAdminService) List(ctx context.Context, q repo.UserListQuery) ([]Ad
 // Create 创建用户（FR-13）：初始密码随机生成或指定，首次登录强制修改。
 // 返回一次性展示的初始密码。
 func (s *UserAdminService) Create(ctx context.Context, actorID int64, username, password string, isAdmin bool, ip string) (string, *model.User, error) {
-	if err := validateCredentials(username, orDefault(password, "12345678")); err != nil {
+	if password == "" {
+		gen, err := crypto.RandomPassword(s.policy.InitialLen)
+		if err != nil {
+			return "", nil, err
+		}
+		password = gen
+	}
+	if err := validateCredentials(username, password, s.policy.MinLen); err != nil {
 		return "", nil, err
 	}
 	if _, err := s.users.GetByUsername(ctx, username); err == nil {
 		return "", nil, NewServiceError(CodeUserExists, "用户名已存在")
 	} else if !errors.Is(err, repo.ErrNotFound) {
 		return "", nil, err
-	}
-	if password == "" {
-		gen, err := crypto.RandomPassword(12)
-		if err != nil {
-			return "", nil, err
-		}
-		password = gen
 	}
 	hash, err := crypto.HashPassword(password)
 	if err != nil {
@@ -182,7 +186,7 @@ func (s *UserAdminService) ResetPassword(ctx context.Context, actorID, targetID 
 	if err != nil {
 		return "", NewServiceError(CodeNotFound, "用户不存在")
 	}
-	newPw, err := crypto.RandomPassword(12)
+	newPw, err := crypto.RandomPassword(s.policy.InitialLen)
 	if err != nil {
 		return "", err
 	}
@@ -202,11 +206,4 @@ func (s *UserAdminService) ResetPassword(ctx context.Context, actorID, targetID 
 	s.audit.Record(ctx, &actorID, "user.reset_password", "user", &targetID,
 		map[string]any{"username": target.Username}, ip)
 	return newPw, nil
-}
-
-func orDefault(v, def string) string {
-	if v == "" {
-		return def
-	}
-	return v
 }

@@ -8,7 +8,9 @@ import (
 
 func clearEnv(t *testing.T) {
 	t.Helper()
-	for _, k := range []string{"APP_PORT", "DATABASE_URL", "REDIS_ADDR", "JWT_SECRET", "ENCRYPTION_KEY", "LOG_LEVEL", "CORS_ORIGINS"} {
+	for _, k := range []string{"APP_PORT", "DATABASE_URL", "REDIS_ADDR", "JWT_SECRET", "ENCRYPTION_KEY", "LOG_LEVEL", "CORS_ORIGINS",
+		"RATE_LIMIT_PER_MIN", "PASSWORD_MIN_LEN", "PASSWORD_LOCK_THRESHOLD", "PASSWORD_LOCK_MINUTES", "INITIAL_PASSWORD_LEN",
+		"DB_MAX_OPEN_CONNS", "DB_MAX_IDLE_CONNS", "DB_CONN_MAX_LIFETIME_MINUTES"} {
 		t.Setenv(k, "")
 		osUnset(k)
 	}
@@ -24,6 +26,43 @@ func TestLoadDefaults(t *testing.T) {
 	// 未注入密钥时给出占位值而非空串
 	assert.NotEmpty(t, cfg.JWTSecret)
 	assert.NotEmpty(t, cfg.EncryptionKey)
+	// 限流 / 密码策略 / 连接池默认值
+	assert.Equal(t, 100, cfg.RateLimitPerMin)
+	assert.Equal(t, 8, cfg.PasswordMinLen)
+	assert.Equal(t, 5, cfg.PasswordLockThreshold)
+	assert.Equal(t, 10, cfg.PasswordLockMinutes)
+	assert.Equal(t, 12, cfg.InitialPasswordLen)
+	assert.Equal(t, 20, cfg.DBMaxOpenConns)
+	assert.Equal(t, 5, cfg.DBMaxIdleConns)
+	assert.Equal(t, 30, cfg.DBConnMaxLifetimeMinutes)
+}
+
+func TestLoadPolicyFromEnv(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("RATE_LIMIT_PER_MIN", "0") // 0 = 关闭限流
+	t.Setenv("PASSWORD_MIN_LEN", "12")
+	t.Setenv("PASSWORD_LOCK_THRESHOLD", "3")
+	t.Setenv("PASSWORD_LOCK_MINUTES", "15")
+	t.Setenv("INITIAL_PASSWORD_LEN", "16")
+	t.Setenv("DB_MAX_OPEN_CONNS", "40")
+	t.Setenv("DB_CONN_MAX_LIFETIME_MINUTES", "60")
+	cfg := Load()
+	assert.Equal(t, 0, cfg.RateLimitPerMin)
+	assert.Equal(t, 12, cfg.PasswordMinLen)
+	assert.Equal(t, 3, cfg.PasswordLockThreshold)
+	assert.Equal(t, 15, cfg.PasswordLockMinutes)
+	assert.Equal(t, 16, cfg.InitialPasswordLen)
+	assert.Equal(t, 40, cfg.DBMaxOpenConns)
+	assert.Equal(t, 60, cfg.DBConnMaxLifetimeMinutes)
+}
+
+func TestLoadInvalidPolicyFallsBack(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("RATE_LIMIT_PER_MIN", "abc")
+	t.Setenv("PASSWORD_MIN_LEN", "xyz")
+	cfg := Load()
+	assert.Equal(t, 100, cfg.RateLimitPerMin, "非法数值应回退默认值")
+	assert.Equal(t, 8, cfg.PasswordMinLen)
 }
 
 func TestLoadPortFromEnv(t *testing.T) {

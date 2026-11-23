@@ -16,8 +16,8 @@ import (
 	"woodpecker/migrations"
 )
 
-// Open 建立 GORM 连接并按 数据库设计.md §6 配置连接池。
-func Open(dsn string) (*gorm.DB, error) {
+// Open 建立 GORM 连接；连接池参数来自配置（数据库设计 §6，默认 20/5/30min）。
+func Open(dsn string, maxOpen, maxIdle, maxLifetimeMinutes int) (*gorm.DB, error) {
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
 		PrepareStmt: false, // 数据库设计 §6：复杂手写 SQL 为主，关闭预编译缓存
 	})
@@ -28,9 +28,9 @@ func Open(dsn string) (*gorm.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	sqlDB.SetMaxOpenConns(20)
-	sqlDB.SetMaxIdleConns(5)
-	sqlDB.SetConnMaxLifetime(30 * time.Minute)
+	sqlDB.SetMaxOpenConns(maxOpen)
+	sqlDB.SetMaxIdleConns(maxIdle)
+	sqlDB.SetConnMaxLifetime(time.Duration(maxLifetimeMinutes) * time.Minute)
 	return db, nil
 }
 

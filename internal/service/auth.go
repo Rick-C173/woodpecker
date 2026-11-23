@@ -41,12 +41,18 @@ const (
 	CodeForbidden       = "FORBIDDEN"
 )
 
-// 锁定策略（PRD FR-01）：连续错误 5 次锁定 10 分钟
-const (
-	lockThreshold   = 5
-	lockDuration    = 10 * time.Minute
-	minPasswordLen  = 8
-)
+// PasswordPolicy 密码与锁定策略（PRD FR-01）：默认值见 DefaultPasswordPolicy，
+// 可通过 SetPolicy 由配置文件注入。
+type PasswordPolicy struct {
+	MinLen        int           // 密码最小长度
+	LockThreshold int           // 连续失败 N 次锁定
+	LockDuration  time.Duration // 锁定时长
+	InitialLen    int           // 随机初始密码长度
+}
+
+func DefaultPasswordPolicy() PasswordPolicy {
+	return PasswordPolicy{MinLen: 8, LockThreshold: 5, LockDuration: 10 * time.Minute, InitialLen: 12}
+}
 
 type UserRepo interface {
 	Count(ctx context.Context) (int64, error)
@@ -63,15 +69,19 @@ type AuthService struct {
 	settings SettingRepo
 	audit    *AuditService
 	issuer   *jwt.Issuer
+	policy   PasswordPolicy
 	now      func() time.Time
 }
 
 func NewAuthService(users UserRepo, settings SettingRepo, audit *AuditService, issuer *jwt.Issuer) *AuthService {
-	return &AuthService{users: users, settings: settings, audit: audit, issuer: issuer, now: time.Now}
+	return &AuthService{users: users, settings: settings, audit: audit, issuer: issuer, policy: DefaultPasswordPolicy(), now: time.Now}
 }
 
 // SetClock 注入时钟（测试用）。
 func (s *AuthService) SetClock(now func() time.Time) { s.now = now }
+
+// SetPolicy 注入密码策略（默认 DefaultPasswordPolicy）。
+func (s *AuthService) SetPolicy(p PasswordPolicy) { s.policy = p }
 
 type AuthResult struct {
 	Token              string `json:"token"`
@@ -114,8 +124,8 @@ func (s *AuthService) Login(ctx context.Context, username, password, ip string) 
 	if verr != nil || !ok {
 		u.FailedAttempts++
 		detail := map[string]any{"username": username}
-		if u.FailedAttempts >= lockThreshold {
-			locked := s.now().Add(lockDuration)
+		if u.FailedAttempts >= s.policy.LockThreshold {
+			locked := s.now().Add(s.policy.LockDuration)
 			u.LockedUntil = &locked
 			s.audit.Record(ctx, &u.ID, "auth.locked", "user", &u.ID, detail, ip)
 		}
@@ -152,7 +162,7 @@ func (s *AuthService) Register(ctx context.Context, username, password, ip strin
 			return nil, NewServiceError(CodeRegisterClosed, "自助注册未开放，请联系管理员创建账号")
 		}
 	}
-	if err := validateCredentials(username, password); err != nil {
+	if err := validateCredentials(username, password, s.policy.MinLen); err != nil {
 		return nil, err
 	}
 	if _, err := s.users.GetByUsername(ctx, username); err == nil {
@@ -187,8 +197,8 @@ func (s *AuthService) ChangePassword(ctx context.Context, userID int64, oldPassw
 	if verr != nil || !ok {
 		return nil, NewServiceError(CodeAuthInvalid, "原密码错误")
 	}
-	if len(newPassword) < minPasswordLen {
-		return nil, NewServiceError(CodePasswordWeak, "新密码长度不足 8 位")
+	if len(newPassword) < s.policy.MinLen {
+		return nil, NewServiceError(CodePasswordWeak, fmt.Sprintf("新密码长度不足 %d 位", s.policy.MinLen))
 	}
 	hash, err := crypto.HashPassword(newPassword)
 	if err != nil {
@@ -205,12 +215,12 @@ func (s *AuthService) ChangePassword(ctx context.Context, userID int64, oldPassw
 	return s.result(u)
 }
 
-func validateCredentials(username, password string) error {
+func validateCredentials(username, password string, minLen int) error {
 	if username == "" || len(username) > 64 {
 		return NewServiceError(CodeAuthInvalid, "用户名非法（1~64 字符）")
 	}
-	if len(password) < minPasswordLen {
-		return NewServiceError(CodePasswordWeak, "密码长度不足 8 位")
+	if len(password) < minLen {
+		return NewServiceError(CodePasswordWeak, fmt.Sprintf("密码长度不足 %d 位", minLen))
 	}
 	return nil
 }

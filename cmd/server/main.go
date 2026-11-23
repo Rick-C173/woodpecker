@@ -70,7 +70,7 @@ func main() {
 }
 
 func runAPI(ctx context.Context, cfg *config.Config) error {
-	db, err := database.Open(cfg.DatabaseURL)
+	db, err := database.Open(cfg.DatabaseURL, cfg.DBMaxOpenConns, cfg.DBMaxIdleConns, cfg.DBConnMaxLifetimeMinutes)
 	if err != nil {
 		return fmt.Errorf("连接数据库: %w", err)
 	}
@@ -90,6 +90,15 @@ func runAPI(ctx context.Context, cfg *config.Config) error {
 	adminSvc := service.NewUserAdminService(users, auditSvc)
 	kbs := repo.NewKBRepo(db)
 	kbSvc := service.NewKBService(kbs, auditSvc)
+	// 密码策略来自配置文件（PRD FR-01）
+	policy := service.PasswordPolicy{
+		MinLen:        cfg.PasswordMinLen,
+		LockThreshold: cfg.PasswordLockThreshold,
+		LockDuration:  time.Duration(cfg.PasswordLockMinutes) * time.Minute,
+		InitialLen:    cfg.InitialPasswordLen,
+	}
+	authSvc.SetPolicy(policy)
+	adminSvc.SetPolicy(policy)
 
 	router := handler.NewRouter(handler.Deps{
 		Cfg:      cfg,

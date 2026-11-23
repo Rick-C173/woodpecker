@@ -19,6 +19,20 @@ type Config struct {
 	LogLevel      string
 	CORSOrigins   string
 	JWTTLHours    int
+
+	// 限流（API 设计 §1）：登录态全局窗口限流，req/min/用户，<=0 关闭
+	RateLimitPerMin int
+
+	// 密码策略（PRD FR-01）
+	PasswordMinLen        int // 密码最小长度
+	PasswordLockThreshold int // 连续失败 N 次锁定
+	PasswordLockMinutes   int // 锁定时长（分钟）
+	InitialPasswordLen    int // 管理员创建/重置密码的随机长度
+
+	// 连接池（数据库设计 §6）
+	DBMaxOpenConns           int
+	DBMaxIdleConns           int
+	DBConnMaxLifetimeMinutes int
 }
 
 // Load 读取配置：.env 文件（存在则加载，不覆盖已有环境变量）→ 环境变量 → 默认值。
@@ -35,6 +49,17 @@ func Load() *Config {
 		LogLevel:      envStr("LOG_LEVEL", "info"),
 		CORSOrigins:   envStr("CORS_ORIGINS", "*"),
 		JWTTLHours:    envInt("JWT_TTL_HOURS", 24),
+
+		RateLimitPerMin: envInt("RATE_LIMIT_PER_MIN", 100),
+
+		PasswordMinLen:        envInt("PASSWORD_MIN_LEN", 8),
+		PasswordLockThreshold: envInt("PASSWORD_LOCK_THRESHOLD", 5),
+		PasswordLockMinutes:   envInt("PASSWORD_LOCK_MINUTES", 10),
+		InitialPasswordLen:    envInt("INITIAL_PASSWORD_LEN", 12),
+
+		DBMaxOpenConns:           envInt("DB_MAX_OPEN_CONNS", 20),
+		DBMaxIdleConns:           envInt("DB_MAX_IDLE_CONNS", 5),
+		DBConnMaxLifetimeMinutes: envInt("DB_CONN_MAX_LIFETIME_MINUTES", 30),
 	}
 	if cfg.JWTSecret == "" {
 		cfg.JWTSecret = "dev-only-jwt-secret"

@@ -69,8 +69,8 @@ func NewRouter(d Deps) *gin.Engine {
 	v1.POST("/auth/login", d.Auth.Login)
 	v1.POST("/auth/register", d.Auth.Register)
 
-	// auth（登录态）：全局限流 100 req/min/用户（API 设计 §1）
-	limiter := middleware.NewRateLimiter(100, time.Minute)
+	// auth（登录态）：全局限流（API 设计 §1，阈值可配 RATE_LIMIT_PER_MIN，<=0 关闭）
+	limiter := middleware.NewRateLimiter(cfg.RateLimitPerMin, time.Minute)
 	authed := v1.Group("", middleware.Auth(d.Issuer, userLookup(d.UserRepo)), limiter.Handler(middleware.UserKey))
 	authed.POST("/auth/password", d.Auth.ChangePassword)
 
