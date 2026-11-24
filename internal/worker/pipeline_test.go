@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/hibiken/asynq"
 	"github.com/stretchr/testify/assert"
@@ -212,6 +213,8 @@ func TestPipelineRecoverStartup(t *testing.T) {
 	queued := e.docs.SeedTask(proc.ID, model.TaskTypeFull)
 	queued.Status = model.TaskStatusRunning
 	require.NoError(t, e.docs.SaveTask(ctx, queued))
+	// 崩溃发生在 1 小时前：心跳/开始时间远早于僵尸阈值（验收回归 8-1 的时间兜底依据）
+	e.docs.BackdateTask(queued.ID, time.Hour)
 
 	e.pipeline.RecoverStartup(ctx, e.docs)
 	assert.Equal(t, model.DocStatusFailed, e.docs.DocByID(proc.ID).Status, "处理中文档置失败")

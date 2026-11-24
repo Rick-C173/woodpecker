@@ -65,6 +65,10 @@ const ingestTaskRunningIndex = "uq_ingest_tasks_running"
 // zombieTaskError 重启恢复写入任务的错误摘要（FR-06：中断任务按失败处理）。
 const zombieTaskError = "服务重启导致任务中断"
 
+// defaultZombieTimeoutMinutes 心跳超时阈值兜底（与 config.DefaultWorkerZombieTimeoutMinutes 同值）。
+// repo 层不引 config（保持仓储层无配置依赖），调用方传入 <=0 时用本值。
+const defaultZombieTimeoutMinutes = 5
+
 // sqlStateUniqueViolation PG 唯一键冲突的 SQLSTATE。
 const sqlStateUniqueViolation = "23505"
 
@@ -307,27 +311,33 @@ func (r *DocumentRepo) ListTaskHistory(ctx context.Context, documentID int64, li
 	return rows, nil
 }
 
-// FailZombieTasks 重启恢复：把**本 worker 遗留**的任务置失败（FR-06）。
+// FailZombieTasks 重启恢复：把**本实例遗留或心跳超时**的任务置失败（FR-06）。
 //
 // 多实例部署下不得全库 UPDATE——否则任一 worker 启动都会把其它实例正在处理的任务置失败（审计 P1-8）。
-// 归属判定分两段，外层是 OR，故必须显式分组：
-//   - worker_id = workerID 且 status IN (1,2)：本实例上次运行留下的残留（排队 + 运行中都清）；
-//   - worker_id IS NULL 且 status = 2：迁移 000005 之前的历史行 / 写归属失败的僵尸，只清**运行中**。
+// 判定分两段（外层 OR，故显式分组）：
+//   - worker_id = workerID 且 status = 2：本实例上次运行留下的运行中残留，可立即回收；
+//   - status = 2 且心跳超时：心跳（缺失时回落 started_at / created_at）早于 cutoff 的运行中任务，
+//     即跨实例僵尸——这是对「WORKER_ID 跨重启变化导致按归属匹配不到」的兜底
+//     （验收回归 8-1：k8s 每次重建 Pod 主机名必变，旧实现会让任务永久卡在 running）。
 //
-// 为什么不清理「worker_id IS NULL 且 status = 1」：CreateTask 入队时 worker_id 为空，只有 Process
-// 开始处理才写归属。而 asynq 队列是 Redis 持久化的，重启后这些排队任务仍会被重新投递执行——
-// 在 DB 里先把它们置失败会造成「用户看到失败、任务其实还在跑」的库/队列状态不一致，
-// 比原缺陷更隐蔽。排队态交给 asynq 重投，DB 不动它。
+// 为什么不清理排队态（status = 1）：CreateTask 入队时 worker_id 为空，只有 Process 开始处理才写归属；
+// 而 asynq 队列是 Redis 持久化的，重启后这些排队任务仍会被重新投递执行——在 DB 里先把它们置失败，
+// 会造成「用户看到失败、任务其实还在跑」的库/队列状态不一致，比原缺陷更隐蔽。故**无论归属如何**，
+// 排队态一律交给 asynq 重投，DB 不动它（P1-8 收窄时定下的红线）。
 //
 // 返回受影响任务数，以及被波及的文档 ID（供 FailProcessingDocs 精确限定，不做全库 UPDATE）。
-func (r *DocumentRepo) FailZombieTasks(ctx context.Context, workerID string) (tasks int64, docIDs []int64, err error) {
+func (r *DocumentRepo) FailZombieTasks(ctx context.Context, workerID string, timeoutMinutes int) (tasks int64, docIDs []int64, err error) {
+	if timeoutMinutes <= 0 {
+		timeoutMinutes = defaultZombieTimeoutMinutes
+	}
+	// 在 Go 侧算 cutoff，避免在 SQL 里拼 interval（迁移只加列，不改查询方言）。
+	cutoff := time.Now().Add(-time.Duration(timeoutMinutes) * time.Minute)
 	err = r.dbx(ctx).Transaction(func(tx *gorm.DB) error {
 		zombie := func() *gorm.DB {
 			return tx.Model(&model.IngestTask{}).
-				Where("(worker_id = ? AND status IN ?) OR (worker_id IS NULL AND status = ?)",
-					workerID,
-					[]int16{model.TaskStatusQueued, model.TaskStatusRunning},
-					model.TaskStatusRunning)
+				Where("(worker_id = ? AND status = ?) OR (status = ? AND COALESCE(heartbeat_at, started_at, created_at) < ?)",
+					workerID, model.TaskStatusRunning,
+					model.TaskStatusRunning, cutoff)
 		}
 		// 先取文档 ID（置失败后这些行不再命中 status 条件）
 		if perr := zombie().Distinct("document_id").Pluck("document_id", &docIDs).Error; perr != nil {
@@ -345,6 +355,16 @@ func (r *DocumentRepo) FailZombieTasks(ctx context.Context, workerID string) (ta
 		return 0, nil, err
 	}
 	return tasks, docIDs, nil
+}
+
+// HeartbeatTask 刷新运行中任务的心跳时刻（验收回归 8-1）。
+//
+// 只在 status = 2 时更新：任务已终结（成功/失败/被清理）时心跳不得把状态"续命"，
+// 返回 nil 即可——更新 0 行不是错误（任务行可能已随文档级联删除）。
+func (r *DocumentRepo) HeartbeatTask(ctx context.Context, taskID int64) error {
+	return r.dbx(ctx).Model(&model.IngestTask{}).
+		Where("id = ? AND status = ?", taskID, model.TaskStatusRunning).
+		Update("heartbeat_at", time.Now()).Error
 }
 
 // FailProcessingDocs 重启恢复：只把「本 worker 刚置失败的任务」对应的处理中文档置失败

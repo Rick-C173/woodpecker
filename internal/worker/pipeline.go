@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -75,17 +76,27 @@ type DocStore interface {
 	DeleteChunksByFile(ctx context.Context, documentID int64, filePath string) error
 	InsertChunks(ctx context.Context, documentID int64, chunks []model.Chunk) error
 	ReplaceDocumentChunks(ctx context.Context, documentID int64, chunks []model.Chunk) error
+	// HeartbeatTask 刷新运行中任务的心跳时刻（验收回归 8-1：跨实例僵尸任务的时间兜底依据）。
+	HeartbeatTask(ctx context.Context, taskID int64) error
 }
 
 // FailZombieStore 启动恢复所需操作（repo.DocumentRepo 满足）。
 // 两个方法都按 worker 限定范围：多实例部署下不得全库 UPDATE（审计 P1-8）。
 type FailZombieStore interface {
-	// FailZombieTasks 置失败本实例遗留的排队/运行任务，以及无归属（worker_id IS NULL）的**运行中**任务；
-	// 无归属的排队任务不动（asynq 会重投）。返回任务数与被波及文档 ID。
-	FailZombieTasks(ctx context.Context, workerID string) (int64, []int64, error)
+	// FailZombieTasks 置失败本实例遗留的运行中任务，以及心跳超过 timeoutMinutes 未更新的运行中任务；
+	// 排队任务（status=1）无论归属如何都不动（asynq 会重投）。返回任务数与被波及文档 ID。
+	// timeoutMinutes 为心跳超时阈值（验收回归 8-1：WORKER_ID 跨重启变化时按归属匹配不到，靠时间兜底）。
+	FailZombieTasks(ctx context.Context, workerID string, timeoutMinutes int) (int64, []int64, error)
 	// FailProcessingDocs 只把给定文档（本实例刚失败任务对应的）置失败。
 	FailProcessingDocs(ctx context.Context, docIDs []int64) (int64, error)
 }
+
+// heartbeatIntervalDefault 任务心跳间隔缺省值（验收回归 8-1）。
+// 必须是 WorkerZombieTimeoutMinutes 的 1/5 以下，否则正常任务会被时间兜底误判为僵尸。
+const heartbeatIntervalDefault = 30 * time.Second
+
+// heartbeatInterval 心跳实际间隔（包级变量便于测试注入，生产恒为 heartbeatIntervalDefault）。
+var heartbeatInterval = heartbeatIntervalDefault
 
 // Pipeline 摄取管道。
 type Pipeline struct {
@@ -97,7 +108,9 @@ type Pipeline struct {
 	queue     Enqueuer
 	uploadDir string
 	workerID  string
-	now       func() time.Time
+	// zombieTimeoutMinutes 僵尸任务心跳超时阈值（分钟，验收回归 8-1），来自配置。
+	zombieTimeoutMinutes int
+	now                  func() time.Time
 }
 
 // SettingGetter R1b 排除清单读取（repo.SettingRepo 满足）。
@@ -110,6 +123,15 @@ func NewPipeline(docs DocStore, settings SettingGetter, cipher CredentialCipher,
 		docs: docs, settings: settings, cipher: cipher, resolver: resolver,
 		embedder: embedder, queue: queue, uploadDir: "data/uploads",
 		workerID: config.DefaultWorkerID(), now: time.Now,
+		zombieTimeoutMinutes: config.DefaultWorkerZombieTimeoutMinutes,
+	}
+}
+
+// SetZombieTimeoutMinutes 设置僵尸任务心跳超时阈值（分钟，验收回归 8-1）。
+// <=0 忽略，保持缺省值——阈值配成 0 会让「任何心跳都算超时」，把活任务当僵尸杀掉。
+func (p *Pipeline) SetZombieTimeoutMinutes(minutes int) {
+	if minutes > 0 {
+		p.zombieTimeoutMinutes = minutes
 	}
 }
 
@@ -127,11 +149,12 @@ func (p *Pipeline) SetWorkerID(id string) {
 // WorkerID 当前实例标识（日志与断言用）。
 func (p *Pipeline) WorkerID() string { return p.workerID }
 
-// RecoverStartup 重启恢复：只把**本实例遗留**的运行中任务/文档置失败（FR-06）。
+// RecoverStartup 重启恢复：把**本实例遗留**的运行中任务/文档置失败（FR-06），
+// 以及心跳超时（zombieTimeoutMinutes）的跨实例僵尸任务置失败（验收回归 8-1）。
 // 旧实现是无条件全库 UPDATE，多实例部署下任一 worker 启动都会杀掉其它实例的任务（审计 P1-8）；
-// 无归属（worker_id IS NULL）的**排队中**任务不清理——asynq 队列持久化，重启后会重投执行。
+// 排队中（status=1）的任务无论归属如何都不清理——asynq 队列持久化，重启后会重投执行。
 func (p *Pipeline) RecoverStartup(ctx context.Context, store FailZombieStore) {
-	tasks, docIDs, err := store.FailZombieTasks(ctx, p.workerID)
+	tasks, docIDs, err := store.FailZombieTasks(ctx, p.workerID, p.zombieTimeoutMinutes)
 	if err != nil {
 		slog.Error("重启恢复：遗留任务置失败", "worker_id", p.workerID, "err", err)
 		return
@@ -144,6 +167,28 @@ func (p *Pipeline) RecoverStartup(ctx context.Context, store FailZombieStore) {
 	if tasks+docs > 0 {
 		slog.Info("重启恢复：中断任务按失败处理",
 			"worker_id", p.workerID, "docs", docs, "tasks", tasks)
+	}
+}
+
+// heartbeatLoop 周期性刷新任务心跳，直到 ctx 结束（由 Process 的 defer 取消）。
+// 进入循环先立即写一次：否则刚 running 的任务在第一个心跳周期内没有 heartbeat_at，
+// 会被时间兜底按 started_at 判定（大任务若启动即慢，仍不会被误杀，但立即写更稳妥）。
+func (p *Pipeline) heartbeatLoop(ctx context.Context, taskID int64) {
+	beat := func() {
+		if err := p.docs.HeartbeatTask(ctx, taskID); err != nil {
+			slog.Warn("刷新摄取任务心跳失败", "task", taskID, "err", err)
+		}
+	}
+	beat()
+	ticker := time.NewTicker(heartbeatInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			beat()
+		}
 	}
 }
 
@@ -173,6 +218,22 @@ func (p *Pipeline) Process(ctx context.Context, taskID int64) error {
 	if err := p.docs.SaveTask(ctx, t); err != nil {
 		return err
 	}
+
+	// 心跳（验收回归 8-1）：任务进入 running 后周期性刷新 heartbeat_at，供其它实例按「时间兜底」
+	// 判定本任务是否还活着——WORKER_ID 跨重启变化（k8s 重建 Pod → 主机名必变）时按归属匹配不到，
+	// 只能靠心跳时间识别僵尸。WithoutCancel：请求 ctx 被取消也要能落心跳；defer + WaitGroup
+	// 保证 Process 返回前心跳 goroutine 已退出，不留泄漏。
+	hbCtx, hbCancel := context.WithCancel(context.WithoutCancel(ctx))
+	var hbWG sync.WaitGroup
+	hbWG.Add(1)
+	go func() {
+		defer hbWG.Done()
+		p.heartbeatLoop(hbCtx, t.ID)
+	}()
+	defer func() {
+		hbCancel()
+		hbWG.Wait()
+	}()
 
 	d, err := p.docs.GetDocumentByID(ctx, t.DocumentID)
 	if err != nil {

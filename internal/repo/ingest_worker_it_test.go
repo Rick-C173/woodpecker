@@ -6,6 +6,7 @@ package repo
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -29,7 +30,7 @@ func TestIngestTaskWorkerScopeIT(t *testing.T) {
 	require.NoError(t, r.CreateTask(ctx, taskB))
 
 	// A 启动恢复：只清理自己的
-	n, docIDs, err := r.FailZombieTasks(ctx, wa)
+	n, docIDs, err := r.FailZombieTasks(ctx, wa, 5)
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), n, "只清理 A 自己的运行中任务")
 	assert.Equal(t, []int64{docA.ID}, docIDs)
@@ -66,15 +67,17 @@ func TestIngestTaskLegacyNullWorkerIT(t *testing.T) {
 	docQueued.Status = model.DocStatusPending
 	require.NoError(t, r.SaveDocument(ctx, docQueued))
 
+	// 运行中僵尸：10 分钟前开始且无心跳 → 时间兜底命中（实际崩溃场景的时间特征）
+	stale := time.Now().Add(-10 * time.Minute)
 	running := &model.IngestTask{DocumentID: docRunning.ID, Type: model.TaskTypeFull,
-		Status: model.TaskStatusRunning}
+		Status: model.TaskStatusRunning, StartedAt: &stale}
 	queued := &model.IngestTask{DocumentID: docQueued.ID, Type: model.TaskTypeFull,
 		Status: model.TaskStatusQueued}
 	require.NoError(t, r.CreateTask(ctx, running))
 	require.NoError(t, r.CreateTask(ctx, queued))
 	assert.Equal(t, int64(2), itCount(t, "SELECT COUNT(*) FROM ingest_tasks WHERE worker_id IS NULL"))
 
-	n, docIDs, err := r.FailZombieTasks(ctx, "worker-any")
+	n, docIDs, err := r.FailZombieTasks(ctx, "worker-any", 5)
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), n, "只清理无归属的运行中僵尸")
 	assert.Equal(t, []int64{docRunning.ID}, docIDs)
@@ -95,4 +98,100 @@ func TestIngestTaskLegacyNullWorkerIT(t *testing.T) {
 	gotRunning, err := r.GetTaskByID(ctx, running.ID)
 	require.NoError(t, err)
 	assert.Equal(t, model.TaskStatusFailed, gotRunning.Status, "运行中僵尸应置失败")
+}
+
+// TestIngestTaskCrossWorkerStaleIT 验收回归 8-1（原本会永久卡死的场景）：
+// 上一实例 pod-aaa 处理中崩溃，任务停在 running 且归属 pod-aaa；新实例 pod-bbb 启动时按归属
+// 两段都不命中（旧实现的缺陷），必须靠心跳时间兜底回收，并把文档从处理中转为失败。
+func TestIngestTaskCrossWorkerStaleIT(t *testing.T) {
+	itTruncate(t)
+	ctx := context.Background()
+	r, _, docs := itSeedDocKB(t, "stuck.md")
+	doc := docs[0]
+
+	// 崩溃发生在 10 分钟前：最后一次心跳与开始时间都早于 5 分钟阈值
+	stale := time.Now().Add(-10 * time.Minute)
+	task := &model.IngestTask{DocumentID: doc.ID, Type: model.TaskTypeFull,
+		Status: model.TaskStatusRunning, WorkerID: itStr("pod-aaa"),
+		StartedAt: &stale, HeartbeatAt: &stale}
+	require.NoError(t, r.CreateTask(ctx, task))
+
+	// 新实例（pod-bbb）启动恢复
+	n, docIDs, err := r.FailZombieTasks(ctx, "pod-bbb", 5)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), n, "跨实例陈旧运行中任务必须被时间兜底回收")
+	assert.Equal(t, []int64{doc.ID}, docIDs)
+
+	docsFailed, err := r.FailProcessingDocs(ctx, docIDs)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), docsFailed)
+
+	got, err := r.GetTaskByID(ctx, task.ID)
+	require.NoError(t, err)
+	assert.Equal(t, model.TaskStatusFailed, got.Status, "任务必须置失败（不再是永远 running）")
+	require.NotNil(t, got.Error)
+	assert.Contains(t, *got.Error, "服务重启")
+
+	gotDoc, err := r.GetDocumentByID(ctx, doc.ID)
+	require.NoError(t, err)
+	assert.Equal(t, model.DocStatusFailed, gotDoc.Status, "文档必须从处理中转为失败，用户才能重试")
+
+	running, err := r.HasRunningTask(ctx, doc.ID)
+	require.NoError(t, err)
+	assert.False(t, running, "僵尸任务置失败后不得再有运行中任务挡住 retry/reindex")
+}
+
+// TestIngestTaskFreshHeartbeatKeptIT 有心跳的活任务（另一实例正在处理）不得被时间兜底误杀。
+func TestIngestTaskFreshHeartbeatKeptIT(t *testing.T) {
+	itTruncate(t)
+	ctx := context.Background()
+	r, _, docs := itSeedDocKB(t, "live.md")
+	doc := docs[0]
+
+	now := time.Now()
+	task := &model.IngestTask{DocumentID: doc.ID, Type: model.TaskTypeFull,
+		Status: model.TaskStatusRunning, WorkerID: itStr("pod-live"),
+		StartedAt: &now, HeartbeatAt: &now}
+	require.NoError(t, r.CreateTask(ctx, task))
+
+	n, docIDs, err := r.FailZombieTasks(ctx, "pod-bbb", 5)
+	require.NoError(t, err)
+	assert.Zero(t, n, "有心跳的活任务不得被清理（否则多实例互杀，P1-8 回归）")
+	assert.Empty(t, docIDs)
+
+	got, err := r.GetTaskByID(ctx, task.ID)
+	require.NoError(t, err)
+	assert.Equal(t, model.TaskStatusRunning, got.Status)
+	gotDoc, err := r.GetDocumentByID(ctx, doc.ID)
+	require.NoError(t, err)
+	assert.Equal(t, model.DocStatusProcessing, gotDoc.Status)
+}
+
+// TestIngestTaskQueuedNeverReclaimedIT 红线回归：排队态（status=1）无论归属如何都不清理。
+// 入队时 worker_id 为空、重排时保留旧归属；asynq 队列持久化会重投，DB 先置失败会造成库/队列不一致。
+func TestIngestTaskQueuedNeverReclaimedIT(t *testing.T) {
+	itTruncate(t)
+	ctx := context.Background()
+	r, _, docs := itSeedDocKB(t, "queued-null.md", "queued-self.md")
+
+	old := time.Now().Add(-24 * time.Hour)
+	unassigned := &model.IngestTask{DocumentID: docs[0].ID, Type: model.TaskTypeFull,
+		Status: model.TaskStatusQueued, CreatedAt: old}
+	selfAssigned := &model.IngestTask{DocumentID: docs[1].ID, Type: model.TaskTypeFull,
+		Status: model.TaskStatusQueued, WorkerID: itStr("pod-bbb"), CreatedAt: old}
+	require.NoError(t, r.CreateTask(ctx, unassigned))
+	require.NoError(t, r.CreateTask(ctx, selfAssigned))
+
+	n, docIDs, err := r.FailZombieTasks(ctx, "pod-bbb", 5)
+	require.NoError(t, err)
+	assert.Zero(t, n, "排队任务无论归属如何都不得被重启恢复清理")
+	assert.Empty(t, docIDs)
+
+	for _, id := range []int64{unassigned.ID, selfAssigned.ID} {
+		got, gerr := r.GetTaskByID(ctx, id)
+		require.NoError(t, gerr)
+		assert.Equal(t, model.TaskStatusQueued, got.Status, "任务 %d 必须保持 queued", id)
+		assert.Nil(t, got.Error, "不得写入重启中断的错误摘要")
+		assert.Nil(t, got.FinishedAt)
+	}
 }

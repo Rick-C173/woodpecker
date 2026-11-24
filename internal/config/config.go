@@ -28,6 +28,10 @@ const MinEncryptionKeyLen = 16
 // RecommendedJWTSecretLen 生产 JWT_SECRET 推荐长度（字节）；不足时告警但不拒绝启动。
 const RecommendedJWTSecretLen = 32
 
+// DefaultWorkerZombieTimeoutMinutes 僵尸任务心跳超时阈值缺省值（分钟，验收回归 8-1）。
+// worker 心跳间隔为 30s（worker 包常量），5 分钟 = 心跳间隔的 10 倍，留足两次以上容错。
+const DefaultWorkerZombieTimeoutMinutes = 5
+
 // 开发环境占位密钥（仅非生产可回落，生产缺失直接拒绝启动）。
 const (
 	devJWTSecret     = "dev-only-jwt-secret"
@@ -74,6 +78,12 @@ type Config struct {
 	// 重启恢复只清理「本标识」的残留任务。多实例部署（含同主机多容器）**必须各自配置唯一值**，
 	// 缺省取主机名：同主机多容器会得到相同的值，退化为互相清理对方任务。
 	WorkerID string
+
+	// WorkerZombieTimeoutMinutes 僵尸任务的心跳超时阈值（分钟，验收回归 8-1）。
+	// 运行中任务超过该时长未刷新 heartbeat_at 即被视为孤儿任务并置失败，
+	// 用于覆盖「WORKER_ID 跨重启变化 → 按归属匹配不到」的场景（k8s 重建 Pod 是常态）。
+	// 必须显著大于 worker 心跳间隔（默认 30s，建议 ≥5 倍），否则正常任务会被误杀。
+	WorkerZombieTimeoutMinutes int
 }
 
 // Load 读取配置：.env 文件（存在则加载，不覆盖已有环境变量）→ 环境变量 → 默认值。
@@ -110,6 +120,8 @@ func Load() *Config {
 		UploadDir: envStr("UPLOAD_DIR", "data/uploads"),
 
 		WorkerID: envStr("WORKER_ID", DefaultWorkerID()),
+
+		WorkerZombieTimeoutMinutes: envInt("WORKER_ZOMBIE_TIMEOUT_MINUTES", DefaultWorkerZombieTimeoutMinutes),
 	}
 	if cfg.JWTSecret == "" {
 		if cfg.IsProduction() {

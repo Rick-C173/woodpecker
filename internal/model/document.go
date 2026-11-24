@@ -102,6 +102,9 @@ type IngestTask struct {
 	CreatedAt  time.Time  `gorm:"column:created_at"`
 	StartedAt  *time.Time `gorm:"column:started_at"`
 	FinishedAt *time.Time `gorm:"column:finished_at"`
+	// HeartbeatAt 运行中任务的心跳时刻（迁移 000007）。worker 处理期间周期性刷新，
+	// 重启恢复据此判定「归属陈旧但确实已死」的跨实例僵尸任务（验收回归 8-1）。
+	HeartbeatAt *time.Time `gorm:"column:heartbeat_at"`
 }
 
 func (IngestTask) TableName() string { return "ingest_tasks" }

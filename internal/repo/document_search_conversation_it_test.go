@@ -93,10 +93,12 @@ func TestDocumentRepoIT(t *testing.T) {
 	require.Len(t, hist, 1)
 	assert.Equal(t, model.TaskStatusSuccess, hist[0].Status)
 
-	z1 := &model.IngestTask{DocumentID: doc.ID, Type: model.TaskTypeFull, Status: model.TaskStatusRunning}
+	// 运行中僵尸：10 分钟前开始且无心跳（时间兜底命中；心跳缺失时回落 started_at）
+	stale := time.Now().Add(-10 * time.Minute)
+	z1 := &model.IngestTask{DocumentID: doc.ID, Type: model.TaskTypeFull, Status: model.TaskStatusRunning, StartedAt: &stale}
 	require.NoError(t, r.CreateTask(ctx, z1))
 	// P1-8：重启恢复按 worker_id 限定范围（z1 无归属 = 迁移前历史数据，任何 worker 都可清理）
-	n, zombieDocIDs, err := r.FailZombieTasks(ctx, "worker-it")
+	n, zombieDocIDs, err := r.FailZombieTasks(ctx, "worker-it", 5)
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), n)
 	assert.Equal(t, []int64{doc.ID}, zombieDocIDs)

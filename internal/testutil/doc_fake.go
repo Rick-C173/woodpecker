@@ -399,14 +399,19 @@ func (f *FakeDocRepo) ListTaskHistory(_ context.Context, documentID int64, limit
 	return rows, nil
 }
 
-// FailZombieTasks 只清理本 worker（或升级前无归属）的残留任务，与 repo 实现同口径（P1-8）：
-//   - worker_id = workerID：排队/运行中都清（本实例上次运行留下的）；
-//   - worker_id IS NULL：只清运行中（status=2）；排队中（status=1）交给 asynq 重投，不得置失败。
+// FailZombieTasks 与 repo 实现同口径（P1-8 + 验收回归 8-1）：
+//   - worker_id = workerID 的运行中任务：本实例上次运行留下的残留，立即回收；
+//   - 心跳（缺失时回落 started_at / created_at）超过 timeoutMinutes 的运行中任务：跨实例僵尸；
+//   - 排队中（status=1）的任务**无论归属如何**都不动——交给 asynq 重投，否则会造成库/队列不一致。
 //
 // 返回任务数与被波及文档 ID。
-func (f *FakeDocRepo) FailZombieTasks(_ context.Context, workerID string) (int64, []int64, error) {
+func (f *FakeDocRepo) FailZombieTasks(_ context.Context, workerID string, timeoutMinutes int) (int64, []int64, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if timeoutMinutes <= 0 {
+		timeoutMinutes = 5
+	}
+	cutoff := time.Now().Add(-time.Duration(timeoutMinutes) * time.Minute)
 	var (
 		n      int64
 		docIDs []int64
@@ -415,16 +420,13 @@ func (f *FakeDocRepo) FailZombieTasks(_ context.Context, workerID string) (int64
 	now := time.Now()
 	msg := zombieErr
 	for id, t := range f.tasks {
-		if t.Status != model.TaskStatusQueued && t.Status != model.TaskStatusRunning {
+		if t.Status != model.TaskStatusRunning {
 			continue
 		}
-		if t.WorkerID == nil {
-			// 无归属：只清运行中的真僵尸，排队中的任务不能动（库/队列状态一致性）
-			if t.Status != model.TaskStatusRunning {
-				continue
-			}
-		} else if *t.WorkerID != workerID {
-			continue // 其它实例的残留：不得清理（P1-8 的核心断言）
+		own := t.WorkerID != nil && *t.WorkerID == workerID
+		stale := taskLeaseTime(t).Before(cutoff)
+		if !own && !stale {
+			continue // 其它实例有心跳的活任务：不得清理（P1-8 的核心断言）
 		}
 		t.Status = model.TaskStatusFailed
 		t.Error = &msg
@@ -437,6 +439,50 @@ func (f *FakeDocRepo) FailZombieTasks(_ context.Context, workerID string) (int64
 		}
 	}
 	return n, docIDs, nil
+}
+
+// HeartbeatTask 刷新运行中任务的心跳（真内存写时间），与 repo 实现同口径：
+// 只对 status=2 生效；任务行不存在（已随文档级联删除）时返回 nil，与真库「更新 0 行」一致。
+func (f *FakeDocRepo) HeartbeatTask(_ context.Context, taskID int64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	t, ok := f.tasks[taskID]
+	if !ok || t.Status != model.TaskStatusRunning {
+		return nil
+	}
+	now := time.Now()
+	t.HeartbeatAt = &now
+	return nil
+}
+
+// taskLeaseTime 任务「最后活动时刻」：心跳优先，缺失时回落 started_at，再回落 created_at。
+// 与 repo 的 COALESCE(heartbeat_at, started_at, created_at) 同口径。
+func taskLeaseTime(t *model.IngestTask) time.Time {
+	if t.HeartbeatAt != nil {
+		return *t.HeartbeatAt
+	}
+	if t.StartedAt != nil {
+		return *t.StartedAt
+	}
+	return t.CreatedAt
+}
+
+// BackdateTask 把任务的心跳/开始/创建时间整体回拨 ago（构造「确实已死的僵尸」用）。
+func (f *FakeDocRepo) BackdateTask(taskID int64, ago time.Duration) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	t, ok := f.tasks[taskID]
+	if !ok {
+		return
+	}
+	at := time.Now().Add(-ago)
+	t.CreatedAt = at
+	if t.StartedAt != nil {
+		t.StartedAt = &at
+	}
+	if t.HeartbeatAt != nil {
+		t.HeartbeatAt = &at
+	}
 }
 
 // FailProcessingDocs 只把给定文档中仍是处理中的置失败（不做全库 UPDATE）。
@@ -492,12 +538,17 @@ func (f *FakeDocRepo) SeedTask(docID int64, typ int16) *model.IngestTask {
 // SeedTaskWithWorker 写入指定归属与状态的任务（P1-8 多实例场景构造用；
 // 绕过 CreateTask 的唯一约束检查，便于造出「两个 worker 各跑一个」的合法前置状态）。
 // workerID 传空串表示迁移前的历史数据（worker_id IS NULL）。
+// 运行中任务同步写 started_at（真库 Process 进入 running 时必然写，供心跳缺失时的时间兜底判定）。
 func (f *FakeDocRepo) SeedTaskWithWorker(docID int64, typ int16, status int16, workerID string) *model.IngestTask {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	now := time.Now()
 	t := &model.IngestTask{
 		ID: f.nextTaskID, DocumentID: docID, Type: typ, Status: status,
-		CreatedAt: time.Now(),
+		CreatedAt: now,
+	}
+	if status == model.TaskStatusRunning {
+		t.StartedAt = &now
 	}
 	if workerID != "" {
 		t.WorkerID = &workerID

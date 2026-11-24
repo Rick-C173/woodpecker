@@ -41,6 +41,8 @@ func Run(ctx context.Context, cfg *config.Config) error {
 	pipeline := NewPipeline(docs, settings, cipher, modelCfgSvc, llm.NewOpenAIProvider(), queue)
 	pipeline.SetUploadDir(cfg.UploadDir)
 	pipeline.SetWorkerID(cfg.WorkerID) // 审计 P1-8：重启恢复只清理本实例残留
+	// 验收回归 8-1：心跳超时阈值，覆盖「WORKER_ID 跨重启变化后按归属匹配不到」的僵尸任务。
+	pipeline.SetZombieTimeoutMinutes(cfg.WorkerZombieTimeoutMinutes)
 	pipeline.RecoverStartup(ctx, docs)
 
 	return NewServer(cfg, pipeline).Run(ctx)

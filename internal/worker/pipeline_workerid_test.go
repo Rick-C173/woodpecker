@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -36,7 +37,8 @@ func TestPipelineRecoverStartupScopedToSelf(t *testing.T) {
 	assert.Equal(t, model.DocStatusProcessing, e.docs.DocByID(docB.ID).Status, "B 的文档仍在处理中")
 }
 
-// TestPipelineRecoverStartupLegacyNullWorker 升级前无归属（worker_id IS NULL）的**运行中**任务由启动恢复清理。
+// TestPipelineRecoverStartupLegacyNullWorker 升级前无归属（worker_id IS NULL）的**运行中**任务
+// 由启动恢复清理（心跳缺失时按 started_at 判定，故需构造「确实已死」的陈旧任务）。
 func TestPipelineRecoverStartupLegacyNullWorker(t *testing.T) {
 	e := newPipeEnv(t)
 	ctx := context.Background()
@@ -44,6 +46,7 @@ func TestPipelineRecoverStartupLegacyNullWorker(t *testing.T) {
 
 	legacyDoc := e.docs.SeedDoc(10, model.DocTypeUpload, model.DocStatusProcessing)
 	legacyTask := e.docs.SeedTaskWithWorker(legacyDoc.ID, model.TaskTypeFull, model.TaskStatusRunning, "")
+	e.docs.BackdateTask(legacyTask.ID, time.Hour) // 10 分钟以上无心跳 → 时间兜底命中
 
 	e.pipeline.RecoverStartup(ctx, e.docs)
 
@@ -66,6 +69,7 @@ func TestPipelineRecoverStartupKeepsQueuedUnassigned(t *testing.T) {
 
 	zombieDoc := e.docs.SeedDoc(10, model.DocTypeUpload, model.DocStatusProcessing)
 	zombie := e.docs.SeedTaskWithWorker(zombieDoc.ID, model.TaskTypeFull, model.TaskStatusRunning, "")
+	e.docs.BackdateTask(zombie.ID, time.Hour) // 陈旧运行中任务 → 时间兜底命中
 
 	e.pipeline.RecoverStartup(ctx, e.docs)
 
@@ -117,10 +121,47 @@ func TestPipelineSetWorkerIDKeepsInterface(_ *testing.T) {
 	var _ worker.FailZombieStore = (*storeSpy)(nil)
 }
 
-// storeSpy 编译期校验 FailZombieStore 签名。
+// TestPipelineRecoverStartupReclaimsCrossInstanceStale 验收回归 8-1：
+// 上一实例 pod-aaa 崩溃留下的 running 任务（心跳 10 分钟未更新），新实例 pod-bbb 启动时必须被回收。
+// 旧实现只按 worker_id 匹配（pod-bbb ≠ pod-aaa）→ 两段条件都不命中 → 任务永久 running、文档永久处理中。
+func TestPipelineRecoverStartupReclaimsCrossInstanceStale(t *testing.T) {
+	e := newPipeEnv(t)
+	ctx := context.Background()
+	e.pipeline.SetWorkerID("pod-bbb")
+
+	doc := e.docs.SeedDoc(10, model.DocTypeUpload, model.DocStatusProcessing)
+	task := e.docs.SeedTaskWithWorker(doc.ID, model.TaskTypeFull, model.TaskStatusRunning, "pod-aaa")
+	e.docs.BackdateTask(task.ID, 10*time.Minute) // 心跳/开始时间均早于 5 分钟阈值
+
+	e.pipeline.RecoverStartup(ctx, e.docs)
+
+	assert.Equal(t, model.TaskStatusFailed, e.docs.TaskByID(task.ID).Status,
+		"归属陈旧但已无心跳的运行中任务必须被时间兜底回收")
+	assert.Equal(t, model.DocStatusFailed, e.docs.DocByID(doc.ID).Status,
+		"对应文档必须从处理中转为失败，用户才能重试")
+}
+
+// TestPipelineRecoverStartupKeepsLiveHeartbeat 有心跳的活任务（归属其它实例）不得被时间兜底误杀。
+func TestPipelineRecoverStartupKeepsLiveHeartbeat(t *testing.T) {
+	e := newPipeEnv(t)
+	ctx := context.Background()
+	e.pipeline.SetWorkerID("pod-bbb")
+
+	doc := e.docs.SeedDoc(10, model.DocTypeUpload, model.DocStatusProcessing)
+	task := e.docs.SeedTaskWithWorker(doc.ID, model.TaskTypeFull, model.TaskStatusRunning, "pod-live")
+	require.NoError(t, e.docs.HeartbeatTask(ctx, task.ID), "模拟活任务刚写过心跳")
+
+	e.pipeline.RecoverStartup(ctx, e.docs)
+
+	assert.Equal(t, model.TaskStatusRunning, e.docs.TaskByID(task.ID).Status,
+		"有心跳的活任务不得被清理（否则多实例互杀）")
+	assert.Equal(t, model.DocStatusProcessing, e.docs.DocByID(doc.ID).Status)
+}
+
+// storeSpy 编译期校验 FailZombieStore 签名（含心跳超时阈值参数，验收回归 8-1）。
 type storeSpy struct{}
 
-func (s *storeSpy) FailZombieTasks(context.Context, string) (int64, []int64, error) {
+func (s *storeSpy) FailZombieTasks(context.Context, string, int) (int64, []int64, error) {
 	return 0, nil, nil
 }
 
