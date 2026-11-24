@@ -79,6 +79,14 @@ const (
 	maxSSHKeyLen       = 16384 // SSH 私钥（PEM）长度上限
 )
 
+// 导出给 handler 做上传前置限制复用（避免两处魔数漂移，审计 P2-28）。
+const (
+	// MaxUploadFiles 单次上传文件数上限（R2）。
+	MaxUploadFiles = maxUploadFiles
+	// MaxUploadFileBytes 单文件字节上限（R2：5MB）。
+	MaxUploadFileBytes = maxUploadFileBytes
+)
+
 // SettingGetter 设置读取（repo.SettingRepo 满足）。
 type SettingGetter interface {
 	GetString(ctx context.Context, key, def string) (string, error)

@@ -54,4 +54,10 @@ func (c *RedisCache) Del(ctx context.Context, key string) error {
 	return c.rdb.Del(ctx, key).Err()
 }
 
+// Ping 连通性探测（/healthz、/readyz 用）：Redis 不可用时 asynq 队列与默认配置缓存都会失效，
+// 必须能被探针发现（审计 P2-27）。
+func (c *RedisCache) Ping(ctx context.Context) error {
+	return c.rdb.Ping(ctx).Err()
+}
+
 func (c *RedisCache) Close() error { return c.rdb.Close() }

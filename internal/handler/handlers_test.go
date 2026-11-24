@@ -156,8 +156,37 @@ func TestHealthEndpoints(t *testing.T) {
 	sc, body := get(t, h.ts, "/healthz", "")
 	assert.Equal(t, 200, sc)
 	assert.Equal(t, "ok", body["status"])
+	assert.Equal(t, "up", body["db"])
+	assert.Equal(t, "up", body["redis"])
 	sc, _ = get(t, h.ts, "/api/v1/healthz", "")
 	assert.Equal(t, 200, sc)
+	// 就绪探针（P2-27）
+	sc, body = get(t, h.ts, "/readyz", "")
+	assert.Equal(t, 200, sc)
+	assert.Equal(t, "ok", body["status"])
+	sc, _ = get(t, h.ts, "/api/v1/readyz", "")
+	assert.Equal(t, 200, sc)
+}
+
+// 上传前置限制：文件数超 50 在读文件之前就拒掉（P2-28）。
+func TestUploadRejectsTooManyFiles(t *testing.T) {
+	h := setup(t)
+	_, body := post(t, h.ts, "/api/v1/auth/register", "", map[string]any{"username": "root", "password": "password8"})
+	rootToken, _ := body["token"].(string)
+	require.NotEmpty(t, rootToken)
+	sc, body := post(t, h.ts, "/api/v1/kbs", rootToken, map[string]any{"name": "上传限制库"})
+	require.Equal(t, 201, sc, body)
+	kbID := int64(body["id"].(float64))
+
+	names := make([]string, 51) // 超 R2 的 50 个上限
+	contents := make([][]byte, 51)
+	for i := range names {
+		names[i] = "f.md"
+		contents[i] = []byte("# hi")
+	}
+	sc, body = postMultipart(t, h.ts, "/api/v1/kbs/"+i64(kbID)+"/documents/upload", rootToken, names, contents)
+	assert.Equal(t, 422, sc, body)
+	assert.Equal(t, "DOC_001", jcode(t, body))
 }
 
 func TestAuthHandlerFlows(t *testing.T) {

@@ -48,6 +48,8 @@ type Deps struct {
 	OnAdminKBAccess func(ctx context.Context, userID, kbID int64, method, path, ip string)
 
 	Pinger Pinger // 可选：测试注入探针；为空时由 DB 派生
+	// RedisPinger 可选：Redis（asynq 队列/默认配置缓存）探针；为空时探针视为未配置该依赖（P2-27）
+	RedisPinger Pinger
 }
 
 // NewRouter 装配全局中间件与 /api/v1 路由。
@@ -77,7 +79,8 @@ func NewRouter(d Deps) *gin.Engine {
 	}
 
 	v1 := r.Group("/api/v1")
-	v1.GET("/healthz", Health(pinger))
+	v1.GET("/healthz", Health(pinger, d.RedisPinger))
+	v1.GET("/readyz", Readyz(pinger, d.RedisPinger))
 
 	// auth（公开）
 	v1.POST("/auth/login", d.Auth.Login)
@@ -155,10 +158,12 @@ func NewRouter(d Deps) *gin.Engine {
 	}
 
 	// admin（管理员）
-	// 顺序：Auth → Admin → 强制改密。越权优先返回 FORBIDDEN（不向无权限者泄露账号改密状态），
+	// 顺序：Auth → 限流 → Admin → 强制改密（限流必须在 Auth 之后才能取到 user key，P2-30）。
+	// 越权优先返回 FORBIDDEN（不向无权限者泄露账号改密状态），
 	// 管理员一旦被标记改密仍会被 AUTH_007 拦在业务接口之外。
 	admin := v1.Group("/admin",
 		middleware.Auth(d.Issuer, userLookup(d.UserRepo)),
+		limiter.Handler(middleware.UserKey),
 		middleware.Admin(),
 		middleware.RequirePasswordChanged(),
 	)
@@ -191,7 +196,8 @@ func NewRouter(d Deps) *gin.Engine {
 		}
 	}
 
-	r.GET("/healthz", Health(pinger)) // 基础设施探针挂在根路径
+	r.GET("/healthz", Health(pinger, d.RedisPinger)) // 基础设施探针挂在根路径
+	r.GET("/readyz", Readyz(pinger, d.RedisPinger))  // 就绪探针（语义同 healthz）
 
 	return r
 }

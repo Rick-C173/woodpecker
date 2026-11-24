@@ -228,6 +228,7 @@ func runAPI(ctx context.Context, cfg *config.Config) error {
 		UserRepo:      users,
 		Issuer:        issuer,
 		KBLookup:      kbs,
+		RedisPinger:   kvCache.Ping, // /healthz、/readyz 探测 Redis（队列与默认配置缓存，P2-27）
 		OnAdminKBAccess: func(ctx context.Context, userID, kbID int64, method, path, ip string) {
 			auditSvc.Record(ctx, &userID, "kb.admin_access", "kb", &kbID,
 				map[string]any{"method": method, "path": path}, ip)
@@ -236,6 +237,15 @@ func runAPI(ctx context.Context, cfg *config.Config) error {
 	srv := &http.Server{
 		Addr:    fmt.Sprintf(":%d", cfg.Port),
 		Handler: router,
+		// 慢连接防护（P2-29）：只设头部与空闲超时——
+		// ① ReadHeaderTimeout 防 Slowloris 类攻击占住连接；
+		// ② IdleTimeout 回收 keep-alive 空转连接；
+		// ③ ReadTimeout 必须为 0：上传 50×5MB 的请求体在慢网下可能超过任何固定值，
+		//    读取超时会直接掐断上传（体积由 MaxBytesReader 兜住）；
+		// ④ WriteTimeout 必须为 0：/conversations/{c}/messages 是 SSE 长连接，
+		//    任何非零写超时都会在生成中途切断响应（流式输出本身可能持续数分钟）。
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	go func() {

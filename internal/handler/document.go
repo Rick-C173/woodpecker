@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -129,28 +130,58 @@ func (h *DocumentHandler) CreateGit(c *gin.Context) {
 	httpx.Created(c, item)
 }
 
+// 上传请求前置限制（审计 P2-28）：在读取任何文件之前就拒掉超限请求，
+// 避免「先把几十个 5MB 文件全读进内存再逐个拒绝」。
+const (
+	maxUploadFiles = service.MaxUploadFiles // R2：单次最多 50 个
+	// maxUploadBodyBytes 请求体上限：50×5MB + 1MB 余量（multipart 边界与其它字段）。
+	maxUploadBodyBytes = maxUploadFiles*service.MaxUploadFileBytes + (1 << 20)
+)
+
+// uploadBodyLimit 请求体上限的实际取值；测试中可下调以覆盖 413 分支
+// （不做成 const 是因为构造 >250MB 的真实请求体代价过大）。
+var uploadBodyLimit int64 = maxUploadBodyBytes
+
 // CreateUpload POST /kbs/{kb}/documents/upload（编辑者+）：multipart files[]。
 //
 //	@Summary	上传文件（每文件一个文档）
+//	@Description	单次最多 50 个文件、单文件 5MB（R2）；请求体超限直接 413，文件数超限 422，均不读取文件内容。
 //	@Tags		documents
 //	@Accept		multipart/form-data
 //	@Produce	json
 //	@Success	201	{object}	object{items=[]service.DocumentItem,rejected=[]object}
+//	@Failure	413	{object}	object{code=string,message=string,request_id=string}
+//	@Failure	422	{object}	object{code=string,message=string,request_id=string}
 //	@Router		/kbs/{kb}/documents/upload [post]
+//	@Security	BearerAuth
 func (h *DocumentHandler) CreateUpload(c *gin.Context) {
+	// ① 请求体硬上限：multipart 解析阶段即受 MaxBytesReader 约束，超出返回 413。
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, uploadBodyLimit)
 	form, err := c.MultipartForm()
 	if err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			httpx.FailWith(c, http.StatusRequestEntityTooLarge, httpx.CodeDocRepoTooLarge,
+				fmt.Sprintf("上传体积超出上限（单文件 5MB、单次最多 %d 个文件）", maxUploadFiles))
+			return
+		}
 		httpx.Fail(c, httpx.CodeValidation, "需要 multipart/form-data 与 files[] 字段")
 		return
 	}
+	// ② 文件数上限：先看数量，不读任何文件内容。
 	fhs := form.File["files[]"]
+	if len(fhs) > maxUploadFiles {
+		httpx.Fail(c, httpx.CodeDocRepoTooLarge,
+			fmt.Sprintf("单次上传不超过 %d 个文件", maxUploadFiles))
+		return
+	}
 	files := make([]service.UploadFile, 0, len(fhs))
 	for _, fh := range fhs {
 		f, oerr := fh.Open()
 		if oerr != nil {
 			continue
 		}
-		content, rerr := io.ReadAll(io.LimitReader(f, 6<<20)) // 略超上限以便精确报错
+		content, rerr := io.ReadAll(io.LimitReader(f, service.MaxUploadFileBytes+1)) // 略超上限以便精确报错
 		_ = f.Close()
 		if rerr != nil {
 			continue
