@@ -28,11 +28,13 @@ const (
 	CodeModelNoDefault         = "MODEL_001"         // 422 该用途缺少默认条目
 	CodeModelDefaultLocked     = "MODEL_002"         // 422 默认条目不可删除
 	CodeModelHasEntries        = "MODEL_003"         // 409 模型服务下存在条目，不可删除
-	CodeLLMUnavailable         = "LLM_001"           // 502 模型服务不可用
-	CodeLLMBadResponse         = "LLM_002"           // 502 模型服务无有效响应
-	CodeRateLimited            = "RATE_LIMITED"      // 429 请求过于频繁
-	CodeDBUnreachable          = "SYS_001"           // 503 数据库不可用
-	CodeForbidden              = "FORBIDDEN"         // 403 通用越权
+	// CodeModelHasDefaultEntry 停用持有默认条目的服务（审计 P1-6）。
+	CodeModelHasDefaultEntry = "MODEL_004"    // 422 服务下存在默认条目，不可停用
+	CodeLLMUnavailable       = "LLM_001"      // 502 模型服务不可用
+	CodeLLMBadResponse       = "LLM_002"      // 502 模型服务无有效响应
+	CodeRateLimited          = "RATE_LIMITED" // 429 请求过于频繁
+	CodeDBUnreachable        = "SYS_001"      // 503 数据库不可用
+	CodeForbidden            = "FORBIDDEN"    // 403 通用越权
 )
 
 var httpStatusByCode = map[string]int{
@@ -57,6 +59,7 @@ var httpStatusByCode = map[string]int{
 	CodeModelNoDefault:         http.StatusUnprocessableEntity,
 	CodeModelDefaultLocked:     http.StatusUnprocessableEntity,
 	CodeModelHasEntries:        http.StatusConflict,
+	CodeModelHasDefaultEntry:   http.StatusUnprocessableEntity,
 	CodeLLMUnavailable:         http.StatusBadGateway,
 	CodeLLMBadResponse:         http.StatusBadGateway,
 	CodeRateLimited:            http.StatusTooManyRequests,

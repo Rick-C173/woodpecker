@@ -286,7 +286,6 @@ func TestAdminUserHandlerFlows(t *testing.T) {
 
 func i64(v int64) string { return strconv.FormatInt(v, 10) }
 
-
 // TestAuthBindFailures 注册与改密的请求体绑定失败分支（边界：非法/缺字段）。
 func TestAuthBindFailures(t *testing.T) {
 	h := setup(t)

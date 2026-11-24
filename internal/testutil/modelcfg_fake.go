@@ -135,6 +135,19 @@ func (f *FakeModelCfgRepo) CountEntriesByService(_ context.Context, serviceID in
 	return n, nil
 }
 
+// CountDefaultEntries 该服务下 is_default=true 的条目数（与真实现同口径，审计 P1-6）。
+func (f *FakeModelCfgRepo) CountDefaultEntries(_ context.Context, serviceID int64) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var n int64
+	for _, e := range f.entries {
+		if e.ServiceID == serviceID && e.IsDefault {
+			n++
+		}
+	}
+	return n, nil
+}
+
 func (f *FakeModelCfgRepo) CreateEntry(_ context.Context, e *model.ModelEntry) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

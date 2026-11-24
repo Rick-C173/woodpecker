@@ -161,6 +161,14 @@ func TestModelCfgRepoIT(t *testing.T) {
 	assert.Equal(t, e1.ID, defEntry.ID)
 	assert.Equal(t, "deepseek", defSvc.Name)
 
+	// CountDefaultEntries 与真库同口径（审计 P1-6：停用服务前的守门条件）
+	n, err := r.CountDefaultEntries(ctx, svc.ID)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), n, "该服务下有 1 条默认条目")
+	n, err = r.CountDefaultEntries(ctx, 99999)
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), n, "不存在的服务计 0")
+
 	e3 := &model.ModelEntry{ServiceID: svc.ID, Purpose: model.ModelPurposeChat, ModelName: "deepseek-reasoner", Params: []byte("{}")}
 	require.NoError(t, r.CreateEntry(ctx, e3))
 	require.NoError(t, r.SetDefaultEntry(ctx, model.ModelPurposeChat, e3.ID))
@@ -176,7 +184,7 @@ func TestModelCfgRepoIT(t *testing.T) {
 	}
 	assert.Equal(t, 1, defaults, "每用途仅一个默认")
 
-	n, err := r.CountEntriesByService(ctx, svc.ID)
+	n, err = r.CountEntriesByService(ctx, svc.ID)
 	require.NoError(t, err)
 	assert.Equal(t, int64(3), n)
 	svc.Enabled = false

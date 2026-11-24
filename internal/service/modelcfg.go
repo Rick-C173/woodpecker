@@ -20,6 +20,9 @@ const (
 	CodeModelNoDefault  = "MODEL_001" // 422 该用途缺少默认条目
 	CodeModelDefaultDel = "MODEL_002" // 422 默认条目不可删除
 	CodeModelHasEntries = "MODEL_003" // 409 服务下存在条目
+	// CodeModelHasDefaultEntries 停用持有默认条目的服务（审计 P1-6）：
+	// 停用后 GetDefaultEntry 查不到默认（SQL 带 s.enabled=TRUE），问答/检索/摄取同时失效。
+	CodeModelHasDefaultEntries = "MODEL_004" // 422 服务下存在默认条目，请先取消默认
 )
 
 // 模型服务字段上限（FR-12）。
@@ -46,6 +49,8 @@ type ModelCfgRepo interface {
 	ListServices(ctx context.Context) ([]repo.ModelServiceRow, error)
 	DeleteService(ctx context.Context, id int64) error
 	CountEntriesByService(ctx context.Context, serviceID int64) (int64, error)
+	// CountDefaultEntries 该服务下 is_default=true 的条目数（停用前的守门条件，审计 P1-6）。
+	CountDefaultEntries(ctx context.Context, serviceID int64) (int64, error)
 	CreateEntry(ctx context.Context, e *model.ModelEntry) error
 	SaveEntry(ctx context.Context, e *model.ModelEntry) error
 	GetEntryByID(ctx context.Context, id int64) (*model.ModelEntry, error)
@@ -204,6 +209,18 @@ func (s *ModelConfigService) UpdateService(ctx context.Context, actorID, id int6
 		detail["api_key"] = "replaced"
 	}
 	if enabled != nil {
+		// 停用持有默认条目的服务 → 422 MODEL_004（审计 P1-6 / PRD FR-12「已停用的服务不允许
+		// 作为默认」）：GetDefaultEntry 带 `AND s.enabled = TRUE`，一旦停用，该用途就没有默认
+		// 配置，问答与检索/摄取同时抛 MODEL_001，管理员只是想「临时停用」却打死了整条 RAG 链路。
+		if !*enabled {
+			n, cerr := s.repo.CountDefaultEntries(ctx, svc.ID)
+			if cerr != nil {
+				return nil, cerr
+			}
+			if n > 0 {
+				return nil, NewServiceError(CodeModelHasDefaultEntries, "服务下存在默认条目，请先取消默认")
+			}
+		}
 		svc.Enabled = *enabled
 		detail["enabled"] = *enabled
 	}

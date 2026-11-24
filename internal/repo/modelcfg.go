@@ -91,6 +91,16 @@ func (r *ModelCfgRepo) CountEntriesByService(ctx context.Context, serviceID int6
 	return n, err
 }
 
+// CountDefaultEntries 指定服务下被标记为「某用途默认」的条目数（审计 P1-6）。
+// 停用服务前必须为 0：GetDefaultEntry 带 `AND s.enabled = TRUE`，
+// 停用持有默认条目的服务会让该用途整体失去默认配置（问答/检索/摄取同时失效）。
+func (r *ModelCfgRepo) CountDefaultEntries(ctx context.Context, serviceID int64) (int64, error) {
+	var n int64
+	err := r.dbx(ctx).Model(&model.ModelEntry{}).
+		Where("service_id = ? AND is_default = TRUE", serviceID).Count(&n).Error
+	return n, err
+}
+
 func (r *ModelCfgRepo) CreateEntry(ctx context.Context, e *model.ModelEntry) error {
 	return r.dbx(ctx).Create(e).Error
 }

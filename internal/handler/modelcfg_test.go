@@ -109,14 +109,36 @@ func TestMCAdminFlows(t *testing.T) {
 	assert.Equal(t, "ok", body["embedding"])
 	assert.NotContains(t, body, "rerank")
 
-	// 停用服务 → 其上设默认被拒
+	// 停用持有默认条目的服务 → 422 MODEL_004（审计 P1-6）
+	sc, body = patch(t, h.ts, base+"/model-services/"+i64(svcID), h.rootToken, map[string]any{"enabled": false})
+	assert.Equal(t, 422, sc)
+	assert.Equal(t, "MODEL_004", jcode(t, body))
+
+	// 把默认切到另一个服务后即可停用（否则该用途会整体失去默认）
+	sc, body = post(t, h.ts, base+"/model-services", h.rootToken, map[string]any{
+		"name": "备用服务", "base_url": "https://api.backup.com/v1", "api_key": "sk-backup",
+	})
+	require.Equal(t, 201, sc, body)
+	backupID := int64(body["id"].(float64))
+	sc, body = post(t, h.ts, base+"/model-entries", h.rootToken, map[string]any{
+		"service_id": backupID, "purpose": "chat", "model_name": "backup-chat", "is_default": true,
+	})
+	require.Equal(t, 201, sc, body)
 	sc, body = patch(t, h.ts, base+"/model-services/"+i64(svcID), h.rootToken, map[string]any{"enabled": false})
 	require.Equal(t, 200, sc, body)
+
+	// 停用服务上直接设默认 → 拒绝
 	sc, body = post(t, h.ts, base+"/model-entries", h.rootToken, map[string]any{
 		"service_id": svcID, "purpose": "rerank", "model_name": "bge-reranker", "is_default": true,
 	})
 	assert.Equal(t, 422, sc)
 	assert.Equal(t, "VALIDATION_FAILED", jcode(t, body))
+
+	// 恢复启用并把默认切回本条（回归后段断言：默认条目仍不可删）
+	sc, body = patch(t, h.ts, base+"/model-services/"+i64(svcID), h.rootToken, map[string]any{"enabled": true})
+	require.Equal(t, 200, sc, body)
+	sc, body = patch(t, h.ts, base+"/model-entries/"+i64(entryID), h.rootToken, map[string]any{"is_default": true})
+	require.Equal(t, 200, sc, body)
 
 	// 删除非默认条目 → 删服务
 	sc, body = del(t, h.ts, base+"/model-entries/"+i64(entry2ID), h.rootToken)

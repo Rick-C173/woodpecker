@@ -120,21 +120,13 @@ func TestMCEntryAndDefaults(t *testing.T) {
 	_, err = e.svc.GetDefault(ctx, model.ModelPurposeEmbedding)
 	assert.Equal(t, service.CodeModelNoDefault, svcErr(t, err).Code)
 
-	// 停用服务后默认不可用 → 读取时 MODEL_001
+	// 停用持有默认条目的服务 → 422 MODEL_004（审计 P1-6 / PRD FR-12）
+	// 修复前这里会成功，随后全站抛 MODEL_001：问答、检索、摄取同时失效。
 	_, err = e.svc.UpdateService(ctx, 1, svcID.ID, nil, nil, nil, boolPtr(false), "")
-	require.NoError(t, err)
-	_, err = e.svc.GetDefault(ctx, model.ModelPurposeChat)
-	assert.Equal(t, service.CodeModelNoDefault, svcErr(t, err).Code, "停用服务的默认条目不应生效")
-	_, err = e.svc.UpdateService(ctx, 1, svcID.ID, nil, nil, nil, boolPtr(true), "")
-	require.NoError(t, err)
-
-	// 停用服务上直接设默认 → 拒绝
-	_, err = e.svc.UpdateService(ctx, 1, svcID.ID, nil, nil, nil, boolPtr(false), "")
-	require.NoError(t, err)
-	_, err = e.svc.CreateEntry(ctx, 1, svcID.ID, "embedding", "bge-m3", "", true, "")
-	assert.Equal(t, service.CodeValidation, svcErr(t, err).Code)
-	_, err = e.svc.UpdateService(ctx, 1, svcID.ID, nil, nil, nil, boolPtr(true), "")
-	require.NoError(t, err)
+	assert.Equal(t, service.CodeModelHasDefaultEntries, svcErr(t, err).Code)
+	svcNow, gerr := e.repo.GetServiceByID(ctx, svcID.ID)
+	require.NoError(t, gerr)
+	assert.True(t, svcNow.Enabled, "拦截后服务应保持启用")
 
 	// 同用途第二个默认：切换后旧的不再是默认
 	svc2, err := e.svc.CreateService(ctx, 1, "SiliconFlow", "https://api.siliconflow.cn/v1", "sk-2", "")
@@ -147,6 +139,19 @@ func TestMCEntryAndDefaults(t *testing.T) {
 	got2, err := e.repo.GetEntryByID(ctx, item2.ID)
 	require.NoError(t, err)
 	assert.True(t, got2.IsDefault)
+
+	// 默认已切走 → 停用成功，且该用途仍有默认（来自未停用的服务）
+	_, err = e.svc.UpdateService(ctx, 1, svcID.ID, nil, nil, nil, boolPtr(false), "")
+	require.NoError(t, err)
+	cfg4, err := e.svc.GetDefault(ctx, model.ModelPurposeChat)
+	require.NoError(t, err)
+	assert.Equal(t, "sk-2", cfg4.APIKey, "默认应回落到未停用的服务")
+
+	// 停用服务上直接设默认 → 拒绝
+	_, err = e.svc.CreateEntry(ctx, 1, svcID.ID, "embedding", "bge-m3", "", true, "")
+	assert.Equal(t, service.CodeValidation, svcErr(t, err).Code)
+	_, err = e.svc.UpdateService(ctx, 1, svcID.ID, nil, nil, nil, boolPtr(true), "")
+	require.NoError(t, err)
 
 	// 默认条目不可删 → MODEL_002
 	err = e.svc.DeleteEntry(ctx, 1, item2.ID, "")
