@@ -36,7 +36,7 @@ func TestPipelineRecoverStartupScopedToSelf(t *testing.T) {
 	assert.Equal(t, model.DocStatusProcessing, e.docs.DocByID(docB.ID).Status, "B 的文档仍在处理中")
 }
 
-// TestPipelineRecoverStartupLegacyNullWorker 迁移前的历史数据（worker_id IS NULL）由首次启动清理。
+// TestPipelineRecoverStartupLegacyNullWorker 升级前无归属（worker_id IS NULL）的**运行中**任务由启动恢复清理。
 func TestPipelineRecoverStartupLegacyNullWorker(t *testing.T) {
 	e := newPipeEnv(t)
 	ctx := context.Background()
@@ -47,8 +47,37 @@ func TestPipelineRecoverStartupLegacyNullWorker(t *testing.T) {
 
 	e.pipeline.RecoverStartup(ctx, e.docs)
 
-	assert.Equal(t, model.TaskStatusFailed, e.docs.TaskByID(legacyTask.ID).Status, "无归属的历史任务应被清理")
+	assert.Equal(t, model.TaskStatusFailed, e.docs.TaskByID(legacyTask.ID).Status, "无归属的运行中僵尸应被清理")
 	assert.Equal(t, model.DocStatusFailed, e.docs.DocByID(legacyDoc.ID).Status)
+}
+
+// TestPipelineRecoverStartupKeepsQueuedUnassigned 无归属的**排队中**任务不得被重启恢复清理。
+//
+// 入队时 worker_id 为空，只有 Process 开始处理才写归属；asynq 队列持久化在 Redis，
+// 重启后会重投这些排队任务。若在 DB 里先置失败，就会出现「用户看到失败、任务其实还在跑」
+// 的库/队列不一致。运行中的无归属任务仍按僵尸清理（见上一条用例）。
+func TestPipelineRecoverStartupKeepsQueuedUnassigned(t *testing.T) {
+	e := newPipeEnv(t)
+	ctx := context.Background()
+	e.pipeline.SetWorkerID("worker-a")
+
+	queuedDoc := e.docs.SeedDoc(10, model.DocTypeUpload, model.DocStatusPending)
+	queued := e.docs.SeedTaskWithWorker(queuedDoc.ID, model.TaskTypeFull, model.TaskStatusQueued, "")
+
+	zombieDoc := e.docs.SeedDoc(10, model.DocTypeUpload, model.DocStatusProcessing)
+	zombie := e.docs.SeedTaskWithWorker(zombieDoc.ID, model.TaskTypeFull, model.TaskStatusRunning, "")
+
+	e.pipeline.RecoverStartup(ctx, e.docs)
+
+	assert.Equal(t, model.TaskStatusQueued, e.docs.TaskByID(queued.ID).Status,
+		"排队中且无归属的任务必须保持 queued，交给 asynq 重投")
+	assert.Nil(t, e.docs.TaskByID(queued.ID).Error, "不得写入重启中断的错误摘要")
+	assert.Equal(t, model.DocStatusPending, e.docs.DocByID(queuedDoc.ID).Status,
+		"对应文档不得被置失败")
+
+	assert.Equal(t, model.TaskStatusFailed, e.docs.TaskByID(zombie.ID).Status,
+		"运行中且无归属的僵尸仍要清理")
+	assert.Equal(t, model.DocStatusFailed, e.docs.DocByID(zombieDoc.ID).Status)
 }
 
 // TestPipelineProcessRecordsWorkerID 任务开始处理时写入本实例 worker_id（重启恢复的归属依据）。

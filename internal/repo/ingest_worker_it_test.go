@@ -54,19 +54,45 @@ func TestIngestTaskWorkerScopeIT(t *testing.T) {
 	assert.Equal(t, model.DocStatusProcessing, gotDocB.Status, "B 的文档仍在处理中")
 }
 
-// TestIngestTaskLegacyNullWorkerIT P1-8：迁移前无归属（worker_id IS NULL）的历史任务由启动恢复清理。
+// TestIngestTaskLegacyNullWorkerIT P1-8：无归属（worker_id IS NULL）时只清理**运行中**的僵尸；
+// 排队中（status=1）的任务不动——asynq 队列持久化，重启后会重投，DB 先置失败会造成库/队列不一致。
 func TestIngestTaskLegacyNullWorkerIT(t *testing.T) {
 	itTruncate(t)
 	ctx := context.Background()
-	r, _, docs := itSeedDocKB(t, "legacy.md")
+	r, _, docs := itSeedDocKB(t, "legacy-running.md", "legacy-queued.md")
+	docRunning, docQueued := docs[0], docs[1]
 
-	legacy := &model.IngestTask{DocumentID: docs[0].ID, Type: model.TaskTypeFull,
+	// 排队中文档：服务层入队时文档是 pending（对齐 CreateUpload 的真实状态）
+	docQueued.Status = model.DocStatusPending
+	require.NoError(t, r.SaveDocument(ctx, docQueued))
+
+	running := &model.IngestTask{DocumentID: docRunning.ID, Type: model.TaskTypeFull,
+		Status: model.TaskStatusRunning}
+	queued := &model.IngestTask{DocumentID: docQueued.ID, Type: model.TaskTypeFull,
 		Status: model.TaskStatusQueued}
-	require.NoError(t, r.CreateTask(ctx, legacy))
-	assert.Equal(t, int64(1), itCount(t, "SELECT COUNT(*) FROM ingest_tasks WHERE worker_id IS NULL"))
+	require.NoError(t, r.CreateTask(ctx, running))
+	require.NoError(t, r.CreateTask(ctx, queued))
+	assert.Equal(t, int64(2), itCount(t, "SELECT COUNT(*) FROM ingest_tasks WHERE worker_id IS NULL"))
 
 	n, docIDs, err := r.FailZombieTasks(ctx, "worker-any")
 	require.NoError(t, err)
-	assert.Equal(t, int64(1), n, "无归属历史任务应被清理")
-	assert.Equal(t, []int64{docs[0].ID}, docIDs)
+	assert.Equal(t, int64(1), n, "只清理无归属的运行中僵尸")
+	assert.Equal(t, []int64{docRunning.ID}, docIDs)
+
+	docsFailed, err := r.FailProcessingDocs(ctx, docIDs)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), docsFailed)
+
+	gotQueued, err := r.GetTaskByID(ctx, queued.ID)
+	require.NoError(t, err)
+	assert.Equal(t, model.TaskStatusQueued, gotQueued.Status, "排队中且无归属的任务必须保持 queued")
+	assert.Nil(t, gotQueued.Error, "不得写入重启中断的错误摘要")
+	assert.Nil(t, gotQueued.FinishedAt)
+	gotDocQueued, err := r.GetDocumentByID(ctx, docQueued.ID)
+	require.NoError(t, err)
+	assert.Equal(t, model.DocStatusPending, gotDocQueued.Status, "排队中文档不得被置失败")
+
+	gotRunning, err := r.GetTaskByID(ctx, running.ID)
+	require.NoError(t, err)
+	assert.Equal(t, model.TaskStatusFailed, gotRunning.Status, "运行中僵尸应置失败")
 }

@@ -399,7 +399,10 @@ func (f *FakeDocRepo) ListTaskHistory(_ context.Context, documentID int64, limit
 	return rows, nil
 }
 
-// FailZombieTasks 只清理本 worker（或迁移前无归属）的排队/运行任务（与 repo 实现同口径，P1-8）。
+// FailZombieTasks 只清理本 worker（或升级前无归属）的残留任务，与 repo 实现同口径（P1-8）：
+//   - worker_id = workerID：排队/运行中都清（本实例上次运行留下的）；
+//   - worker_id IS NULL：只清运行中（status=2）；排队中（status=1）交给 asynq 重投，不得置失败。
+//
 // 返回任务数与被波及文档 ID。
 func (f *FakeDocRepo) FailZombieTasks(_ context.Context, workerID string) (int64, []int64, error) {
 	f.mu.Lock()
@@ -415,7 +418,12 @@ func (f *FakeDocRepo) FailZombieTasks(_ context.Context, workerID string) (int64
 		if t.Status != model.TaskStatusQueued && t.Status != model.TaskStatusRunning {
 			continue
 		}
-		if t.WorkerID != nil && *t.WorkerID != workerID {
+		if t.WorkerID == nil {
+			// 无归属：只清运行中的真僵尸，排队中的任务不能动（库/队列状态一致性）
+			if t.Status != model.TaskStatusRunning {
+				continue
+			}
+		} else if *t.WorkerID != workerID {
 			continue // 其它实例的残留：不得清理（P1-8 的核心断言）
 		}
 		t.Status = model.TaskStatusFailed

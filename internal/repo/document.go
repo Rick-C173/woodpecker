@@ -307,21 +307,27 @@ func (r *DocumentRepo) ListTaskHistory(ctx context.Context, documentID int64, li
 	return rows, nil
 }
 
-// FailZombieTasks 重启恢复：把**本 worker 遗留**的排队/运行任务置失败（FR-06）。
+// FailZombieTasks 重启恢复：把**本 worker 遗留**的任务置失败（FR-06）。
 //
 // 多实例部署下不得全库 UPDATE——否则任一 worker 启动都会把其它实例正在处理的任务置失败（审计 P1-8）。
-// 归属判定两条：
-//   - worker_id = workerID：本实例上次运行留下的残留；
-//   - worker_id IS NULL：迁移 000005 之前的历史数据（无归属列），升级后首次启动清理一次。
+// 归属判定分两段，外层是 OR，故必须显式分组：
+//   - worker_id = workerID 且 status IN (1,2)：本实例上次运行留下的残留（排队 + 运行中都清）；
+//   - worker_id IS NULL 且 status = 2：迁移 000005 之前的历史行 / 写归属失败的僵尸，只清**运行中**。
+//
+// 为什么不清理「worker_id IS NULL 且 status = 1」：CreateTask 入队时 worker_id 为空，只有 Process
+// 开始处理才写归属。而 asynq 队列是 Redis 持久化的，重启后这些排队任务仍会被重新投递执行——
+// 在 DB 里先把它们置失败会造成「用户看到失败、任务其实还在跑」的库/队列状态不一致，
+// 比原缺陷更隐蔽。排队态交给 asynq 重投，DB 不动它。
 //
 // 返回受影响任务数，以及被波及的文档 ID（供 FailProcessingDocs 精确限定，不做全库 UPDATE）。
 func (r *DocumentRepo) FailZombieTasks(ctx context.Context, workerID string) (tasks int64, docIDs []int64, err error) {
 	err = r.dbx(ctx).Transaction(func(tx *gorm.DB) error {
-		// 显式加括号：不加时与后续 AND 条件存在优先级歧义
 		zombie := func() *gorm.DB {
 			return tx.Model(&model.IngestTask{}).
-				Where("status IN ?", []int16{model.TaskStatusQueued, model.TaskStatusRunning}).
-				Where("(worker_id = ? OR worker_id IS NULL)", workerID)
+				Where("(worker_id = ? AND status IN ?) OR (worker_id IS NULL AND status = ?)",
+					workerID,
+					[]int16{model.TaskStatusQueued, model.TaskStatusRunning},
+					model.TaskStatusRunning)
 		}
 		// 先取文档 ID（置失败后这些行不再命中 status 条件）
 		if perr := zombie().Distinct("document_id").Pluck("document_id", &docIDs).Error; perr != nil {

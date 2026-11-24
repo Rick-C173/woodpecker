@@ -80,7 +80,8 @@ type DocStore interface {
 // FailZombieStore 启动恢复所需操作（repo.DocumentRepo 满足）。
 // 两个方法都按 worker 限定范围：多实例部署下不得全库 UPDATE（审计 P1-8）。
 type FailZombieStore interface {
-	// FailZombieTasks 置失败本实例（或迁移前无归属）的排队/运行任务，返回任务数与被波及文档 ID。
+	// FailZombieTasks 置失败本实例遗留的排队/运行任务，以及无归属（worker_id IS NULL）的**运行中**任务；
+	// 无归属的排队任务不动（asynq 会重投）。返回任务数与被波及文档 ID。
 	FailZombieTasks(ctx context.Context, workerID string) (int64, []int64, error)
 	// FailProcessingDocs 只把给定文档（本实例刚失败任务对应的）置失败。
 	FailProcessingDocs(ctx context.Context, docIDs []int64) (int64, error)
@@ -127,7 +128,8 @@ func (p *Pipeline) SetWorkerID(id string) {
 func (p *Pipeline) WorkerID() string { return p.workerID }
 
 // RecoverStartup 重启恢复：只把**本实例遗留**的运行中任务/文档置失败（FR-06）。
-// 旧实现是无条件全库 UPDATE，多实例部署下任一 worker 启动都会杀掉其它实例的任务（审计 P1-8）。
+// 旧实现是无条件全库 UPDATE，多实例部署下任一 worker 启动都会杀掉其它实例的任务（审计 P1-8）；
+// 无归属（worker_id IS NULL）的**排队中**任务不清理——asynq 队列持久化，重启后会重投执行。
 func (p *Pipeline) RecoverStartup(ctx context.Context, store FailZombieStore) {
 	tasks, docIDs, err := store.FailZombieTasks(ctx, p.workerID)
 	if err != nil {
