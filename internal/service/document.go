@@ -514,6 +514,8 @@ func (s *DocumentService) Sync(ctx context.Context, actorID, kbID, docID int64, 
 }
 
 // enqueueNewTask 幂等入队：存在运行中任务 → 409 DOC_TASK_RUNNING（API设计.md §7）。
+// HasRunningTask 的「先查后写」只是快速失败路径；并发下由 DB 约束
+// uq_ingest_tasks_running（迁移 000006）兜底，冲突经 repo.ErrTaskRunning 映射为同一业务错误（审计 P1-10）。
 func (s *DocumentService) enqueueNewTask(ctx context.Context, actorID int64, d *model.Document, taskType int16, ip string) error {
 	running, err := s.docs.HasRunningTask(ctx, d.ID)
 	if err != nil {
@@ -525,8 +527,11 @@ func (s *DocumentService) enqueueNewTask(ctx context.Context, actorID int64, d *
 	statusBefore := d.Status
 	now := s.now()
 	t := &model.IngestTask{DocumentID: d.ID, Type: taskType, Status: model.TaskStatusQueued, CreatedAt: now}
-	// 幂等：并发窗口内可能已由另一请求建了任务（P1-10：DB 唯一索引兜底，见后续提交）
+	// 幂等：并发窗口内可能已由另一请求建了任务，唯一索引拒绝时按既有 409 语义返回
 	if err := s.docs.CreateTask(ctx, t); err != nil {
+		if errors.Is(err, repo.ErrTaskRunning) {
+			return NewServiceError(CodeDocTaskRunning, "该文档已有运行中的摄取任务")
+		}
 		return err
 	}
 	// 文档回到待处理态并清除上次错误
