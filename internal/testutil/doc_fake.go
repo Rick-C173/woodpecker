@@ -345,10 +345,14 @@ func (f *FakeDocRepo) SaveTask(_ context.Context, t *model.IngestTask) error {
 	if f.ErrOnSaveTask != nil {
 		return f.ErrOnSaveTask
 	}
-	if _, ok := f.tasks[t.ID]; !ok {
+	old, ok := f.tasks[t.ID]
+	if !ok {
 		return repo.ErrNotFound
 	}
 	cp := *t
+	// 与 repo 同口径（Omit heartbeat_at）：SaveTask 不用内存里的旧值覆盖心跳列，
+	// 该列只由 HeartbeatTask 维护。
+	cp.HeartbeatAt = old.HeartbeatAt
 	f.tasks[t.ID] = &cp
 	return nil
 }

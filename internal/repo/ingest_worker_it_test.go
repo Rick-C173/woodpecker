@@ -195,3 +195,33 @@ func TestIngestTaskQueuedNeverReclaimedIT(t *testing.T) {
 		assert.Nil(t, got.FinishedAt)
 	}
 }
+
+// TestHeartbeatTaskPersistsIT 心跳必须真正落库，且状态收尾的 SaveTask 不得把它覆盖回 NULL。
+// （Process/fail/finishTask 用的都是从启动时读到的任务快照，其 heartbeat_at 恒为 nil。）
+func TestHeartbeatTaskPersistsIT(t *testing.T) {
+	itTruncate(t)
+	ctx := context.Background()
+	r, _, docs := itSeedDocKB(t, "hb.md")
+	doc := docs[0]
+
+	worker := "pod-aaa"
+	task := &model.IngestTask{DocumentID: doc.ID, Type: model.TaskTypeFull,
+		Status: model.TaskStatusRunning, WorkerID: &worker}
+	require.NoError(t, r.CreateTask(ctx, task))
+	require.Nil(t, task.HeartbeatAt, "新建任务尚无心跳")
+
+	require.NoError(t, r.HeartbeatTask(ctx, task.ID))
+	got, err := r.GetTaskByID(ctx, task.ID)
+	require.NoError(t, err)
+	require.NotNil(t, got.HeartbeatAt, "心跳必须落库")
+	assert.WithinDuration(t, time.Now(), *got.HeartbeatAt, time.Minute)
+
+	// 模拟 Process 收尾：拿「心跳之前读到的快照」再 SaveTask，不得把心跳清掉
+	snapshot := *task
+	snapshot.Status = model.TaskStatusFailed
+	require.NoError(t, r.SaveTask(ctx, &snapshot))
+	after, err := r.GetTaskByID(ctx, task.ID)
+	require.NoError(t, err)
+	assert.NotNil(t, after.HeartbeatAt, "SaveTask 不得把 heartbeat_at 覆盖回 NULL")
+	assert.Equal(t, model.TaskStatusFailed, after.Status, "状态等其他字段仍要落库")
+}

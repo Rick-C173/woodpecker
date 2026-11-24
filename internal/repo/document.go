@@ -269,8 +269,11 @@ func isTaskRunningConflict(err error) bool {
 	return false
 }
 
+// SaveTask 全字段落库，但**不覆盖 heartbeat_at**：该列只由 HeartbeatTask 维护。
+// 否则 Process/fail/finishTask 里的 SaveTask 会用「从库里读出来的旧值（nil）」把它写回 NULL，
+// 心跳刚建立的租约信息立刻丢失（验收回归 8-1）。
 func (r *DocumentRepo) SaveTask(ctx context.Context, t *model.IngestTask) error {
-	return r.dbx(ctx).Save(t).Error
+	return r.dbx(ctx).Omit("heartbeat_at").Save(t).Error
 }
 
 func (r *DocumentRepo) GetTaskByID(ctx context.Context, id int64) (*model.IngestTask, error) {
