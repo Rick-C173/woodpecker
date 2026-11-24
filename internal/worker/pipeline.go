@@ -16,6 +16,7 @@ import (
 
 	"github.com/hibiken/asynq"
 
+	"woodpecker/internal/config"
 	"woodpecker/internal/llm"
 	"woodpecker/internal/model"
 	"woodpecker/internal/rag"
@@ -77,9 +78,12 @@ type DocStore interface {
 }
 
 // FailZombieStore 启动恢复所需操作（repo.DocumentRepo 满足）。
+// 两个方法都按 worker 限定范围：多实例部署下不得全库 UPDATE（审计 P1-8）。
 type FailZombieStore interface {
-	FailProcessingDocs(ctx context.Context) (int64, error)
-	FailZombieTasks(ctx context.Context) (int64, error)
+	// FailZombieTasks 置失败本实例（或迁移前无归属）的排队/运行任务，返回任务数与被波及文档 ID。
+	FailZombieTasks(ctx context.Context, workerID string) (int64, []int64, error)
+	// FailProcessingDocs 只把给定文档（本实例刚失败任务对应的）置失败。
+	FailProcessingDocs(ctx context.Context, docIDs []int64) (int64, error)
 }
 
 // Pipeline 摄取管道。
@@ -91,6 +95,7 @@ type Pipeline struct {
 	embedder  Embedder
 	queue     Enqueuer
 	uploadDir string
+	workerID  string
 	now       func() time.Time
 }
 
@@ -100,26 +105,43 @@ type SettingGetter interface {
 }
 
 func NewPipeline(docs DocStore, settings SettingGetter, cipher CredentialCipher, resolver ConfigResolver, embedder Embedder, queue Enqueuer) *Pipeline {
-	return &Pipeline{docs: docs, settings: settings, cipher: cipher, resolver: resolver, embedder: embedder, queue: queue, uploadDir: "data/uploads", now: time.Now}
+	return &Pipeline{
+		docs: docs, settings: settings, cipher: cipher, resolver: resolver,
+		embedder: embedder, queue: queue, uploadDir: "data/uploads",
+		workerID: config.DefaultWorkerID(), now: time.Now,
+	}
 }
 
 // SetUploadDir 修改上传目录（与 service.CreateUpload 的落地规则一致）。
 func (p *Pipeline) SetUploadDir(dir string) { p.uploadDir = dir }
 
-// RecoverStartup 重启恢复：遗留的运行中文档与任务全部置失败（FR-06）。
+// SetWorkerID 设置本实例标识（配置 WORKER_ID，缺省主机名；审计 P1-8）。
+// 空值忽略，保持缺省值——留空会让重启恢复退化为清理 worker_id IS NULL 的分支，误杀刚入队的任务。
+func (p *Pipeline) SetWorkerID(id string) {
+	if id = strings.TrimSpace(id); id != "" {
+		p.workerID = id
+	}
+}
+
+// WorkerID 当前实例标识（日志与断言用）。
+func (p *Pipeline) WorkerID() string { return p.workerID }
+
+// RecoverStartup 重启恢复：只把**本实例遗留**的运行中任务/文档置失败（FR-06）。
+// 旧实现是无条件全库 UPDATE，多实例部署下任一 worker 启动都会杀掉其它实例的任务（审计 P1-8）。
 func (p *Pipeline) RecoverStartup(ctx context.Context, store FailZombieStore) {
-	n, err := store.FailProcessingDocs(ctx)
+	tasks, docIDs, err := store.FailZombieTasks(ctx, p.workerID)
 	if err != nil {
-		slog.Error("重启恢复：处理中文档置失败", "err", err)
+		slog.Error("重启恢复：遗留任务置失败", "worker_id", p.workerID, "err", err)
 		return
 	}
-	m, err := store.FailZombieTasks(ctx)
+	docs, err := store.FailProcessingDocs(ctx, docIDs)
 	if err != nil {
-		slog.Error("重启恢复：遗留任务置失败", "err", err)
+		slog.Error("重启恢复：处理中文档置失败", "worker_id", p.workerID, "err", err)
 		return
 	}
-	if n+m > 0 {
-		slog.Info("重启恢复：中断任务按失败处理", "docs", n, "tasks", m)
+	if tasks+docs > 0 {
+		slog.Info("重启恢复：中断任务按失败处理",
+			"worker_id", p.workerID, "docs", docs, "tasks", tasks)
 	}
 }
 
@@ -140,6 +162,12 @@ func (p *Pipeline) Process(ctx context.Context, taskID int64) error {
 	now := p.now()
 	t.Status = model.TaskStatusRunning
 	t.StartedAt = &now
+	// 归属标记（审计 P1-8）：重启恢复据此只清理本实例的残留，不再全库 UPDATE。
+	// 与状态同一次 SaveTask 落库，避免「running 但无归属」的中间态被其它实例当成历史数据清掉。
+	if p.workerID != "" {
+		workerID := p.workerID
+		t.WorkerID = &workerID
+	}
 	if err := p.docs.SaveTask(ctx, t); err != nil {
 		return err
 	}
@@ -467,6 +495,8 @@ func (p *Pipeline) fail(ctx context.Context, t *model.IngestTask, d *model.Docum
 }
 
 // finishTask 收尾任务状态。
+// 任务行已被级联删除（文档在处理中被删）时视为终结，不再返回临时错误——
+// 此时没有可写的任务行，交给 asynq 重投只会重复失败。
 func (p *Pipeline) finishTask(ctx context.Context, t *model.IngestTask, status int16, errMsg string) error {
 	t.Status = status
 	now := p.now()
@@ -474,7 +504,14 @@ func (p *Pipeline) finishTask(ctx context.Context, t *model.IngestTask, status i
 	if errMsg != "" {
 		t.Error = &errMsg
 	}
-	return p.docs.SaveTask(ctx, t)
+	if err := p.docs.SaveTask(ctx, t); err != nil {
+		if errors.Is(err, repo.ErrNotFound) {
+			slog.Warn("任务已随文档级联删除，跳过收尾", "task", t.ID)
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 // classifyFail 归类错误为对外可见的失败摘要。

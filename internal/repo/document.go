@@ -2,6 +2,8 @@ package repo
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"time"
 
 	"github.com/pgvector/pgvector-go"
@@ -53,6 +55,19 @@ type TaskRow struct {
 // ErrDocumentNotFound 文档不存在（与全局 ErrNotFound 一致，便于 errors.Is 判断）。
 var ErrDocumentNotFound = ErrNotFound
 
+// ErrTaskRunning 该文档已有排队/运行中的摄取任务（唯一索引 uq_ingest_tasks_running 冲突）。
+// 由 service 层映射为业务错误 DOC_TASK_RUNNING（409），故本包不引入 service 依赖。
+var ErrTaskRunning = errors.New("该文档已有运行中的摄取任务")
+
+// ingestTaskRunningIndex 「同文档运行中任务唯一」索引名（迁移 000006）。
+const ingestTaskRunningIndex = "uq_ingest_tasks_running"
+
+// zombieTaskError 重启恢复写入任务的错误摘要（FR-06：中断任务按失败处理）。
+const zombieTaskError = "服务重启导致任务中断"
+
+// sqlStateUniqueViolation PG 唯一键冲突的 SQLSTATE。
+const sqlStateUniqueViolation = "23505"
+
 type DocumentRepo struct{ db *gorm.DB }
 
 func NewDocumentRepo(db *gorm.DB) *DocumentRepo { return &DocumentRepo{db: db} }
@@ -63,6 +78,18 @@ func (r *DocumentRepo) dbx(ctx context.Context) *gorm.DB { return r.db.WithConte
 
 func (r *DocumentRepo) CreateDocument(ctx context.Context, d *model.Document) error {
 	return r.dbx(ctx).Create(d).Error
+}
+
+// CreateDocumentWithTask 同一事务内创建文档与其首个摄取任务（审计 P1-9）。
+// 任一步失败整体回滚，不会留下「有文档没任务」的待处理僵尸文档。
+func (r *DocumentRepo) CreateDocumentWithTask(ctx context.Context, d *model.Document, t *model.IngestTask) error {
+	return r.dbx(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(d).Error; err != nil {
+			return err
+		}
+		t.DocumentID = d.ID
+		return tx.Create(t).Error
+	})
 }
 
 func (r *DocumentRepo) SaveDocument(ctx context.Context, d *model.Document) error {
@@ -213,8 +240,29 @@ func (r *DocumentRepo) DeleteChunksByFile(ctx context.Context, documentID int64,
 
 // ---- ingest_tasks ----
 
+// CreateTask 创建摄取任务。
+// 同一文档最多一个排队/运行中任务由部分唯一索引 uq_ingest_tasks_running（迁移 000006）保证，
+// 冲突时返回 ErrTaskRunning（审计 P1-10：应用层 HasRunningTask 的「先查后写」非原子，正确性靠 DB 兜底）。
 func (r *DocumentRepo) CreateTask(ctx context.Context, t *model.IngestTask) error {
-	return r.dbx(ctx).Create(t).Error
+	err := r.dbx(ctx).Create(t).Error
+	if err != nil && isTaskRunningConflict(err) {
+		return ErrTaskRunning
+	}
+	return err
+}
+
+// isTaskRunningConflict 判定「同文档运行中任务唯一」冲突。
+// 不用 pgconn 具体类型（避免为非直接依赖引入 import）：pgx 的 PgError 实现了
+// `SQLState() string` 接口，可据此断言 SQLSTATE 23505，再用约束名排除其它唯一键。
+func isTaskRunningConflict(err error) bool {
+	if err == nil {
+		return false
+	}
+	var carrier interface{ SQLState() string }
+	if errors.As(err, &carrier) && carrier.SQLState() == sqlStateUniqueViolation {
+		return strings.Contains(err.Error(), ingestTaskRunningIndex)
+	}
+	return false
 }
 
 func (r *DocumentRepo) SaveTask(ctx context.Context, t *model.IngestTask) error {
@@ -259,26 +307,54 @@ func (r *DocumentRepo) ListTaskHistory(ctx context.Context, documentID int64, li
 	return rows, nil
 }
 
-// FailZombieTasks 重启后把遗留的排队/运行任务置为失败（FR-06：中断任务按失败处理）。
-func (r *DocumentRepo) FailZombieTasks(ctx context.Context) (int64, error) {
-	res := r.dbx(ctx).Model(&model.IngestTask{}).
-		Where("status IN ?", []int16{model.TaskStatusQueued, model.TaskStatusRunning}).
-		Updates(map[string]any{
+// FailZombieTasks 重启恢复：把**本 worker 遗留**的排队/运行任务置失败（FR-06）。
+//
+// 多实例部署下不得全库 UPDATE——否则任一 worker 启动都会把其它实例正在处理的任务置失败（审计 P1-8）。
+// 归属判定两条：
+//   - worker_id = workerID：本实例上次运行留下的残留；
+//   - worker_id IS NULL：迁移 000005 之前的历史数据（无归属列），升级后首次启动清理一次。
+//
+// 返回受影响任务数，以及被波及的文档 ID（供 FailProcessingDocs 精确限定，不做全库 UPDATE）。
+func (r *DocumentRepo) FailZombieTasks(ctx context.Context, workerID string) (tasks int64, docIDs []int64, err error) {
+	err = r.dbx(ctx).Transaction(func(tx *gorm.DB) error {
+		// 显式加括号：不加时与后续 AND 条件存在优先级歧义
+		zombie := func() *gorm.DB {
+			return tx.Model(&model.IngestTask{}).
+				Where("status IN ?", []int16{model.TaskStatusQueued, model.TaskStatusRunning}).
+				Where("(worker_id = ? OR worker_id IS NULL)", workerID)
+		}
+		// 先取文档 ID（置失败后这些行不再命中 status 条件）
+		if perr := zombie().Distinct("document_id").Pluck("document_id", &docIDs).Error; perr != nil {
+			return perr
+		}
+		res := zombie().Updates(map[string]any{
 			"status":      model.TaskStatusFailed,
-			"error":       "服务重启导致任务中断",
+			"error":       zombieTaskError,
 			"finished_at": time.Now(),
 		})
-	return res.RowsAffected, res.Error
+		tasks = res.RowsAffected
+		return res.Error
+	})
+	if err != nil {
+		return 0, nil, err
+	}
+	return tasks, docIDs, nil
 }
 
-// FailProcessingDocs 重启后把处理中文档置为失败（配合 FailZombieTasks）。
-func (r *DocumentRepo) FailProcessingDocs(ctx context.Context) (int64, error) {
+// FailProcessingDocs 重启恢复：只把「本 worker 刚置失败的任务」对应的处理中文档置失败
+// （配合 FailZombieTasks）。docIDs 为其返回值——绝不做 `WHERE status = 2` 的全库 UPDATE，
+// 否则会误伤其它实例正在处理的文档（审计 P1-8）。
+func (r *DocumentRepo) FailProcessingDocs(ctx context.Context, docIDs []int64) (int64, error) {
+	if len(docIDs) == 0 {
+		return 0, nil
+	}
 	res := r.dbx(ctx).Model(&model.Document{}).
+		Where("id IN ?", docIDs).
 		Where("status = ?", model.DocStatusProcessing).
 		Updates(map[string]any{
 			"status":     model.DocStatusFailed,
 			"stage":      nil,
-			"error":      "服务重启导致任务中断",
+			"error":      zombieTaskError,
 			"updated_at": time.Now(),
 		})
 	return res.RowsAffected, res.Error

@@ -40,6 +40,7 @@ func Run(ctx context.Context, cfg *config.Config) error {
 
 	pipeline := NewPipeline(docs, settings, cipher, modelCfgSvc, llm.NewOpenAIProvider(), queue)
 	pipeline.SetUploadDir(cfg.UploadDir)
+	pipeline.SetWorkerID(cfg.WorkerID) // 审计 P1-8：重启恢复只清理本实例残留
 	pipeline.RecoverStartup(ctx, docs)
 
 	return NewServer(cfg, pipeline).Run(ctx)

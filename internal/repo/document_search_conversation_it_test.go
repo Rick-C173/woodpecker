@@ -95,10 +95,12 @@ func TestDocumentRepoIT(t *testing.T) {
 
 	z1 := &model.IngestTask{DocumentID: doc.ID, Type: model.TaskTypeFull, Status: model.TaskStatusRunning}
 	require.NoError(t, r.CreateTask(ctx, z1))
-	n, err = r.FailZombieTasks(ctx)
+	// P1-8：重启恢复按 worker_id 限定范围（z1 无归属 = 迁移前历史数据，任何 worker 都可清理）
+	n, zombieDocIDs, err := r.FailZombieTasks(ctx, "worker-it")
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), n)
-	n, err = r.FailProcessingDocs(ctx)
+	assert.Equal(t, []int64{doc.ID}, zombieDocIDs)
+	n, err = r.FailProcessingDocs(ctx, zombieDocIDs)
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), n, "processing 文档置失败")
 	got, _ = r.GetDocumentByID(ctx, doc.ID)

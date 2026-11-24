@@ -131,12 +131,10 @@ func TestPipelineDocDeleted(t *testing.T) {
 	e := newPipeEnv(t)
 	d := e.docs.SeedDoc(10, model.DocTypeURL, model.DocStatusPending)
 	task := e.docs.SeedTask(d.ID, model.TaskTypeFull)
-	// 文档已删除
+	// 文档已删除（真库为 ON DELETE CASCADE，任务行随之消失；替身同口径）
 	require.NoError(t, e.docs.DeleteDocument(context.Background(), d.ID))
 	require.NoError(t, e.pipeline.Process(context.Background(), task.ID))
-	tk := e.docs.TaskByID(task.ID)
-	assert.Equal(t, model.TaskStatusFailed, tk.Status, "删除处理中文档即中止任务")
-	assert.Contains(t, *tk.Error, "文档已删除")
+	assert.Nil(t, e.docs.TaskByID(task.ID), "任务随文档级联删除，不返回临时错误（asynq 不再重投）")
 }
 
 func TestPipelineRetryThenFinalFail(t *testing.T) {

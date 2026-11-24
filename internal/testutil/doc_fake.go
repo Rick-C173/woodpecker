@@ -64,6 +64,19 @@ func (f *FakeDocRepo) CreateDocument(_ context.Context, d *model.Document) error
 	return nil
 }
 
+// CreateDocumentWithTask 同事务语义：建任务失败则回滚文档（与 repo 实现一致）。
+func (f *FakeDocRepo) CreateDocumentWithTask(ctx context.Context, d *model.Document, t *model.IngestTask) error {
+	if err := f.CreateDocument(ctx, d); err != nil {
+		return err
+	}
+	t.DocumentID = d.ID
+	if err := f.CreateTask(ctx, t); err != nil {
+		_ = f.DeleteDocument(ctx, d.ID)
+		return err
+	}
+	return nil
+}
+
 func (f *FakeDocRepo) SaveDocument(_ context.Context, d *model.Document) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -134,6 +147,9 @@ func (f *FakeDocRepo) ListDocuments(_ context.Context, q repo.DocumentListQuery)
 	return rows, int64(len(rows)), nil
 }
 
+// DeleteDocument 删除文档，并级联删除文件清单、分块与任务。
+// 与真库同口径（ingest_tasks.document_id / document_files / chunks 均 ON DELETE CASCADE）：
+// 不级联时「删除处理中文档」的残留任务行为与生产不一致。
 func (f *FakeDocRepo) DeleteDocument(_ context.Context, id int64) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -146,6 +162,11 @@ func (f *FakeDocRepo) DeleteDocument(_ context.Context, id int64) error {
 	delete(f.docs, id)
 	delete(f.files, id)
 	delete(f.chunks, id)
+	for taskID, t := range f.tasks {
+		if t.DocumentID == id {
+			delete(f.tasks, taskID)
+		}
+	}
 	f.DeletedDoc = append(f.DeletedDoc, id)
 	return nil
 }
@@ -302,6 +323,14 @@ func (f *FakeDocRepo) CreateTask(_ context.Context, t *model.IngestTask) error {
 	if f.ErrOnCreateTask != nil {
 		return f.ErrOnCreateTask
 	}
+	// 与真库同口径（迁移 000006 部分唯一索引 uq_ingest_tasks_running）：
+	// 同一文档最多一个排队/运行中任务，否则并发「重试/同步/重建」的缺陷在单测里测不出来（P1-10）。
+	for _, ex := range f.tasks {
+		if ex.DocumentID == t.DocumentID &&
+			(ex.Status == model.TaskStatusQueued || ex.Status == model.TaskStatusRunning) {
+			return repo.ErrTaskRunning
+		}
+	}
 	t.ID = f.nextTaskID
 	f.nextTaskID++
 	t.CreatedAt = time.Now()
@@ -370,33 +399,62 @@ func (f *FakeDocRepo) ListTaskHistory(_ context.Context, documentID int64, limit
 	return rows, nil
 }
 
-func (f *FakeDocRepo) FailZombieTasks(_ context.Context) (int64, error) {
+// FailZombieTasks 只清理本 worker（或迁移前无归属）的排队/运行任务（与 repo 实现同口径，P1-8）。
+// 返回任务数与被波及文档 ID。
+func (f *FakeDocRepo) FailZombieTasks(_ context.Context, workerID string) (int64, []int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var (
+		n      int64
+		docIDs []int64
+	)
+	seen := map[int64]bool{}
+	now := time.Now()
+	msg := zombieErr
+	for id, t := range f.tasks {
+		if t.Status != model.TaskStatusQueued && t.Status != model.TaskStatusRunning {
+			continue
+		}
+		if t.WorkerID != nil && *t.WorkerID != workerID {
+			continue // 其它实例的残留：不得清理（P1-8 的核心断言）
+		}
+		t.Status = model.TaskStatusFailed
+		t.Error = &msg
+		t.FinishedAt = &now
+		f.tasks[id] = t
+		n++
+		if !seen[t.DocumentID] {
+			seen[t.DocumentID] = true
+			docIDs = append(docIDs, t.DocumentID)
+		}
+	}
+	return n, docIDs, nil
+}
+
+// FailProcessingDocs 只把给定文档中仍是处理中的置失败（不做全库 UPDATE）。
+func (f *FakeDocRepo) FailProcessingDocs(_ context.Context, docIDs []int64) (int64, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	var n int64
-	for id, t := range f.tasks {
-		if t.Status == model.TaskStatusQueued || t.Status == model.TaskStatusRunning {
-			t.Status = model.TaskStatusFailed
-			f.tasks[id] = t
-			n++
+	now := time.Now()
+	msg := zombieErr
+	for _, id := range docIDs {
+		d, ok := f.docs[id]
+		if !ok || d.Status != model.DocStatusProcessing {
+			continue
 		}
+		d.Status = model.DocStatusFailed
+		d.Stage = nil
+		d.Error = &msg
+		d.UpdatedAt = now
+		f.docs[id] = d
+		n++
 	}
 	return n, nil
 }
 
-func (f *FakeDocRepo) FailProcessingDocs(_ context.Context) (int64, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	var n int64
-	for id, d := range f.docs {
-		if d.Status == model.DocStatusProcessing {
-			d.Status = model.DocStatusFailed
-			f.docs[id] = d
-			n++
-		}
-	}
-	return n, nil
-}
+// zombieErr 重启恢复写台账的错误摘要（与 repo 侧一致）。
+const zombieErr = "服务重启导致任务中断"
 
 // GetString 设置读取（worker pipeline 测试用；与 FakeCache 无关）。
 func (f *FakeDocRepo) GetString(_ context.Context, _, def string) (string, error) { return def, nil }
@@ -421,6 +479,51 @@ func (f *FakeDocRepo) SeedTask(docID int64, typ int16) *model.IngestTask {
 	f.nextTaskID++
 	f.tasks[t.ID] = t
 	return t
+}
+
+// SeedTaskWithWorker 写入指定归属与状态的任务（P1-8 多实例场景构造用；
+// 绕过 CreateTask 的唯一约束检查，便于造出「两个 worker 各跑一个」的合法前置状态）。
+// workerID 传空串表示迁移前的历史数据（worker_id IS NULL）。
+func (f *FakeDocRepo) SeedTaskWithWorker(docID int64, typ int16, status int16, workerID string) *model.IngestTask {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	t := &model.IngestTask{
+		ID: f.nextTaskID, DocumentID: docID, Type: typ, Status: status,
+		CreatedAt: time.Now(),
+	}
+	if workerID != "" {
+		t.WorkerID = &workerID
+	}
+	f.nextTaskID++
+	f.tasks[t.ID] = t
+	return t
+}
+
+// DocCount 文档总数（P1-9 回滚断言用）。
+func (f *FakeDocRepo) DocCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.docs)
+}
+
+// TaskCount 任务总数（P1-9 回滚断言用）。
+func (f *FakeDocRepo) TaskCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.tasks)
+}
+
+// RunningTaskCount 指定文档的排队/运行中任务数（P1-10 唯一性断言用）。
+func (f *FakeDocRepo) RunningTaskCount(docID int64) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n := 0
+	for _, t := range f.tasks {
+		if t.DocumentID == docID && (t.Status == model.TaskStatusQueued || t.Status == model.TaskStatusRunning) {
+			n++
+		}
+	}
+	return n
 }
 
 // SetFileStatus 覆盖某文档某路径的文件记录（增量 diff 断言用）。
