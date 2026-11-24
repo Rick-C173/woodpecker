@@ -33,6 +33,10 @@ func TestMain(m *testing.M) {
 		err = sqlDB.PingContext(ctx)
 	}
 	if err != nil {
+		// CI 里库不可达必须显式失败：os.Exit(0) 会让 9 个仓储用例无声消失而 CI 全绿（审计 §3.4）。
+		if os.Getenv("CI") != "" {
+			log.Fatalf("集成测试需要 PostgreSQL，CI 环境不得跳过（设置 TEST_DSN）: %v", err)
+		}
 		log.Printf("跳过仓储集成测试（PostgreSQL 不可达）: %v", err)
 		os.Exit(0)
 	}
@@ -46,6 +50,7 @@ func TestMain(m *testing.M) {
 }
 
 // itTruncate 清空业务表（每测试独立数据）。
+// 清单须与 internal/integration/setup_test.go 的 truncateAll 保持一致（共 15 张）。
 func itTruncate(t *testing.T) {
 	t.Helper()
 	err := itDB.Exec(`TRUNCATE users, audit_logs, settings, model_services, model_entries,
