@@ -325,12 +325,12 @@ func (s *DocumentService) Get(ctx context.Context, kbID, docID int64) (*Document
 		return nil, err
 	}
 	for _, t := range tasks {
-		item := DocumentTaskItem{ID: t.ID, Type: taskTypeName(t.Type), Status: taskStatusName(t.Status), Retries: t.Retries, CreatedAt: t.CreatedAt.Format("2006-01-02 15:04:05")}
+		item := DocumentTaskItem{ID: t.ID, Type: taskTypeName(t.Type), Status: taskStatusName(t.Status), Retries: t.Retries, CreatedAt: t.CreatedAt.UTC().Format(time.RFC3339)}
 		if t.Error != nil {
 			item.Error = *t.Error
 		}
 		if t.FinishedAt != nil {
-			item.FinishedAt = t.FinishedAt.Format("2006-01-02 15:04:05")
+			item.FinishedAt = t.FinishedAt.UTC().Format(time.RFC3339)
 		}
 		detail.Tasks = append(detail.Tasks, item)
 	}
@@ -471,8 +471,8 @@ func (s *DocumentService) rowToItem(r repo.DocumentRow) DocumentItem {
 		FileCount: int64PtrCount(r.FileCount), TotalSize: int64PtrVal(r.TotalSize),
 		LastSyncedAt: timePtrString(r.LastSyncedAt),
 		CreatedBy:    r.CreatedBy,
-		CreatedAt:    r.CreatedAt.Format("2006-01-02 15:04:05"),
-		UpdatedAt:    r.UpdatedAt.Format("2006-01-02 15:04:05"),
+		CreatedAt:    r.CreatedAt.UTC().Format(time.RFC3339),
+		UpdatedAt:    r.UpdatedAt.UTC().Format(time.RFC3339),
 	}
 	if r.Error != nil {
 		item.Error = *r.Error
@@ -587,5 +587,5 @@ func timePtrString(t *time.Time) string {
 	if t == nil {
 		return ""
 	}
-	return t.Format("2006-01-02 15:04:05")
+	return t.UTC().Format(time.RFC3339)
 }

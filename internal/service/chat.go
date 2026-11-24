@@ -170,7 +170,7 @@ func (s *ChatService) CreateConversation(ctx context.Context, kbID, userID int64
 	if err := s.store.CreateConversation(ctx, c); err != nil {
 		return nil, err
 	}
-	return &ConversationItem{ID: c.ID, KBID: kbID, Title: "", UpdatedAt: c.UpdatedAt.Format("2006-01-02 15:04:05")}, nil
+	return &ConversationItem{ID: c.ID, KBID: kbID, Title: "", UpdatedAt: c.UpdatedAt.UTC().Format(time.RFC3339)}, nil
 }
 
 // ListMine 我的会话列表（FR-09）。
@@ -183,7 +183,7 @@ func (s *ChatService) ListMine(ctx context.Context, kbID, userID int64) ([]Conve
 	for _, r := range rows {
 		items = append(items, ConversationItem{
 			ID: r.ID, KBID: r.KBID, Title: derefTitle(r.Title),
-			MessageCount: r.MessageCount, UpdatedAt: r.UpdatedAt.Format("2006-01-02 15:04:05"),
+			MessageCount: r.MessageCount, UpdatedAt: r.UpdatedAt.UTC().Format(time.RFC3339),
 		})
 	}
 	return items, nil
@@ -203,7 +203,7 @@ func (s *ChatService) Get(ctx context.Context, convID, userID int64, isAdmin boo
 	for _, m := range msgRows {
 		item := MessageItem{
 			ID: m.ID, Role: msgRoleName(m.Role), Content: m.Content,
-			Interrupted: m.Interrupted, CreatedAt: m.CreatedAt.Format("2006-01-02 15:04:05"),
+			Interrupted: m.Interrupted, CreatedAt: m.CreatedAt.UTC().Format(time.RFC3339),
 			Citations: []CitationItem{},
 		}
 		if m.CompletionTokens != nil {

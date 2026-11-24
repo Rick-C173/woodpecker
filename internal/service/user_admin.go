@@ -56,7 +56,7 @@ func (s *UserAdminService) toItem(ctx context.Context, u *model.User) (*AdminUse
 		Status:             u.Status,
 		MustChangePassword: u.MustChangePassword,
 		KBCount:            kbCount,
-		CreatedAt:          u.CreatedAt.Format("2006-01-02 15:04:05"),
+		CreatedAt:          u.CreatedAt.UTC().Format(time.RFC3339),
 	}, nil
 }
 
@@ -174,6 +174,9 @@ func (s *UserAdminService) SetAdmin(ctx context.Context, actorID, targetID int64
 		}
 	}
 	target.IsAdmin = makeAdmin
+	// 权限变化即失效旧 token（审计 P1-2）：middleware 的 adm 取自 JWT claim，
+	// 不 bump 版本号会让「已撤权管理员」在 JWT 有效期内继续越权（PRD R6 要求立即生效）。
+	// 设/撤两个方向都 bump：与 SetStatus/ResetPassword 保持一致的失效模型。
 	target.UpdatedAt = s.now()
 	if err := s.users.Save(ctx, target); err != nil {
 		return err

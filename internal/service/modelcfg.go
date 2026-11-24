@@ -113,8 +113,8 @@ func (s *ModelConfigService) toServiceItem(r repo.ModelServiceRow) ModelServiceI
 	return ModelServiceItem{
 		ID: r.ID, Name: r.Name, BaseURL: r.BaseURL, Enabled: r.Enabled,
 		EntryCount: r.EntryCount, HasKey: true,
-		CreatedAt: r.CreatedAt.Format("2006-01-02 15:04:05"),
-		UpdatedAt: r.UpdatedAt.Format("2006-01-02 15:04:05"),
+		CreatedAt: r.CreatedAt.UTC().Format(time.RFC3339),
+		UpdatedAt: r.UpdatedAt.UTC().Format(time.RFC3339),
 	}
 }
 
@@ -124,8 +124,8 @@ func (s *ModelConfigService) toEntryItem(r repo.ModelEntryRow) ModelEntryItem {
 		Purpose: model.ModelPurposeName(r.Purpose), ModelName: r.ModelName,
 		Params:    string(r.Params),
 		IsDefault: r.IsDefault, Enabled: r.Enabled,
-		CreatedAt: r.CreatedAt.Format("2006-01-02 15:04:05"),
-		UpdatedAt: r.UpdatedAt.Format("2006-01-02 15:04:05"),
+		CreatedAt: r.CreatedAt.UTC().Format(time.RFC3339),
+		UpdatedAt: r.UpdatedAt.UTC().Format(time.RFC3339),
 	}
 }
 
@@ -215,7 +215,7 @@ func (s *ModelConfigService) UpdateService(ctx context.Context, actorID, id int6
 	s.invalidateDefaults(ctx)
 	return &ModelServiceItem{
 		ID: svc.ID, Name: svc.Name, BaseURL: svc.BaseURL, Enabled: svc.Enabled,
-		HasKey: true, UpdatedAt: svc.UpdatedAt.Format("2006-01-02 15:04:05"),
+		HasKey: true, UpdatedAt: svc.UpdatedAt.UTC().Format(time.RFC3339),
 	}, nil
 }
 
@@ -433,7 +433,7 @@ func (s *ModelConfigService) UpdateEntry(ctx context.Context, actorID, id int64,
 		ID: e.ID, ServiceID: e.ServiceID, ServiceName: svc.Name,
 		Purpose: model.ModelPurposeName(e.Purpose), ModelName: e.ModelName,
 		Params: string(e.Params), IsDefault: e.IsDefault, Enabled: svc.Enabled,
-		UpdatedAt: e.UpdatedAt.Format("2006-01-02 15:04:05"),
+		UpdatedAt: e.UpdatedAt.UTC().Format(time.RFC3339),
 	}, nil
 }
 

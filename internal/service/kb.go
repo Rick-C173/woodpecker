@@ -77,8 +77,8 @@ func (s *KBService) toItem(row repo.KBRow, role string) KBItem {
 		DocumentCount: row.DocCount,
 		MyRole:        role,
 		CreatedBy:     row.CreatedBy,
-		CreatedAt:     row.CreatedAt.Format("2006-01-02 15:04:05"),
-		UpdatedAt:     row.UpdatedAt.Format("2006-01-02 15:04:05"),
+		CreatedAt:     row.CreatedAt.UTC().Format(time.RFC3339),
+		UpdatedAt:     row.UpdatedAt.UTC().Format(time.RFC3339),
 	}
 }
 
@@ -263,7 +263,7 @@ func (s *KBService) ListMembers(ctx context.Context, kbID int64) ([]KBMemberItem
 			UserID:    row.UserID,
 			Username:  row.Username,
 			Role:      model.KBRoleName(row.Role),
-			CreatedAt: row.CreatedAt.Format("2006-01-02 15:04:05"),
+			CreatedAt: row.CreatedAt.UTC().Format(time.RFC3339),
 		})
 	}
 	return items, nil
