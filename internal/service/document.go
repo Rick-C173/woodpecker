@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -91,6 +92,7 @@ type Enqueuer interface {
 // DocRepo 文档存储接口（internal/repo.DocumentRepo 满足）。
 type DocRepo interface {
 	CreateDocument(ctx context.Context, d *model.Document) error
+	CreateDocumentWithTask(ctx context.Context, d *model.Document, t *model.IngestTask) error
 	SaveDocument(ctx context.Context, d *model.Document) error
 	GetDocumentByID(ctx context.Context, id int64) (*model.Document, error)
 	CountByKB(ctx context.Context, kbID int64) (int64, error)
@@ -205,23 +207,46 @@ func (s *DocumentService) checkKBCapacity(ctx context.Context, kbID int64) error
 }
 
 // newDocAndTask 创建文档 + 排队任务并入队；返回文档 ID。
-func (s *DocumentService) newDocAndTask(ctx context.Context, d *model.Document, taskType int16, ip string) (int64, error) {
+//
+// 顺序（审计 P1-9）：CreateDocument + CreateTask **同一事务** → beforeEnqueue（可选，上传场景
+// 用它把已落盘的文件改名到 {docID} 目录）→ Enqueue。
+// 任一步失败**整条回滚**：删除刚建的文档（ingest_tasks 由外键 ON DELETE CASCADE 一并删除），
+// 不留下「status=待处理」的僵尸文档——Retry 只接受 failed 态，僵尸文档用户既看不到失败也重试不了。
+// 回滚后用户可直接重新提交，故不采用「置 failed 允许 Retry」的第二方案（省一次人工重试）。
+func (s *DocumentService) newDocAndTask(ctx context.Context, d *model.Document, taskType int16, ip string,
+	beforeEnqueue func(docID int64) error) (int64, error) {
 	now := s.now()
 	d.CreatedAt, d.UpdatedAt = now, now
 	d.Status = model.DocStatusPending
-	if err := s.docs.CreateDocument(ctx, d); err != nil {
+	t := &model.IngestTask{Type: taskType, Status: model.TaskStatusQueued, CreatedAt: now}
+	if err := s.docs.CreateDocumentWithTask(ctx, d, t); err != nil {
 		return 0, err
 	}
-	t := &model.IngestTask{DocumentID: d.ID, Type: taskType, Status: model.TaskStatusQueued, CreatedAt: now}
-	if err := s.docs.CreateTask(ctx, t); err != nil {
-		return 0, err
+	if beforeEnqueue != nil {
+		if err := beforeEnqueue(d.ID); err != nil {
+			s.rollbackNewDoc(ctx, d.ID)
+			return 0, err
+		}
 	}
 	if err := s.queue.EnqueueIngest(ctx, t.ID); err != nil {
+		s.rollbackNewDoc(ctx, d.ID)
 		return 0, fmt.Errorf("任务入队: %w", err)
 	}
 	s.audit.Record(ctx, &d.CreatedBy, "document.create", "document", &d.ID,
 		map[string]any{"type": d.Type, "name": d.Name}, ip)
 	return d.ID, nil
+}
+
+// rollbackNewDoc 补偿回滚：删除刚创建的文档（任务随外键级联删除）。
+// 用 WithoutCancel：请求已断连/超时也必须完成补偿，否则照样留僵尸文档；
+// 回滚失败只记日志，不覆盖调用方已拿到的原始错误。
+func (s *DocumentService) rollbackNewDoc(ctx context.Context, docID int64) {
+	if docID <= 0 {
+		return
+	}
+	if err := s.docs.DeleteDocument(context.WithoutCancel(ctx), docID); err != nil {
+		slog.Error("回滚新建文档失败", "doc_id", docID, "err", err)
+	}
 }
 
 // CreateGit 接入 Git 仓库（编辑者+，FR-03）。凭证按 {kind,secret} JSON 序列化后 AES-GCM 加密落库，
@@ -266,7 +291,7 @@ func (s *DocumentService) CreateGit(ctx context.Context, actorID, kbID int64, re
 		}
 		d.CredentialEnc = enc
 	}
-	id, nerr := s.newDocAndTask(ctx, d, model.TaskTypeFull, ip)
+	id, nerr := s.newDocAndTask(ctx, d, model.TaskTypeFull, ip, nil)
 	if nerr != nil {
 		return nil, nerr
 	}
@@ -274,6 +299,16 @@ func (s *DocumentService) CreateGit(ctx context.Context, actorID, kbID int64, re
 }
 
 // CreateUpload 上传文件（编辑者+，FR-04）：每文件一个文档；不支持格式逐个报 DOC_002。
+//
+// 单文件处理顺序（审计 P1-9：先落盘 → 后入库 → 再入队）：
+//  1. 校验（文件名/格式/大小/路径穿越）
+//  2. 内容落盘：写到 UPLOAD_DIR 下的临时目录（写完即完整落盘，不会出现半个文件）
+//  3. CreateDocument + CreateTask 同一事务
+//  4. 临时目录 os.Rename 到 {uploadDir}/{kbID}/{docID}（同盘改名，原子）
+//  5. Enqueue
+//
+// 关键点：**入队在文件就位之后**——worker 并发 4，先入队会出现「任务已取到、文件还不存在」的拉取失败。
+// 任一步失败整条回滚（删文档 + 删已落盘文件），库中不留 status=待处理 的僵尸文档。
 func (s *DocumentService) CreateUpload(ctx context.Context, actorID, kbID int64, files []UploadFile, ip string) ([]*DocumentItem, []ServiceError, error) {
 	if len(files) == 0 {
 		return nil, nil, NewServiceError(CodeValidation, "至少上传一个文件")
@@ -300,22 +335,57 @@ func (s *DocumentService) CreateUpload(ctx context.Context, actorID, kbID int64,
 			rejected = append(rejected, *NewServiceError(CodeDocRepoTooLarge, fmt.Sprintf("%s：超过单文件 5MB 上限", name)))
 			continue
 		}
-		d := &model.Document{KBID: kbID, Type: model.DocTypeUpload, Name: name, CreatedBy: actorID}
-		id, err := s.newDocAndTask(ctx, d, model.TaskTypeFull, ip)
+		item, err := s.createOneUpload(ctx, actorID, kbID, name, f.Content, ip)
 		if err != nil {
 			return nil, rejected, err
 		}
-		// 内容落地：{uploadDir}/{kbID}/{docID}/{filename}
-		dir := filepath.Join(s.uploadDir, fmt.Sprint(kbID), fmt.Sprint(id))
-		if err := os.MkdirAll(dir, 0o750); err != nil {
-			return nil, rejected, fmt.Errorf("创建上传目录: %w", err)
-		}
-		if err := os.WriteFile(filepath.Join(dir, name), f.Content, 0o600); err != nil {
-			return nil, rejected, fmt.Errorf("写入上传文件: %w", err)
-		}
-		items = append(items, s.itemOf(d, id))
+		items = append(items, item)
 	}
 	return items, rejected, nil
+}
+
+// createOneUpload 单个上传文件的「先落盘 → 后入库 → 再入队」，失败整条回滚。
+func (s *DocumentService) createOneUpload(ctx context.Context, actorID, kbID int64, name string, content []byte, ip string) (*DocumentItem, error) {
+	// 1) 内容先落盘。用临时目录而非 {uploadDir}/{kbID}/{docID}：docID 尚未产生；
+	//    临时目录与目标同盘（同在 uploadDir 下），Rename 是原子的目录改名，不会留下半个文件。
+	kbDir := filepath.Join(s.uploadDir, fmt.Sprint(kbID))
+	if err := os.MkdirAll(kbDir, 0o750); err != nil {
+		return nil, fmt.Errorf("创建上传目录: %w", err)
+	}
+	staging, err := os.MkdirTemp(kbDir, ".staging-")
+	if err != nil {
+		return nil, fmt.Errorf("创建上传暂存目录: %w", err)
+	}
+	// 失败路径清理暂存目录；改名成功后该路径已不存在，RemoveAll 为无害空操作。
+	defer func() { _ = os.RemoveAll(staging) }()
+	if werr := os.WriteFile(filepath.Join(staging, name), content, 0o600); werr != nil {
+		return nil, fmt.Errorf("写入上传文件: %w", werr)
+	}
+
+	// 2) 文档 + 任务（同一事务）→ 3) 文件改名到 {docID} 目录 → 4) 入队（见 newDocAndTask）。
+	var (
+		final   string
+		renamed bool
+	)
+	d := &model.Document{KBID: kbID, Type: model.DocTypeUpload, Name: name, CreatedBy: actorID}
+	id, err := s.newDocAndTask(ctx, d, model.TaskTypeFull, ip, func(docID int64) error {
+		final = filepath.Join(s.uploadDir, fmt.Sprint(kbID), fmt.Sprint(docID))
+		if rerr := os.Rename(staging, final); rerr != nil {
+			return fmt.Errorf("落地上传文件: %w", rerr)
+		}
+		renamed = true
+		return nil
+	})
+	if err != nil {
+		// 改名成功但入队失败：文档已被回滚，落盘文件也要一并清掉（不留孤儿目录）
+		if renamed {
+			if rerr := os.RemoveAll(final); rerr != nil {
+				slog.Error("回滚上传文件失败", "path", final, "err", rerr)
+			}
+		}
+		return nil, err
+	}
+	return s.itemOf(d, id), nil
 }
 
 // CreateURL 接入网页（编辑者+，FR-05）。
@@ -331,7 +401,7 @@ func (s *DocumentService) CreateURL(ctx context.Context, actorID, kbID int64, ra
 		return nil, err
 	}
 	d := &model.Document{KBID: kbID, Type: model.DocTypeURL, Name: rawURL, SourceURL: &rawURL, CreatedBy: actorID}
-	id, err := s.newDocAndTask(ctx, d, model.TaskTypeFull, ip)
+	id, err := s.newDocAndTask(ctx, d, model.TaskTypeFull, ip, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -455,6 +525,7 @@ func (s *DocumentService) enqueueNewTask(ctx context.Context, actorID int64, d *
 	statusBefore := d.Status
 	now := s.now()
 	t := &model.IngestTask{DocumentID: d.ID, Type: taskType, Status: model.TaskStatusQueued, CreatedAt: now}
+	// 幂等：并发窗口内可能已由另一请求建了任务（P1-10：DB 唯一索引兜底，见后续提交）
 	if err := s.docs.CreateTask(ctx, t); err != nil {
 		return err
 	}
