@@ -411,6 +411,24 @@ func (r *DocumentRepo) HeartbeatTask(ctx context.Context, taskID int64) error {
 		Update("heartbeat_at", time.Now()).Error
 }
 
+// TransitionTaskIfRunning 带守卫的任务状态流转（审查 #1）：
+// 仅当任务仍处于 running 时应用 updates，返回是否落库成功。
+//
+// 为什么需要：sweeper（FailStaleTasks）可能已把心跳超时的 running 任务置 failed，
+// 此时原 worker（只是心跳暂时写失败）完成处理后的收尾（成功/重排/最终失败）若用
+// SaveTask 全量落库，会把 sweeper 的失败判定覆写回去；窗口期用户对 failed 文档发起
+// retry 会因唯一索引放行而双跑。与 HeartbeatTask 同一守卫思想：任务先行终结则放弃覆写。
+// false 不视为错误——任务行可能已随文档级联删除，或已被回收判定接管。
+func (r *DocumentRepo) TransitionTaskIfRunning(ctx context.Context, taskID int64, updates map[string]any) (bool, error) {
+	res := r.dbx(ctx).Model(&model.IngestTask{}).
+		Where("id = ? AND status = ?", taskID, model.TaskStatusRunning).
+		Updates(updates)
+	if res.Error != nil {
+		return false, res.Error
+	}
+	return res.RowsAffected > 0, nil
+}
+
 // FailProcessingDocs 重启恢复：只把「本 worker 刚置失败的任务」对应的处理中文档置失败
 // （配合 FailZombieTasks）。docIDs 为其返回值——绝不做 `WHERE status = 2` 的全库 UPDATE，
 // 否则会误伤其它实例正在处理的文档（审计 P1-8）。

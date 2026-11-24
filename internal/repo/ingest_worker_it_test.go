@@ -290,3 +290,59 @@ func TestFailStaleTasksReclaimsStaleTaskIT(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, running, "回收后不应再有运行中任务挡住 retry")
 }
+
+// TestTransitionTaskIfRunningGuardIT 审查 #1 回归：任务被 sweeper 回收（failed）后，
+// 原 worker 的迟到收尾（finishTask 的 CAS 流转）必须被守卫拦下，不得把 failed 覆写回
+// success/queued——否则窗口期用户 retry 会与原 worker 双跑同一文档。
+func TestTransitionTaskIfRunningGuardIT(t *testing.T) {
+	itTruncate(t)
+	ctx := context.Background()
+	r, _, docs := itSeedDocKB(t, "guard.md")
+	doc := docs[0]
+
+	stale := time.Now().Add(-10 * time.Minute)
+	task := &model.IngestTask{DocumentID: doc.ID, Type: model.TaskTypeFull,
+		Status: model.TaskStatusRunning, WorkerID: itStr("pod-aaa"),
+		StartedAt: &stale, HeartbeatAt: &stale}
+	require.NoError(t, r.CreateTask(ctx, task))
+
+	// 1) sweeper 回收心跳超时任务 → failed
+	_, _, err := r.FailStaleTasks(ctx, 5)
+	require.NoError(t, err)
+
+	// 2) 原 worker 完成处理后的收尾（success）：守卫必须拒绝
+	ok, err := r.TransitionTaskIfRunning(ctx, task.ID, map[string]any{
+		"status": model.TaskStatusSuccess, "finished_at": time.Now()})
+	require.NoError(t, err)
+	assert.False(t, ok, "已回收任务的收尾必须被守卫拒绝")
+	got, err := r.GetTaskByID(ctx, task.ID)
+	require.NoError(t, err)
+	assert.Equal(t, model.TaskStatusFailed, got.Status, "不得覆写 sweeper 的失败判定")
+
+	// 3) 重试重排路径（queued）同样被拦
+	ok, err = r.TransitionTaskIfRunning(ctx, task.ID, map[string]any{
+		"status": model.TaskStatusQueued, "retries": 1})
+	require.NoError(t, err)
+	assert.False(t, ok, "已回收任务的重排必须被守卫拒绝")
+
+	// 4) running 任务正常流转放行，且带错误摘要收尾
+	worker := "pod-bbb"
+	live := &model.IngestTask{DocumentID: doc.ID, Type: model.TaskTypeSync,
+		Status: model.TaskStatusRunning, WorkerID: &worker, StartedAt: &stale}
+	require.NoError(t, r.CreateTask(ctx, live))
+	ok, err = r.TransitionTaskIfRunning(ctx, live.ID, map[string]any{
+		"status": model.TaskStatusFailed, "finished_at": time.Now(), "error": "boom"})
+	require.NoError(t, err)
+	assert.True(t, ok, "running 任务的正常收尾必须放行")
+	got, err = r.GetTaskByID(ctx, live.ID)
+	require.NoError(t, err)
+	assert.Equal(t, model.TaskStatusFailed, got.Status)
+	require.NotNil(t, got.Error)
+	assert.Equal(t, "boom", *got.Error)
+	require.NotNil(t, got.FinishedAt)
+
+	// 5) 任务不存在（已随文档级联删除）→ (false, nil)，不视为错误
+	ok, err = r.TransitionTaskIfRunning(ctx, 999999, map[string]any{"status": model.TaskStatusSuccess})
+	require.NoError(t, err)
+	assert.False(t, ok)
+}

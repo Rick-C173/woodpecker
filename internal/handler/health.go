@@ -49,7 +49,7 @@ func dependencyProbe(db, redis Pinger) gin.HandlerFunc {
 		}
 		code, message := httpx.CodeDBUnreachable, "数据库不可用"
 		if dbUp && !redisUp {
-			code, message = httpx.CodeDBUnreachable, "Redis 不可用"
+			code, message = httpx.CodeRedisUnreachable, "Redis 不可用" // 审查 #2：SYS_001 语义是「数据库不可用」，勿混用
 		} else if !dbUp && !redisUp {
 			message = "数据库与 Redis 均不可用"
 		}
@@ -71,25 +71,27 @@ func upDown(ok bool) string {
 	return "down"
 }
 
-// Health GET /healthz：进程 + 数据库 + Redis 连通性探针（M0 验收标准）。
+// Health GET /healthz：进程存活探针（livenessProbe 用）。
+// 有意**不探测** DB/Redis（审查 #3）：liveness 失败会触发容器重启——依赖抖动时重启进程只会
+// 放大故障；依赖是否就绪交给 /readyz（readinessProbe）判定。响应保持 M0 验收契约 {"status":"ok"}。
 //
-//	@Summary	健康检查（DB + Redis）
-//	@Description	所有依赖就绪返回 {"status":"ok","db":"up","redis":"up"}；任一不可用返回 503 并指明是哪个依赖 down。
+//	@Summary	存活检查（仅进程）
+//	@Description	进程可服务请求即返回 {"status":"ok"}；不探测外部依赖，供 livenessProbe 使用。
 //	@Tags		infra
 //	@Produce	json
-//	@Success	200	{object}	object{status=string,db=string,redis=string}
-//	@Failure	503	{object}	object{status=string,code=string,message=string,request_id=string,db=string,redis=string}
+//	@Success	200	{object}	object{status=string}
 //	@Router		/healthz [get]
-func Health(db, redis Pinger) gin.HandlerFunc {
-	return dependencyProbe(db, redis)
+func Health() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		httpx.OK(c, gin.H{"status": "ok"})
+	}
 }
 
-// Readyz GET /readyz：就绪探针，语义与 /healthz 完全一致（所有依赖就绪才 200）。
-// 复用 dependencyProbe，避免两处探测逻辑各自演化；供编排系统的 readinessProbe 使用，
-// /healthz 供 livenessProbe 使用（两者当前判定一致，P2-27）。
+// Readyz GET /readyz：就绪探针（readinessProbe 用）：DB + Redis 全就绪才 200，否则 503
+// 并指明是哪个依赖 down（审计 P2-27）。
 //
 //	@Summary	就绪检查（DB + Redis）
-//	@Description	与 /healthz 同一探测逻辑：所有依赖就绪才 200。
+//	@Description	所有依赖就绪返回 {"status":"ok","db":"up","redis":"up"}；任一不可用返回 503 并指明是哪个依赖 down。
 //	@Tags		infra
 //	@Produce	json
 //	@Success	200	{object}	object{status=string,db=string,redis=string}

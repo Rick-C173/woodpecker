@@ -78,6 +78,9 @@ type DocStore interface {
 	ReplaceDocumentChunks(ctx context.Context, documentID int64, chunks []model.Chunk) error
 	// HeartbeatTask 刷新运行中任务的心跳时刻（验收回归 8-1：跨实例僵尸任务的时间兜底依据）。
 	HeartbeatTask(ctx context.Context, taskID int64) error
+	// TransitionTaskIfRunning 带守卫的状态流转：仅当任务仍为 running 时应用 updates
+	// （审查 #1：任务被 sweeper 回收后，原 worker 的收尾不得覆写其失败判定）。
+	TransitionTaskIfRunning(ctx context.Context, taskID int64, updates map[string]any) (bool, error)
 	// FailStaleTasks 周期性僵尸回收：只按心跳时间判定，**不带归属条件**（否则会杀掉本实例
 	// 正在处理的任务）。返回任务数与被波及文档 ID。
 	FailStaleTasks(ctx context.Context, timeoutMinutes int) (int64, []int64, error)
@@ -614,8 +617,17 @@ func (p *Pipeline) fail(ctx context.Context, t *model.IngestTask, d *model.Docum
 	if t.Retries < len(retryDelays) && p.queue != nil {
 		t.Retries++
 		t.Status = model.TaskStatusQueued // 重排后等待下一次投递重新进入 running
-		if err := p.docs.SaveTask(ctx, t); err != nil {
+		// 审查 #1：与 finishTask 同一守卫——任务已被 sweeper 回收（failed）时不得把它写回
+		// queued（否则僵尸任务重新占用唯一索引、与回收判定打架）。
+		requeued, err := p.docs.TransitionTaskIfRunning(ctx, t.ID, map[string]any{
+			"status": model.TaskStatusQueued, "retries": t.Retries,
+		})
+		if err != nil {
 			return err
+		}
+		if !requeued {
+			slog.Warn("任务已被先行终结（僵尸回收），放弃重试重排", "task", t.ID)
+			return nil
 		}
 		delay := retryDelays[t.Retries-1]
 		payload, _ := json.Marshal(IngestPayload{TaskID: t.ID})
@@ -636,22 +648,22 @@ func (p *Pipeline) fail(ctx context.Context, t *model.IngestTask, d *model.Docum
 	return p.finishTask(ctx, t, model.TaskStatusFailed, msg)
 }
 
-// finishTask 收尾任务状态。
-// 任务行已被级联删除（文档在处理中被删）时视为终结，不再返回临时错误——
-// 此时没有可写的任务行，交给 asynq 重投只会重复失败。
+// finishTask 收尾任务状态（审查 #1：CAS 守卫）。
+// 仅当任务仍为 running 时写终态——任务已被 sweeper 回收（僵尸判定）或随文档级联删除时，
+// 放弃覆写并视为终结，不返回临时错误：交给 asynq 重投只会重复失败，覆写失败态会与
+// 回收判定打架并给 retry 让出双跑窗口。
 func (p *Pipeline) finishTask(ctx context.Context, t *model.IngestTask, status int16, errMsg string) error {
-	t.Status = status
-	now := p.now()
-	t.FinishedAt = &now
+	updates := map[string]any{"status": status, "finished_at": p.now()}
 	if errMsg != "" {
-		t.Error = &errMsg
+		updates["error"] = errMsg
 	}
-	if err := p.docs.SaveTask(ctx, t); err != nil {
-		if errors.Is(err, repo.ErrNotFound) {
-			slog.Warn("任务已随文档级联删除，跳过收尾", "task", t.ID)
-			return nil
-		}
+	ok, err := p.docs.TransitionTaskIfRunning(ctx, t.ID, updates)
+	if err != nil {
 		return err
+	}
+	if !ok {
+		slog.Warn("任务已被先行终结（僵尸回收/级联删除），放弃收尾覆写",
+			"task", t.ID, "intended_status", status)
 	}
 	return nil
 }

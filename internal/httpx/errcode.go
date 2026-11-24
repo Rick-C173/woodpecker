@@ -34,6 +34,7 @@ const (
 	CodeLLMBadResponse       = "LLM_002"      // 502 模型服务无有效响应
 	CodeRateLimited          = "RATE_LIMITED" // 429 请求过于频繁
 	CodeDBUnreachable        = "SYS_001"      // 503 数据库不可用
+	CodeRedisUnreachable     = "SYS_002"      // 503 Redis 不可用
 	CodeForbidden            = "FORBIDDEN"    // 403 通用越权
 )
 
@@ -64,6 +65,7 @@ var httpStatusByCode = map[string]int{
 	CodeLLMBadResponse:         http.StatusBadGateway,
 	CodeRateLimited:            http.StatusTooManyRequests,
 	CodeDBUnreachable:          http.StatusServiceUnavailable,
+	CodeRedisUnreachable:       http.StatusServiceUnavailable,
 	CodeForbidden:              http.StatusForbidden,
 }
 

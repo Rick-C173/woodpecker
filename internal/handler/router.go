@@ -79,7 +79,7 @@ func NewRouter(d Deps) *gin.Engine {
 	}
 
 	v1 := r.Group("/api/v1")
-	v1.GET("/healthz", Health(pinger, d.RedisPinger))
+	v1.GET("/healthz", Health()) // liveness：仅进程存活，不探测依赖
 	v1.GET("/readyz", Readyz(pinger, d.RedisPinger))
 
 	// auth（公开）
@@ -196,8 +196,8 @@ func NewRouter(d Deps) *gin.Engine {
 		}
 	}
 
-	r.GET("/healthz", Health(pinger, d.RedisPinger)) // 基础设施探针挂在根路径
-	r.GET("/readyz", Readyz(pinger, d.RedisPinger))  // 就绪探针（语义同 healthz）
+	r.GET("/healthz", Health())                     // 基础设施探针挂在根路径（liveness：仅进程）
+	r.GET("/readyz", Readyz(pinger, d.RedisPinger)) // readiness：依赖就绪判定
 
 	return r
 }

@@ -153,17 +153,20 @@ func jcode(t *testing.T, body map[string]any) string {
 
 func TestHealthEndpoints(t *testing.T) {
 	h := setup(t)
+	// /healthz 是 liveness 探针（审查 #3 拆分）：仅进程存活，不带依赖明细
 	sc, body := get(t, h.ts, "/healthz", "")
+	assert.Equal(t, 200, sc)
+	assert.Equal(t, "ok", body["status"])
+	assert.Nil(t, body["db"])
+	assert.Nil(t, body["redis"])
+	sc, _ = get(t, h.ts, "/api/v1/healthz", "")
+	assert.Equal(t, 200, sc)
+	// /readyz 是 readiness 探针（P2-27）：依赖就绪判定，带 db/redis 明细
+	sc, body = get(t, h.ts, "/readyz", "")
 	assert.Equal(t, 200, sc)
 	assert.Equal(t, "ok", body["status"])
 	assert.Equal(t, "up", body["db"])
 	assert.Equal(t, "up", body["redis"])
-	sc, _ = get(t, h.ts, "/api/v1/healthz", "")
-	assert.Equal(t, 200, sc)
-	// 就绪探针（P2-27）
-	sc, body = get(t, h.ts, "/readyz", "")
-	assert.Equal(t, 200, sc)
-	assert.Equal(t, "ok", body["status"])
 	sc, _ = get(t, h.ts, "/api/v1/readyz", "")
 	assert.Equal(t, 200, sc)
 }

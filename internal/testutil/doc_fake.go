@@ -368,6 +368,30 @@ func (f *FakeDocRepo) GetTaskByID(_ context.Context, id int64) (*model.IngestTas
 	return &cp, nil
 }
 
+// TransitionTaskIfRunning 与 repo 同口径（审查 #1）：仅当任务仍为 running 时应用 updates；
+// 任务不存在或已终结返回 (false, nil)，不视为错误。
+func (f *FakeDocRepo) TransitionTaskIfRunning(_ context.Context, taskID int64, updates map[string]any) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	t, ok := f.tasks[taskID]
+	if !ok || t.Status != model.TaskStatusRunning {
+		return false, nil
+	}
+	if v, ok := updates["status"].(int16); ok {
+		t.Status = v
+	}
+	if v, ok := updates["retries"].(int); ok {
+		t.Retries = v
+	}
+	if v, ok := updates["error"].(string); ok {
+		t.Error = &v
+	}
+	if v, ok := updates["finished_at"].(time.Time); ok {
+		t.FinishedAt = &v
+	}
+	return true, nil
+}
+
 func (f *FakeDocRepo) HasRunningTask(_ context.Context, documentID int64) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
