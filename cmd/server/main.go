@@ -1,5 +1,10 @@
 // Woodpecker 服务入口。
 // 三种运行模式：--mode=api（HTTP）、worker（摄取管道，M4 接入 asynq）、all（默认，同进程两者皆跑）。
+//
+//	@Title		Woodpecker API
+//	@Version	1.0
+//	@Description	AI 驱动的代码/技术文档知识库（RAG）。统一响应信封 {code,message,data,request_id}；错误码见 md/API设计.md §2。
+//	@BasePath	/api/v1
 package main
 
 import (
