@@ -3,9 +3,9 @@ package repo
 import (
 	"context"
 	"errors"
-	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/pgvector/pgvector-go"
 	"gorm.io/gorm"
 
@@ -256,15 +256,13 @@ func (r *DocumentRepo) CreateTask(ctx context.Context, t *model.IngestTask) erro
 }
 
 // isTaskRunningConflict 判定「同文档运行中任务唯一」冲突。
-// 不用 pgconn 具体类型（避免为非直接依赖引入 import）：pgx 的 PgError 实现了
-// `SQLState() string` 接口，可据此断言 SQLSTATE 23505，再用约束名排除其它唯一键。
+// 用 pgconn.PgError 的结构化 ConstraintName 字段精确匹配索引名（审查 #4）：不依赖驱动
+// 错误消息文本——换驱动/升级 pgx 都不会失配；唯一性判定仍校验 SQLSTATE 23505 双保险。
+// gorm postgres driver 底层即 pgx，错误链上的 *pgconn.PgError 可被 errors.As 捕获。
 func isTaskRunningConflict(err error) bool {
-	if err == nil {
-		return false
-	}
-	var carrier interface{ SQLState() string }
-	if errors.As(err, &carrier) && carrier.SQLState() == sqlStateUniqueViolation {
-		return strings.Contains(err.Error(), ingestTaskRunningIndex)
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.SQLState() == sqlStateUniqueViolation && pgErr.ConstraintName == ingestTaskRunningIndex
 	}
 	return false
 }
