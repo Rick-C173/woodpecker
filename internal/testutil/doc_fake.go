@@ -2,6 +2,7 @@ package testutil
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -14,6 +15,7 @@ type FakeDocRepo struct {
 	mu         sync.Mutex
 	docs       map[int64]*model.Document
 	files      map[int64][]model.DocumentFile // docID → files
+	chunks     map[int64][]model.Chunk        // docID → chunks（真实内存实现，见 P0-1 盲区）
 	tasks      map[int64]*model.IngestTask
 	nextDoc    int64
 	nextFile   int64
@@ -32,12 +34,14 @@ type FakeDocRepo struct {
 	ErrOnHasRunning error
 	ErrOnHistory    error
 	ErrOnReplace    error
+	ErrOnInsert     error
 }
 
 func NewFakeDocs() *FakeDocRepo {
 	return &FakeDocRepo{
 		docs:       map[int64]*model.Document{},
 		files:      map[int64][]model.DocumentFile{},
+		chunks:     map[int64][]model.Chunk{},
 		tasks:      map[int64]*model.IngestTask{},
 		nextDoc:    1,
 		nextFile:   1,
@@ -141,6 +145,7 @@ func (f *FakeDocRepo) DeleteDocument(_ context.Context, id int64) error {
 	}
 	delete(f.docs, id)
 	delete(f.files, id)
+	delete(f.chunks, id)
 	f.DeletedDoc = append(f.DeletedDoc, id)
 	return nil
 }
@@ -195,16 +200,101 @@ func (f *FakeDocRepo) DeleteFilesByPath(_ context.Context, documentID int64, pat
 	return nil
 }
 
-func (f *FakeDocRepo) ReplaceChunks(_ context.Context, _ int64, _ []model.Chunk) error {
+func (f *FakeDocRepo) ReplaceDocumentChunks(_ context.Context, documentID int64, chunks []model.Chunk) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.ErrOnReplace != nil {
 		return f.ErrOnReplace
 	}
-	return nil // 分块不落内存（pipeline 断言经由 embedder/清单验证）
+	// 真实语义：先整篇删除，再插入传入的块
+	stored := make([]model.Chunk, 0, len(chunks))
+	for _, c := range chunks {
+		if c.DocumentID == 0 {
+			c.DocumentID = documentID
+		}
+		stored = append(stored, c)
+	}
+	f.chunks[documentID] = stored
+	return nil
 }
 
-func (f *FakeDocRepo) DeleteChunksByFile(_ context.Context, _ int64, _ string) error { return nil }
+// InsertChunks 追加分块，并按 UNIQUE(document_id, file_path, chunk_index) 校验冲突。
+// 与真库同口径：增量同步若仍用「全篇序号」会立刻暴露冲突（P0-1 的坑）。
+func (f *FakeDocRepo) InsertChunks(_ context.Context, documentID int64, chunks []model.Chunk) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.ErrOnInsert != nil {
+		return f.ErrOnInsert
+	}
+	list := f.chunks[documentID]
+	seen := make(map[string]bool, len(list)+len(chunks))
+	for _, c := range list {
+		seen[chunkKey(c)] = true
+	}
+	for _, c := range chunks {
+		if c.DocumentID == 0 {
+			c.DocumentID = documentID
+		}
+		k := chunkKey(c)
+		if seen[k] {
+			return fmt.Errorf("chunks 唯一键冲突: document_id=%d file_path=%s chunk_index=%d",
+				documentID, derefStr(c.FilePath), c.ChunkIndex)
+		}
+		seen[k] = true
+		list = append(list, c)
+	}
+	f.chunks[documentID] = list
+	return nil
+}
+
+// DeleteChunksByFile 真实删除某文件的全部块（增量同步：文件变更/删除）。
+func (f *FakeDocRepo) DeleteChunksByFile(_ context.Context, documentID int64, filePath string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var kept []model.Chunk
+	for _, c := range f.chunks[documentID] {
+		if c.FilePath != nil && *c.FilePath == filePath {
+			continue
+		}
+		kept = append(kept, c)
+	}
+	f.chunks[documentID] = kept
+	return nil
+}
+
+// GetChunks 读取某文档的内存分块（断言用）。
+func (f *FakeDocRepo) GetChunks(documentID int64) []model.Chunk {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]model.Chunk, 0, len(f.chunks[documentID]))
+	out = append(out, f.chunks[documentID]...)
+	return out
+}
+
+// ChunkCountByFile 某文件的分块数（断言用）。
+func (f *FakeDocRepo) ChunkCountByFile(documentID int64, filePath string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n := 0
+	for _, c := range f.chunks[documentID] {
+		if c.FilePath != nil && *c.FilePath == filePath {
+			n++
+		}
+	}
+	return n
+}
+
+// chunkKey 唯一键（document_id, file_path, chunk_index），与迁移 000003 一致。
+func chunkKey(c model.Chunk) string {
+	return fmt.Sprintf("%d|%s|%d", c.DocumentID, derefStr(c.FilePath), c.ChunkIndex)
+}
+
+func derefStr(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
 
 func (f *FakeDocRepo) CreateTask(_ context.Context, t *model.IngestTask) error {
 	f.mu.Lock()

@@ -60,10 +60,18 @@ func TestDocumentRepoIT(t *testing.T) {
 		{DocumentID: doc.ID, KBID: kb.ID, Content: "块一", ChunkIndex: 0, FilePath: itStr("docs/api.md"), Embedding: itVec(0.9)},
 		{DocumentID: doc.ID, KBID: kb.ID, Content: "块二", ChunkIndex: 1, FilePath: itStr("docs/other.md"), Embedding: itVec(0.2)},
 	}
-	require.NoError(t, r.ReplaceChunks(ctx, doc.ID, chunks))
+	require.NoError(t, r.ReplaceDocumentChunks(ctx, doc.ID, chunks))
 	assert.Equal(t, int64(2), itCount(t, "SELECT COUNT(*) FROM chunks WHERE document_id = "+strconv.FormatInt(doc.ID, 10)))
 	require.NoError(t, r.DeleteChunksByFile(ctx, doc.ID, "docs/api.md"))
 	assert.Equal(t, int64(1), itCount(t, "SELECT COUNT(*) FROM chunks WHERE document_id = "+strconv.FormatInt(doc.ID, 10)))
+
+	// InsertChunks：按文件追加（chunk_index 为文件内序号，唯一键含 file_path）
+	require.NoError(t, r.InsertChunks(ctx, doc.ID, []model.Chunk{
+		{DocumentID: doc.ID, KBID: kb.ID, Content: "块一（重切）", ChunkIndex: 0, FilePath: itStr("docs/api.md"), Embedding: itVec(0.5)},
+		{DocumentID: doc.ID, KBID: kb.ID, Content: "块一之二", ChunkIndex: 1, FilePath: itStr("docs/api.md"), Embedding: itVec(0.4)},
+	}))
+	assert.Equal(t, int64(3), itCount(t, "SELECT COUNT(*) FROM chunks WHERE document_id = "+strconv.FormatInt(doc.ID, 10)))
+	assert.Equal(t, int64(2), itCount(t, "SELECT COUNT(*) FROM chunks WHERE document_id = "+strconv.FormatInt(doc.ID, 10)+" AND file_path = 'docs/api.md'"))
 
 	task := &model.IngestTask{DocumentID: doc.ID, Type: model.TaskTypeFull, Status: model.TaskStatusQueued}
 	require.NoError(t, r.CreateTask(ctx, task))

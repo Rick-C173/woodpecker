@@ -72,7 +72,8 @@ type DocStore interface {
 	ListFiles(ctx context.Context, documentID int64) ([]model.DocumentFile, error)
 	DeleteFilesByPath(ctx context.Context, documentID int64, paths []string) error
 	DeleteChunksByFile(ctx context.Context, documentID int64, filePath string) error
-	ReplaceChunks(ctx context.Context, documentID int64, chunks []model.Chunk) error
+	InsertChunks(ctx context.Context, documentID int64, chunks []model.Chunk) error
+	ReplaceDocumentChunks(ctx context.Context, documentID int64, chunks []model.Chunk) error
 }
 
 // FailZombieStore 启动恢复所需操作（repo.DocumentRepo 满足）。
@@ -160,14 +161,15 @@ func (p *Pipeline) Process(ctx context.Context, taskID int64) error {
 
 	// ---- 切块 + 文件清单（stage 2）----
 	p.setStage(ctx, d, model.DocStageChunk)
-	chunks, fileCount, totalSize, err := p.buildChunks(ctx, d, res, t.Type == model.TaskTypeSync)
+	isSync := t.Type == model.TaskTypeSync
+	groups, fileCount, totalSize, err := p.buildChunks(ctx, d, res, isSync)
 	if err != nil {
 		return p.fail(ctx, t, d, err)
 	}
 
 	// ---- 向量化 + 入库（stage 3）----
 	p.setStage(ctx, d, model.DocStageEmbed)
-	if err := p.embedAndStore(ctx, d, chunks); err != nil {
+	if err := p.embedAndStore(ctx, d, groups, isSync); err != nil {
 		return p.fail(ctx, t, d, err)
 	}
 
@@ -250,9 +252,17 @@ func (p *Pipeline) uploadPath(d *model.Document) string {
 	return fmt.Sprintf("%s/%d/%d", p.uploadDir, d.KBID, d.ID)
 }
 
-// buildChunks 切块并维护文件清单；返回待向量化的全部分块。
+// chunkGroup 本轮产出的「单文件分块」。增量同步按文件替换，故必须保留文件边界；
+// 文件变更后切不出块时仍会返回空组，用于清掉该文件的旧块。
+type chunkGroup struct {
+	filePath string
+	chunks   []model.Chunk
+}
+
+// buildChunks 切块并维护文件清单；返回按文件分组、待向量化的分块。
 // isSync=true 时做文件级增量：hash 未变的文件跳过切块与向量化；远端已删除的清理分块与清单。
-func (p *Pipeline) buildChunks(ctx context.Context, d *model.Document, res *rag.FetchResult, isSync bool) (chunks []model.Chunk, fileCount int, totalSize int64, err error) {
+// 注意：本函数**不删除**变更文件的旧分块——旧块要等新块向量化成功后才删（见 embedAndStore）。
+func (p *Pipeline) buildChunks(ctx context.Context, d *model.Document, res *rag.FetchResult, isSync bool) (groups []chunkGroup, fileCount int, totalSize int64, err error) {
 	existing := map[string]model.DocumentFile{}
 	if isSync {
 		files, err := p.docs.ListFiles(ctx, d.ID)
@@ -264,7 +274,7 @@ func (p *Pipeline) buildChunks(ctx context.Context, d *model.Document, res *rag.
 		}
 	}
 
-	// 远端已删除：清分块 + 清清单
+	// 远端已删除：清分块 + 清清单（内容已不存在，无需等向量化）
 	if isSync {
 		var removed []string
 		for fp := range existing {
@@ -284,7 +294,7 @@ func (p *Pipeline) buildChunks(ctx context.Context, d *model.Document, res *rag.
 		}
 	}
 
-	chunks = nil
+	groups = nil
 	fileCount = len(res.Files) + len(res.Excluded) + len(res.Oversized)
 	totalSize = 0
 
@@ -309,7 +319,7 @@ func (p *Pipeline) buildChunks(ctx context.Context, d *model.Document, res *rag.
 		totalSize += int64(len(sf.Content))
 		hash := contentHash(sf.Content)
 		if old, ok := existing[sf.Path]; ok && old.ContentHash != nil && *old.ContentHash == hash {
-			// 未变更：跳过切块与向量化（同步只处理变更文件）
+			// 未变更：跳过切块与向量化（同步只处理变更文件；其既有分块保持不动）
 			continue
 		}
 		f := &model.DocumentFile{
@@ -320,19 +330,18 @@ func (p *Pipeline) buildChunks(ctx context.Context, d *model.Document, res *rag.
 		if err := p.docs.UpsertFile(ctx, f); err != nil {
 			return nil, 0, 0, err
 		}
-		if isSync { // 变更文件：先清旧分块
-			if err := p.docs.DeleteChunksByFile(ctx, d.ID, sf.Path); err != nil {
-				return nil, 0, 0, err
-			}
+		g := chunkGroup{filePath: sf.Path}
+		for i, b := range rag.Chunk(rag.ContentKind(sf.Path), string(sf.Content)) {
+			// chunk_index 为**文件内序号**（唯一键 UNIQUE(document_id, file_path, chunk_index)）
+			g.chunks = append(g.chunks, makeChunk(d, f.ID, sf.Path, b, i))
 		}
-		for _, b := range rag.Chunk(rag.ContentKind(sf.Path), string(sf.Content)) {
-			chunks = append(chunks, makeChunk(d, f.ID, sf.Path, b, len(chunks)))
-		}
+		groups = append(groups, g)
 	}
-	return chunks, fileCount, totalSize, nil
+	return groups, fileCount, totalSize, nil
 }
 
 // makeChunk 组装单块（标题路径前缀进内容，增强检索上下文）。
+// index 为**文件内序号**（与迁移 000003 的 UNIQUE(document_id, file_path, chunk_index) 对应）。
 func makeChunk(d *model.Document, fileID int64, filePath string, b rag.ChunkBlock, index int) model.Chunk {
 	content := b.Content
 	hp := b.HeadingPath
@@ -358,22 +367,35 @@ func makeChunk(d *model.Document, fileID int64, filePath string, b rag.ChunkBloc
 	return c
 }
 
-// embedAndStore 批量向量化并整体替换分块。
-func (p *Pipeline) embedAndStore(ctx context.Context, d *model.Document, chunks []model.Chunk) error {
-	if len(chunks) == 0 {
-		return p.docs.ReplaceChunks(ctx, d.ID, nil)
+// embedAndStore 批量向量化后入库。
+//   - 全量摄取：整篇替换（ReplaceDocumentChunks，事务内先删后插，重建期间读请求只看旧快照）。
+//   - 增量同步：逐文件「先 embed 成功 → 再删旧块 → 插新块」，未变更文件的分块完全不动（P0-1）；
+//     顺序很关键：embedding 失败时必须保留旧块，否则「同步期间问答使用旧内容不受影响」不成立。
+func (p *Pipeline) embedAndStore(ctx context.Context, d *model.Document, groups []chunkGroup, isSync bool) error {
+	// flat 指向各组底层的元素，向量回填无需二次拷贝
+	var flat []*model.Chunk
+	for gi := range groups {
+		for ci := range groups[gi].chunks {
+			flat = append(flat, &groups[gi].chunks[ci])
+		}
+	}
+	if len(flat) == 0 {
+		if isSync {
+			return nil // 本轮无变更文件：既有分块原样保留（旧实现在此整篇清空）
+		}
+		return p.docs.ReplaceDocumentChunks(ctx, d.ID, nil)
 	}
 	cfg, err := p.resolver.GetDefault(ctx, model.ModelPurposeEmbedding)
 	if err != nil {
 		return fmt.Errorf("获取默认向量化模型: %w", err)
 	}
-	for start := 0; start < len(chunks); start += embedBatchSize {
+	for start := 0; start < len(flat); start += embedBatchSize {
 		end := start + embedBatchSize
-		if end > len(chunks) {
-			end = len(chunks)
+		if end > len(flat) {
+			end = len(flat)
 		}
 		texts := make([]string, 0, end-start)
-		for _, c := range chunks[start:end] {
+		for _, c := range flat[start:end] {
 			texts = append(texts, c.Content)
 		}
 		vecs, err := p.embedder.Embed(ctx, cfg, texts)
@@ -384,10 +406,25 @@ func (p *Pipeline) embedAndStore(ctx context.Context, d *model.Document, chunks 
 			return fmt.Errorf("向量化返回数量不符: 期望 %d 实际 %d", len(texts), len(vecs))
 		}
 		for i, v := range vecs {
-			chunks[start+i].Embedding = v
+			flat[start+i].Embedding = v
 		}
 	}
-	return p.docs.ReplaceChunks(ctx, d.ID, chunks)
+	if isSync {
+		for _, g := range groups {
+			if err := p.docs.DeleteChunksByFile(ctx, d.ID, g.filePath); err != nil {
+				return err
+			}
+			if err := p.docs.InsertChunks(ctx, d.ID, g.chunks); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	all := make([]model.Chunk, 0, len(flat))
+	for _, g := range groups {
+		all = append(all, g.chunks...)
+	}
+	return p.docs.ReplaceDocumentChunks(ctx, d.ID, all)
 }
 
 // setStage 更新处理阶段。

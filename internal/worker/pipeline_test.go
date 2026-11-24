@@ -219,3 +219,132 @@ func TestPipelineRecoverStartup(t *testing.T) {
 	assert.Equal(t, model.DocStatusFailed, e.docs.DocByID(proc.ID).Status, "处理中文档置失败")
 	assert.Equal(t, model.TaskStatusFailed, e.docs.TaskByID(queued.ID).Status, "遗留任务置失败")
 }
+
+// ---- 增量同步三态（P0-1 回归，替身已改为真实内存实现）----
+//
+// 这三条用例在 FakeDocRepo.ReplaceDocumentChunks / DeleteChunksByFile 为「空实现」时
+// 原理上测不出缺陷（审计 §3.4 第 1 条），因此与替身改造同批提交。
+
+// seedSyncDoc 落地 files 到上传目录并建一个上传文档（不进数据库，走 FakeDocRepo）。
+func (e *pipeEnv) seedSyncDoc(t *testing.T, files map[string]string) *model.Document {
+	t.Helper()
+	d := e.docs.SeedDoc(10, model.DocTypeUpload, model.DocStatusPending)
+	dir := filepath.Join(e.upload, "10", fmt.Sprint(d.ID))
+	require.NoError(t, os.MkdirAll(dir, 0o750))
+	for name, body := range files {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600))
+	}
+	return d
+}
+
+func (e *pipeEnv) runTask(t *testing.T, docID int64, typ int16) {
+	t.Helper()
+	task := e.docs.SeedTask(docID, typ)
+	require.NoError(t, e.pipeline.Process(context.Background(), task.ID))
+	assert.Equal(t, model.TaskStatusSuccess, e.docs.TaskByID(task.ID).Status, "任务应成功")
+}
+
+// 三态①：全未变 —— 分块必须原样保留（旧实现整篇清空）。
+func TestPipelineSyncNoChangeKeepsChunks(t *testing.T) {
+	e := newPipeEnv(t)
+	d := e.seedSyncDoc(t, map[string]string{
+		"README.md": "# 指南\n\n内容\n",
+		"main.go":   "package main\n\nfunc A() {}\n",
+	})
+	e.runTask(t, d.ID, model.TaskTypeFull)
+	fullA := e.docs.ChunkCountByFile(d.ID, "README.md")
+	fullB := e.docs.ChunkCountByFile(d.ID, "main.go")
+	require.NotZero(t, fullA)
+	require.NotZero(t, fullB)
+	total := len(e.docs.GetChunks(d.ID))
+	embedCallsBefore := len(e.embed.batches)
+
+	e.runTask(t, d.ID, model.TaskTypeSync)
+
+	assert.Len(t, e.docs.GetChunks(d.ID), total, "无变更的同步不得改动任何分块")
+	assert.Equal(t, fullA, e.docs.ChunkCountByFile(d.ID, "README.md"))
+	assert.Equal(t, fullB, e.docs.ChunkCountByFile(d.ID, "main.go"))
+	assert.Len(t, e.embed.batches, embedCallsBefore, "无变更时不应调用 embedding")
+}
+
+// 三态②：部分变更 —— 只替换变更文件，未变更文件的分块原样保留。
+func TestPipelineSyncPartialChangeKeepsOtherFiles(t *testing.T) {
+	e := newPipeEnv(t)
+	d := e.seedSyncDoc(t, map[string]string{
+		"a.md": "# A\n\nA 文件内容。\n",
+		"b.md": "# B\n\nB 文件内容。\n",
+		"c.md": "# C\n\nC 文件内容。\n",
+	})
+	e.runTask(t, d.ID, model.TaskTypeFull)
+	beforeB := e.docs.GetChunks(d.ID)
+	require.Equal(t, 1, e.docs.ChunkCountByFile(d.ID, "b.md"))
+	require.Equal(t, 1, e.docs.ChunkCountByFile(d.ID, "c.md"))
+	require.Equal(t, 1, e.docs.ChunkCountByFile(d.ID, "a.md"))
+
+	require.NoError(t, os.WriteFile(filepath.Join(e.upload, "10", fmt.Sprint(d.ID), "a.md"),
+		[]byte("# A\n\nA 文件内容（已修改）。\n"), 0o600))
+	e.runTask(t, d.ID, model.TaskTypeSync)
+
+	after := e.docs.GetChunks(d.ID)
+	assert.Len(t, after, 3, "3 个文件各 1 块")
+	assert.Equal(t, 1, e.docs.ChunkCountByFile(d.ID, "b.md"), "未变更文件 b.md 的分块必须保留")
+	assert.Equal(t, 1, e.docs.ChunkCountByFile(d.ID, "c.md"), "未变更文件 c.md 的分块必须保留")
+	for _, c := range after {
+		if c.FilePath == nil || *c.FilePath != "a.md" {
+			continue
+		}
+		assert.Contains(t, c.Content, "已修改", "a.md 应被重切")
+	}
+	// b.md 的分块内容逐字未变
+	want := ""
+	for _, c := range beforeB {
+		if c.FilePath != nil && *c.FilePath == "b.md" {
+			want = c.Content
+		}
+	}
+	got := ""
+	for _, c := range after {
+		if c.FilePath != nil && *c.FilePath == "b.md" {
+			got = c.Content
+		}
+	}
+	assert.Equal(t, want, got, "未变更文件的分块内容必须逐字不变")
+}
+
+// 三态③：远端删除 —— 被删文件的分块清除，其余文件不受影响。
+func TestPipelineSyncRemoteDeleteRemovesOnlyThatFile(t *testing.T) {
+	e := newPipeEnv(t)
+	d := e.seedSyncDoc(t, map[string]string{
+		"a.md": "# A\n\nA 文件内容。\n",
+		"b.md": "# B\n\nB 文件内容。\n",
+	})
+	e.runTask(t, d.ID, model.TaskTypeFull)
+	require.Equal(t, 1, e.docs.ChunkCountByFile(d.ID, "a.md"))
+	require.Equal(t, 1, e.docs.ChunkCountByFile(d.ID, "b.md"))
+
+	require.NoError(t, os.Remove(filepath.Join(e.upload, "10", fmt.Sprint(d.ID), "a.md")))
+	e.runTask(t, d.ID, model.TaskTypeSync)
+
+	assert.Zero(t, e.docs.ChunkCountByFile(d.ID, "a.md"), "已删除文件的分块应清除")
+	assert.Equal(t, 1, e.docs.ChunkCountByFile(d.ID, "b.md"), "未变更文件的分块必须保留")
+	assert.Equal(t, 1, e.docs.FileCount(d.ID), "文件清单应只剩 b.md")
+}
+
+// 三态④：变更文件 embedding 失败 —— 旧块必须保留（旧实现先删后 embed，会丢内容）。
+func TestPipelineSyncEmbedFailureKeepsOldChunks(t *testing.T) {
+	e := newPipeEnv(t)
+	d := e.seedSyncDoc(t, map[string]string{"a.md": "# A\n\nA 文件内容。\n"})
+	e.runTask(t, d.ID, model.TaskTypeFull)
+	require.Equal(t, 1, e.docs.ChunkCountByFile(d.ID, "a.md"))
+
+	require.NoError(t, os.WriteFile(filepath.Join(e.upload, "10", fmt.Sprint(d.ID), "a.md"),
+		[]byte("# A\n\nA 文件内容（已修改）。\n"), 0o600))
+	e.embed.err = errors.New("embedding 服务不可用")
+	task := e.docs.SeedTask(d.ID, model.TaskTypeSync)
+	require.NoError(t, e.pipeline.Process(context.Background(), task.ID))
+	assert.Equal(t, model.TaskStatusQueued, e.docs.TaskByID(task.ID).Status, "失败后应排重试")
+
+	chunks := e.docs.GetChunks(d.ID)
+	require.Len(t, chunks, 1, "embedding 失败不得删除旧分块")
+	assert.NotContains(t, chunks[0].Content, "已修改", "旧分块应保持原内容（问答期间不受影响）")
+}

@@ -159,30 +159,51 @@ func (r *DocumentRepo) DeleteFilesByPath(ctx context.Context, documentID int64, 
 
 // ---- chunks ----
 
-// ReplaceChunks 整体替换文档分块（事务）：先删后插。
+// ReplaceDocumentChunks 整体替换文档全部分块（事务）：先删后插。
+// 仅用于**全量摄取 / 重建索引**；增量同步必须按文件替换
+// （DeleteChunksByFile + InsertChunks），否则未变更文件的分块会被整篇 DELETE 掉（P0-1）。
 // embedding 为 pgvector 列，GORM 对 []float32 会写成 record 类型，故手写 INSERT 显式 ::vector 转换。
-func (r *DocumentRepo) ReplaceChunks(ctx context.Context, documentID int64, chunks []model.Chunk) error {
+func (r *DocumentRepo) ReplaceDocumentChunks(ctx context.Context, documentID int64, chunks []model.Chunk) error {
 	return r.dbx(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("document_id = ?", documentID).Delete(&model.Chunk{}).Error; err != nil {
 			return err
 		}
-		now := time.Now()
-		for i := range chunks {
-			c := &chunks[i]
-			if c.CreatedAt.IsZero() {
-				c.CreatedAt = now
-			}
-			c.UpdatedAt = now
-			if err := tx.Exec(`INSERT INTO chunks
-				(document_id, kb_id, file_id, content, chunk_index, token_count, file_path, line_start, line_end, heading_path, embedding, created_at, updated_at)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::vector, ?, ?)`,
-				c.DocumentID, c.KBID, c.FileID, c.Content, c.ChunkIndex, c.TokenCount, c.FilePath,
-				c.LineStart, c.LineEnd, c.HeadingPath, pgvector.NewVector(c.Embedding), c.CreatedAt, c.UpdatedAt).Error; err != nil {
-				return err
-			}
-		}
-		return nil
+		return insertChunks(tx, documentID, chunks)
 	})
+}
+
+// InsertChunks 追加写入文档分块（事务内批量 INSERT）。
+// 增量同步按文件替换的分块走这里；chunk_index 为**文件内序号**（见迁移 000003）。
+func (r *DocumentRepo) InsertChunks(ctx context.Context, documentID int64, chunks []model.Chunk) error {
+	if len(chunks) == 0 {
+		return nil
+	}
+	return r.dbx(ctx).Transaction(func(tx *gorm.DB) error {
+		return insertChunks(tx, documentID, chunks)
+	})
+}
+
+// insertChunks 事务内批量 INSERT（调用方负责事务与「先删旧块」）。
+func insertChunks(tx *gorm.DB, documentID int64, chunks []model.Chunk) error {
+	now := time.Now()
+	for i := range chunks {
+		c := &chunks[i]
+		if c.DocumentID == 0 {
+			c.DocumentID = documentID
+		}
+		if c.CreatedAt.IsZero() {
+			c.CreatedAt = now
+		}
+		c.UpdatedAt = now
+		if err := tx.Exec(`INSERT INTO chunks
+			(document_id, kb_id, file_id, content, chunk_index, token_count, file_path, line_start, line_end, heading_path, embedding, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::vector, ?, ?)`,
+			c.DocumentID, c.KBID, c.FileID, c.Content, c.ChunkIndex, c.TokenCount, c.FilePath,
+			c.LineStart, c.LineEnd, c.HeadingPath, pgvector.NewVector(c.Embedding), c.CreatedAt, c.UpdatedAt).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // DeleteChunksByFile 删除某文件的所有分块（增量同步：文件被删/修改）。
