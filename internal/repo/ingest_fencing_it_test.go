@@ -7,6 +7,7 @@ import (
 	"context"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -123,6 +124,133 @@ func TestReplaceDocumentChunksFencedByTaskStatusIT(t *testing.T) {
 	require.Len(t, got, 1)
 	require.NotNil(t, got[0].ContentHash)
 	assert.Equal(t, "hash-a1", *got[0].ContentHash, "整篇替换被拒时 hash 不得更新")
+}
+
+// TestUpdateDocumentFencedByTaskStatusIT 任务被回收后，僵尸 worker 不得把文档改回 processing
+// （审查 #5：否则文档永久卡死，Retry 只接受 failed、Sync 拒绝 processing）。
+func TestUpdateDocumentFencedByTaskStatusIT(t *testing.T) {
+	itTruncate(t)
+	ctx := context.Background()
+	r, _, docs := itSeedDocKB(t, "a.md")
+	doc := docs[0]
+
+	task := &model.IngestTask{DocumentID: doc.ID, Type: model.TaskTypeFull, Status: model.TaskStatusRunning}
+	require.NoError(t, r.CreateTask(ctx, task))
+
+	applied, err := r.UpdateDocumentIfTaskRunning(ctx, task.ID, doc.ID, map[string]any{
+		"status": model.DocStatusProcessing, "stage": model.DocStageEmbed, "updated_at": time.Now(),
+	})
+	require.NoError(t, err)
+	require.True(t, applied, "运行中的任务必须能推进阶段")
+
+	// 模拟 sweeper：任务置 failed、文档置 failed
+	ok, err := r.TransitionTaskIfRunning(ctx, task.ID, map[string]any{"status": model.TaskStatusFailed})
+	require.NoError(t, err)
+	require.True(t, ok)
+	n, err := r.FailProcessingDocs(ctx, []int64{doc.ID})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), n)
+
+	// 旧 worker 迟到推进阶段：必须被拒，文档保持 failed
+	applied, err = r.UpdateDocumentIfTaskRunning(ctx, task.ID, doc.ID, map[string]any{
+		"status": model.DocStatusProcessing, "stage": model.DocStageChunk, "updated_at": time.Now(),
+	})
+	require.NoError(t, err)
+	assert.False(t, applied, "任务已回收，阶段写入必须被拒绝")
+
+	got, err := r.GetDocumentByID(ctx, doc.ID)
+	require.NoError(t, err)
+	assert.Equal(t, model.DocStatusFailed, got.Status, "文档不得被僵尸改回 processing")
+	assert.Nil(t, got.Stage)
+}
+
+// TestMaintainFilesFencedByTaskStatusIT 清单维护（删除远端已删文件、写排除/超大标记）同样受 fencing 保护。
+func TestMaintainFilesFencedByTaskStatusIT(t *testing.T) {
+	itTruncate(t)
+	ctx := context.Background()
+	r, kb, docs := itSeedDocKB(t, "a.md")
+	doc := docs[0]
+
+	task := &model.IngestTask{DocumentID: doc.ID, Type: model.TaskTypeSync, Status: model.TaskStatusRunning}
+	require.NoError(t, r.CreateTask(ctx, task))
+
+	h := "hash-a"
+	applied, err := r.ReplaceFileChunksIfTaskRunning(ctx, task.ID, doc.ID, "a.md",
+		&model.DocumentFile{DocumentID: doc.ID, Path: "a.md", Status: model.FileStatusIndexed, ContentHash: &h},
+		[]model.Chunk{{DocumentID: doc.ID, KBID: kb.ID, Content: "旧块", ChunkIndex: 0, FilePath: itStr("a.md"), Embedding: itVec(0.1)}})
+	require.NoError(t, err)
+	require.True(t, applied)
+
+	// sweeper 回收任务
+	ok, err := r.TransitionTaskIfRunning(ctx, task.ID, map[string]any{"status": model.TaskStatusFailed})
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	// 僵尸尝试删除 a.md 并写入 b.md 的排除标记：必须整笔拒绝
+	applied, err = r.MaintainFilesIfTaskRunning(ctx, task.ID, doc.ID, []string{"a.md"},
+		[]*model.DocumentFile{{DocumentID: doc.ID, Path: "b.md", Status: model.FileStatusExcluded}})
+	require.NoError(t, err)
+	assert.False(t, applied, "任务已回收，清单维护必须被拒绝")
+
+	docID := strconv.FormatInt(doc.ID, 10)
+	files, err := r.ListFiles(ctx, doc.ID)
+	require.NoError(t, err)
+	require.Len(t, files, 1, "僵尸不得删除文件记录或写入新标记")
+	assert.Equal(t, "a.md", files[0].Path)
+	assert.Equal(t, int64(1), itCount(t, "SELECT COUNT(*) FROM chunks WHERE document_id = "+docID), "分块不得被删")
+
+	// 新任务接管后允许同样的维护
+	task2 := &model.IngestTask{DocumentID: doc.ID, Type: model.TaskTypeSync, Status: model.TaskStatusRunning}
+	require.NoError(t, r.CreateTask(ctx, task2))
+	applied, err = r.MaintainFilesIfTaskRunning(ctx, task2.ID, doc.ID, []string{"a.md"},
+		[]*model.DocumentFile{{DocumentID: doc.ID, Path: "b.md", Status: model.FileStatusExcluded}})
+	require.NoError(t, err)
+	require.True(t, applied)
+
+	files, err = r.ListFiles(ctx, doc.ID)
+	require.NoError(t, err)
+	require.Len(t, files, 1)
+	assert.Equal(t, "b.md", files[0].Path)
+	assert.Equal(t, int64(0), itCount(t, "SELECT COUNT(*) FROM chunks WHERE document_id = "+docID))
+}
+
+// TestFinishTaskFencedByTaskStatusIT 任务终态与文档终态必须同事务生效；被回收后两者都不写。
+func TestFinishTaskFencedByTaskStatusIT(t *testing.T) {
+	itTruncate(t)
+	ctx := context.Background()
+	r, _, docs := itSeedDocKB(t, "a.md")
+	doc := docs[0]
+
+	task := &model.IngestTask{DocumentID: doc.ID, Type: model.TaskTypeFull, Status: model.TaskStatusRunning}
+	require.NoError(t, r.CreateTask(ctx, task))
+
+	applied, err := r.FinishTaskIfRunning(ctx, task.ID, doc.ID,
+		map[string]any{"status": model.TaskStatusSuccess, "finished_at": time.Now()},
+		map[string]any{"status": model.DocStatusReady, "stage": nil, "error": nil})
+	require.NoError(t, err)
+	require.True(t, applied)
+
+	got, err := r.GetDocumentByID(ctx, doc.ID)
+	require.NoError(t, err)
+	assert.Equal(t, model.DocStatusReady, got.Status)
+	assert.Nil(t, got.Stage)
+	finished, err := r.GetTaskByID(ctx, task.ID)
+	require.NoError(t, err)
+	assert.Equal(t, model.TaskStatusSuccess, finished.Status)
+
+	// 已完成的任务再被「收尾」：整笔拒绝，不得把 ready 覆盖回 failed
+	applied, err = r.FinishTaskIfRunning(ctx, task.ID, doc.ID,
+		map[string]any{"status": model.TaskStatusFailed, "finished_at": time.Now()},
+		map[string]any{"status": model.DocStatusFailed, "stage": nil})
+	require.NoError(t, err)
+	assert.False(t, applied)
+
+	got, err = r.GetDocumentByID(ctx, doc.ID)
+	require.NoError(t, err)
+	assert.Equal(t, model.DocStatusReady, got.Status, "文档终态不得被覆盖")
+	finished, err = r.GetTaskByID(ctx, task.ID)
+	require.NoError(t, err)
+	assert.Equal(t, model.TaskStatusSuccess, finished.Status, "任务终态不得被覆盖")
 }
 
 // TestIsTaskRunningIT 快速失败检查与真实状态一致。

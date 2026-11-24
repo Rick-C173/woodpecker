@@ -554,6 +554,92 @@ func (r *DocumentRepo) ReplaceDocumentChunksIfTaskRunning(ctx context.Context, t
 	return applied, err
 }
 
+// UpdateDocumentIfTaskRunning 带 fencing 的文档状态写入（审查 #5）：
+// 事务内锁任务行校验 running 后才更新文档。返回 applied=false 表示任务已被回收/删除，
+// 调用方必须放弃处理——否则僵尸 worker 会把 sweeper 已置 failed 的文档覆盖回 processing，
+// 而 Retry 只接受 failed、Sync 拒绝 processing，文档将永久卡死且无用户侧恢复入口。
+func (r *DocumentRepo) UpdateDocumentIfTaskRunning(ctx context.Context, taskID, documentID int64, updates map[string]any) (bool, error) {
+	applied := false
+	err := r.dbx(ctx).Transaction(func(tx *gorm.DB) error {
+		ok, err := lockTaskRunning(tx, taskID)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return nil
+		}
+		res := tx.Model(&model.Document{}).Where("id = ?", documentID).Updates(updates)
+		if res.Error != nil {
+			return res.Error
+		}
+		applied = res.RowsAffected > 0
+		return nil
+	})
+	return applied, err
+}
+
+// MaintainFilesIfTaskRunning 带 fencing 的清单维护（审查 #5）：事务内锁任务行校验 running 后，
+// 删除远端已不存在的文件记录及其分块、写入排除/超大文件标记。
+// 这些操作原先在 fencing 事务之外，僵尸 worker 被回收后仍能删掉新任务刚写入的文件与分块。
+func (r *DocumentRepo) MaintainFilesIfTaskRunning(ctx context.Context, taskID, documentID int64, removePaths []string, files []*model.DocumentFile) (bool, error) {
+	applied := false
+	err := r.dbx(ctx).Transaction(func(tx *gorm.DB) error {
+		ok, err := lockTaskRunning(tx, taskID)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return nil
+		}
+		if len(removePaths) > 0 {
+			if err := tx.Where("document_id = ? AND path IN ?", documentID, removePaths).
+				Delete(&model.DocumentFile{}).Error; err != nil {
+				return err
+			}
+			// file_id 的级联只覆盖有 file_id 的块，历史/异常数据的块仍按路径兜底清理
+			if err := tx.Where("document_id = ? AND file_path IN ?", documentID, removePaths).
+				Delete(&model.Chunk{}).Error; err != nil {
+				return err
+			}
+		}
+		for _, f := range files {
+			if err := upsertFileTx(tx, f); err != nil {
+				return err
+			}
+		}
+		applied = true
+		return nil
+	})
+	return applied, err
+}
+
+// FinishTaskIfRunning 带 fencing 的收尾（审查 #5）：事务内锁任务行校验 running 后，
+// 原子更新「任务终态 + 文档终态」。applied=false 时两者都不落库，避免出现
+// 「任务 failed / 文档 ready」或旧 worker 覆盖新任务文档状态的矛盾终态。
+func (r *DocumentRepo) FinishTaskIfRunning(ctx context.Context, taskID, documentID int64, taskUpdates, docUpdates map[string]any) (bool, error) {
+	applied := false
+	err := r.dbx(ctx).Transaction(func(tx *gorm.DB) error {
+		ok, err := lockTaskRunning(tx, taskID)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return nil
+		}
+		if err := tx.Model(&model.IngestTask{}).Where("id = ?", taskID).Updates(taskUpdates).Error; err != nil {
+			return err
+		}
+		if len(docUpdates) > 0 {
+			if err := tx.Model(&model.Document{}).Where("id = ?", documentID).Updates(docUpdates).Error; err != nil {
+				return err
+			}
+		}
+		applied = true
+		return nil
+	})
+	return applied, err
+}
+
 // FailProcessingDocs 重启恢复：只把「本 worker 刚置失败的任务」对应的处理中文档置失败
 // （配合 FailZombieTasks）。docIDs 为其返回值——绝不做 `WHERE status = 2` 的全库 UPDATE，
 // 否则会误伤其它实例正在处理的文档（审计 P1-8）。

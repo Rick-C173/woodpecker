@@ -371,6 +371,149 @@ func (f *FakeDocRepo) ReplaceDocumentChunksIfTaskRunning(_ context.Context, task
 	return true, nil
 }
 
+// MaintainFilesIfTaskRunning 与 repo 同口径（审查 #5）：任务非 running 时零写入。
+func (f *FakeDocRepo) MaintainFilesIfTaskRunning(_ context.Context, taskID, documentID int64, removePaths []string, files []*model.DocumentFile) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if t, ok := f.tasks[taskID]; !ok || t.Status != model.TaskStatusRunning {
+		return false, nil
+	}
+	if len(removePaths) > 0 {
+		del := map[string]bool{}
+		for _, p := range removePaths {
+			del[p] = true
+		}
+		var kept []model.DocumentFile
+		for _, file := range f.files[documentID] {
+			if !del[file.Path] {
+				kept = append(kept, file)
+			}
+		}
+		f.files[documentID] = kept
+		for _, p := range removePaths {
+			f.deleteChunksByFileLocked(documentID, p)
+		}
+	}
+	for _, file := range files {
+		if err := f.upsertFileLocked(file); err != nil {
+			return false, err
+		}
+	}
+	return true, nil
+}
+
+// UpdateDocumentIfTaskRunning 与 repo 同口径（审查 #5）：任务非 running 时不写文档，
+// 否则僵尸 worker 会把 sweeper 已置 failed 的文档覆盖回 processing。
+func (f *FakeDocRepo) UpdateDocumentIfTaskRunning(_ context.Context, taskID, documentID int64, updates map[string]any) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if t, ok := f.tasks[taskID]; !ok || t.Status != model.TaskStatusRunning {
+		return false, nil
+	}
+	d, ok := f.docs[documentID]
+	if !ok {
+		return false, nil
+	}
+	applyDocUpdates(d, updates)
+	return true, nil
+}
+
+// FinishTaskIfRunning 与 repo 同口径（审查 #5）：任务终态与文档终态原子生效；
+// 任务已被回收时两者都不写。
+func (f *FakeDocRepo) FinishTaskIfRunning(_ context.Context, taskID, documentID int64, taskUpdates, docUpdates map[string]any) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	t, ok := f.tasks[taskID]
+	if !ok || t.Status != model.TaskStatusRunning {
+		return false, nil
+	}
+	applyTaskUpdates(t, taskUpdates)
+	if d, ok := f.docs[documentID]; ok && len(docUpdates) > 0 {
+		applyDocUpdates(d, docUpdates)
+	}
+	return true, nil
+}
+
+// applyTaskUpdates 应用任务字段更新（与 repo 的 map Updates 同口径）。
+func applyTaskUpdates(t *model.IngestTask, updates map[string]any) {
+	if v, ok := updates["status"].(int16); ok {
+		t.Status = v
+	}
+	if v, ok := updates["retries"].(int); ok {
+		t.Retries = v
+	}
+	if v, ok := updates["error"]; ok {
+		if v == nil {
+			t.Error = nil
+		} else if s, ok := v.(string); ok {
+			msg := s
+			t.Error = &msg
+		}
+	}
+	if v, ok := updates["finished_at"].(time.Time); ok {
+		ts := v
+		t.FinishedAt = &ts
+	}
+}
+
+// applyDocUpdates 应用文档字段更新（与 repo 的 map Updates 同口径，nil 表示清空）。
+func applyDocUpdates(d *model.Document, updates map[string]any) {
+	for k, v := range updates {
+		switch k {
+		case "status":
+			if st, ok := v.(int16); ok {
+				d.Status = st
+			}
+		case "stage":
+			if v == nil {
+				d.Stage = nil
+			} else if st, ok := v.(int16); ok {
+				stage := st
+				d.Stage = &stage
+			}
+		case "error":
+			if v == nil {
+				d.Error = nil
+			} else if s, ok := v.(string); ok {
+				msg := s
+				d.Error = &msg
+			}
+		case "file_count":
+			switch n := v.(type) {
+			case int:
+				c := n
+				d.FileCount = &c
+			case int64:
+				c := int(n)
+				d.FileCount = &c
+			}
+		case "total_size":
+			switch n := v.(type) {
+			case int:
+				s := int64(n)
+				d.TotalSize = &s
+			case int64:
+				s := n
+				d.TotalSize = &s
+			}
+		case "last_commit":
+			if s, ok := v.(string); ok {
+				c := s
+				d.LastCommit = &c
+			}
+		case "last_synced_at":
+			if ts, ok := v.(time.Time); ok {
+				t := ts
+				d.LastSyncedAt = &t
+			}
+		case "updated_at":
+			if ts, ok := v.(time.Time); ok {
+				d.UpdatedAt = ts
+			}
+		}
+	}
+}
+
 // GetChunks 读取某文档的内存分块（断言用）。
 func (f *FakeDocRepo) GetChunks(documentID int64) []model.Chunk {
 	f.mu.Lock()
@@ -465,18 +608,7 @@ func (f *FakeDocRepo) TransitionTaskIfRunning(_ context.Context, taskID int64, u
 	if !ok || t.Status != model.TaskStatusRunning {
 		return false, nil
 	}
-	if v, ok := updates["status"].(int16); ok {
-		t.Status = v
-	}
-	if v, ok := updates["retries"].(int); ok {
-		t.Retries = v
-	}
-	if v, ok := updates["error"].(string); ok {
-		t.Error = &v
-	}
-	if v, ok := updates["finished_at"].(time.Time); ok {
-		t.FinishedAt = &v
-	}
+	applyTaskUpdates(t, updates)
 	return true, nil
 }
 

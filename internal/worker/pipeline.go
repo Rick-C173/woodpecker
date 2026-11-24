@@ -69,18 +69,18 @@ type DocStore interface {
 	GetTaskByID(ctx context.Context, id int64) (*model.IngestTask, error)
 	SaveTask(ctx context.Context, t *model.IngestTask) error
 	GetDocumentByID(ctx context.Context, id int64) (*model.Document, error)
-	SaveDocument(ctx context.Context, d *model.Document) error
-	UpsertFile(ctx context.Context, f *model.DocumentFile) error
 	ListFiles(ctx context.Context, documentID int64) ([]model.DocumentFile, error)
-	DeleteFilesByPath(ctx context.Context, documentID int64, paths []string) error
-	DeleteChunksByFile(ctx context.Context, documentID int64, filePath string) error
-	InsertChunks(ctx context.Context, documentID int64, chunks []model.Chunk) error
-	ReplaceDocumentChunks(ctx context.Context, documentID int64, chunks []model.Chunk) error
-	// 带 fencing 的写入（审查 #1 补强）：事务内校验任务仍 running 才写，
+	// 带 fencing 的写入（审查 #1/#5 补强）：事务内校验任务仍 running 才写，
 	// 任务被 sweeper 回收后拒绝落库，避免与新任务并发写同一文档。
 	IsTaskRunning(ctx context.Context, taskID int64) (bool, error)
 	ReplaceFileChunksIfTaskRunning(ctx context.Context, taskID, documentID int64, filePath string, file *model.DocumentFile, chunks []model.Chunk) (bool, error)
 	ReplaceDocumentChunksIfTaskRunning(ctx context.Context, taskID, documentID int64, files []*model.DocumentFile, chunks []model.Chunk) (bool, error)
+	// MaintainFilesIfTaskRunning 带 fencing 的清单维护：删除远端已删文件及其分块、写入排除/超大标记。
+	MaintainFilesIfTaskRunning(ctx context.Context, taskID, documentID int64, removePaths []string, files []*model.DocumentFile) (bool, error)
+	// UpdateDocumentIfTaskRunning 带 fencing 的文档状态写入（阶段推进）。
+	UpdateDocumentIfTaskRunning(ctx context.Context, taskID, documentID int64, updates map[string]any) (bool, error)
+	// FinishTaskIfRunning 原子收尾任务终态与文档终态。
+	FinishTaskIfRunning(ctx context.Context, taskID, documentID int64, taskUpdates, docUpdates map[string]any) (bool, error)
 	// HeartbeatTask 刷新运行中任务的心跳时刻（验收回归 8-1：跨实例僵尸任务的时间兜底依据）。
 	HeartbeatTask(ctx context.Context, taskID int64) error
 	// TransitionTaskIfRunning 带守卫的状态流转：仅当任务仍为 running 时应用 updates
@@ -321,14 +321,18 @@ func (p *Pipeline) Process(ctx context.Context, taskID int64) error {
 	}
 
 	// ---- 解析（stage 1）----
-	p.setStage(ctx, d, model.DocStageParse)
+	if err := p.markStage(ctx, t, d, model.DocStageParse); err != nil {
+		return err
+	}
 	res, err := p.fetch(ctx, d, t)
 	if err != nil {
 		return p.fail(ctx, t, d, err)
 	}
 
 	// ---- 切块 + 文件清单（stage 2）----
-	p.setStage(ctx, d, model.DocStageChunk)
+	if err := p.markStage(ctx, t, d, model.DocStageChunk); err != nil {
+		return err
+	}
 	isSync := t.Type == model.TaskTypeSync
 	groups, fileCount, totalSize, err := p.buildChunks(ctx, t.ID, d, res, isSync)
 	if err != nil {
@@ -339,7 +343,9 @@ func (p *Pipeline) Process(ctx context.Context, taskID int64) error {
 	}
 
 	// ---- 向量化 + 入库（stage 3）----
-	p.setStage(ctx, d, model.DocStageEmbed)
+	if err := p.markStage(ctx, t, d, model.DocStageEmbed); err != nil {
+		return err
+	}
 	if err := p.embedAndStore(ctx, t.ID, d, groups, isSync); err != nil {
 		if errors.Is(err, ErrTaskFenced) {
 			return p.abandonFenced(t, d)
@@ -347,22 +353,28 @@ func (p *Pipeline) Process(ctx context.Context, taskID int64) error {
 		return p.fail(ctx, t, d, err)
 	}
 
-	// ---- 完成 ----
-	d.FileCount = &fileCount
-	d.TotalSize = &totalSize
-	if d.Type == model.DocTypeGit && res.Commit != "" {
-		d.LastCommit = &res.Commit
-		synced := p.now()
-		d.LastSyncedAt = &synced
+	// ---- 完成（审查 #5：任务终态与文档终态同事务，防止僵尸回收后互相覆盖）----
+	docUpdates := map[string]any{
+		"status":     model.DocStatusReady,
+		"stage":      nil,
+		"error":      nil,
+		"file_count": fileCount,
+		"total_size": totalSize,
+		"updated_at": p.now(),
 	}
-	d.Status = model.DocStatusReady
-	d.Stage = nil
-	d.Error = nil
-	d.UpdatedAt = p.now()
-	if err := p.docs.SaveDocument(ctx, d); err != nil {
+	if d.Type == model.DocTypeGit && res.Commit != "" {
+		docUpdates["last_commit"] = res.Commit
+		docUpdates["last_synced_at"] = p.now()
+	}
+	applied, err := p.docs.FinishTaskIfRunning(ctx, t.ID, d.ID,
+		map[string]any{"status": model.TaskStatusSuccess, "finished_at": p.now()}, docUpdates)
+	if err != nil {
 		return err
 	}
-	return p.finishTask(ctx, t, model.TaskStatusSuccess, "")
+	if !applied {
+		return p.abandonFenced(t, d)
+	}
+	return nil
 }
 
 // fetch 按文档类型拉取内容（R1/R1b/R2 过滤在 rag 层完成）。
@@ -465,21 +477,11 @@ func (p *Pipeline) buildChunks(ctx context.Context, taskID int64, d *model.Docum
 	}
 
 	// 远端已删除：清分块 + 清清单（内容已不存在，无需等向量化）
+	var removed []string
 	if isSync {
-		var removed []string
 		for fp := range existing {
 			if _, ok := fetchPath(res, fp); !ok {
 				removed = append(removed, fp)
-			}
-		}
-		if len(removed) > 0 {
-			if err := p.docs.DeleteFilesByPath(ctx, d.ID, removed); err != nil {
-				return nil, 0, 0, err
-			}
-			for _, fp := range removed {
-				if err := p.docs.DeleteChunksByFile(ctx, d.ID, fp); err != nil {
-					return nil, 0, 0, err
-				}
 			}
 		}
 	}
@@ -489,18 +491,28 @@ func (p *Pipeline) buildChunks(ctx context.Context, taskID int64, d *model.Docum
 	totalSize = 0
 
 	// 排除文件 → "已排除"标记
+	marks := make([]*model.DocumentFile, 0, len(res.Excluded)+len(res.Oversized))
 	for _, fp := range res.Excluded {
-		f := &model.DocumentFile{DocumentID: d.ID, Path: fp, Status: model.FileStatusExcluded, UpdatedAt: p.now()}
-		if err := p.docs.UpsertFile(ctx, f); err != nil {
-			return nil, 0, 0, err
-		}
+		marks = append(marks, &model.DocumentFile{
+			DocumentID: d.ID, Path: fp, Status: model.FileStatusExcluded, UpdatedAt: p.now(),
+		})
 	}
 	// 超大文件 → "失败"标记
 	for _, fp := range res.Oversized {
 		msg := "超过单文件 5MB 上限"
-		f := &model.DocumentFile{DocumentID: d.ID, Path: fp, Status: model.FileStatusFailed, Error: &msg, UpdatedAt: p.now()}
-		if err := p.docs.UpsertFile(ctx, f); err != nil {
+		marks = append(marks, &model.DocumentFile{
+			DocumentID: d.ID, Path: fp, Status: model.FileStatusFailed, Error: &msg, UpdatedAt: p.now(),
+		})
+	}
+	// 删除与标记必须与分块写入同样受 fencing 保护（审查 #5）：
+	// 否则被回收的僵尸 worker 仍能删掉新任务刚写入的文件与分块。
+	if len(removed) > 0 || len(marks) > 0 {
+		applied, err := p.docs.MaintainFilesIfTaskRunning(ctx, taskID, d.ID, removed, marks)
+		if err != nil {
 			return nil, 0, 0, err
+		}
+		if !applied {
+			return nil, 0, 0, ErrTaskFenced
 		}
 	}
 
@@ -643,14 +655,36 @@ func (p *Pipeline) embedAndStore(ctx context.Context, taskID int64, d *model.Doc
 	return writeFull(all)
 }
 
-// setStage 更新处理阶段。
-func (p *Pipeline) setStage(ctx context.Context, d *model.Document, stage int16) {
-	d.Status = model.DocStatusProcessing
-	d.Stage = &stage
-	d.UpdatedAt = p.now()
-	if err := p.docs.SaveDocument(ctx, d); err != nil {
+// markStage 带 fencing 的阶段推进（审查 #5）。
+// 任务已被回收时中止处理；其它数据库错误只记日志、不中断，与既有行为一致。
+func (p *Pipeline) markStage(ctx context.Context, t *model.IngestTask, d *model.Document, stage int16) error {
+	if err := p.setStage(ctx, t.ID, d, stage); err != nil {
+		if errors.Is(err, ErrTaskFenced) {
+			return p.abandonFenced(t, d)
+		}
 		slog.Error("更新文档阶段失败", "doc", d.ID, "stage", stage, "err", err)
 	}
+	return nil
+}
+
+// setStage 更新处理阶段（事务内校验任务仍 running）。
+// 不这样做的话，sweeper 已把文档置 failed 后，僵尸 worker 仍会把它覆盖回 processing，
+// 随后被写入 fencing 拒绝并放弃，文档将永久停在 processing 且无法 retry（审查 #5）。
+func (p *Pipeline) setStage(ctx context.Context, taskID int64, d *model.Document, stage int16) error {
+	now := p.now()
+	applied, err := p.docs.UpdateDocumentIfTaskRunning(ctx, taskID, d.ID, map[string]any{
+		"status": model.DocStatusProcessing, "stage": stage, "updated_at": now,
+	})
+	if err != nil {
+		return err
+	}
+	if !applied {
+		return ErrTaskFenced
+	}
+	d.Status = model.DocStatusProcessing
+	d.Stage = &stage
+	d.UpdatedAt = now
+	return nil
 }
 
 // fail 单次失败：重试未达上限 → 复位任务状态并按递增间隔重排；达到上限 → 文档与任务置失败（R3）。
@@ -680,14 +714,22 @@ func (p *Pipeline) fail(ctx context.Context, t *model.IngestTask, d *model.Docum
 			return nil
 		}
 	}
-	d.Status = model.DocStatusFailed
-	d.Stage = nil
-	d.Error = &msg
-	d.UpdatedAt = p.now()
-	if err := p.docs.SaveDocument(ctx, d); err != nil {
+	// 审查 #5：文档失败态与任务失败态同事务落库。任务已被 sweeper 回收时两者都不写——
+	// 否则旧 worker 会把接管方（新任务）刚写入的文档状态覆盖回 failed。
+	applied, err := p.docs.FinishTaskIfRunning(ctx, t.ID, d.ID,
+		map[string]any{"status": model.TaskStatusFailed, "finished_at": p.now(), "error": msg},
+		map[string]any{
+			"status": model.DocStatusFailed, "stage": nil, "error": msg, "updated_at": p.now(),
+		})
+	if err != nil {
 		slog.Error("置文档失败态出错", "doc", d.ID, "err", err)
+		return err
 	}
-	return p.finishTask(ctx, t, model.TaskStatusFailed, msg)
+	if !applied {
+		slog.Warn("任务已被先行终结（僵尸回收/级联删除），放弃收尾覆写",
+			"task", t.ID, "intended_status", model.TaskStatusFailed)
+	}
+	return nil
 }
 
 // finishTask 收尾任务状态（审查 #1：CAS 守卫）。
