@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -45,6 +47,53 @@ func (p *OpenAIProvider) client(cfg ResolvedConfig) *openai.Client {
 type chatParams struct {
 	Temperature *float32 `json:"temperature"`
 	TopP        *float32 `json:"top_p"`
+}
+
+// embeddingDefaultDims 向量维度兜底值：与 chunks.embedding 的 vector(1024) 对齐
+// （数据库设计.md §3.2）。模型条目未配置 params.dimensions 时按此值校验，
+// 使维度不符在 Provider 层就报出可读错误，而不是让 DB 抛
+// `expected 1024 dimensions, not 1536`（审计 P1-14）。
+const embeddingDefaultDims = 1024
+
+// paramInt 从 params JSON 里读取整数字段（keys 按优先级排列；兼容数字与数字字符串）。
+// 未配置 / 类型非法 → (0,false)，调用方据此决定「不发送该字段」。
+func paramInt(params string, keys ...string) (int, bool) {
+	if strings.TrimSpace(params) == "" {
+		return 0, false
+	}
+	var m map[string]any
+	if err := json.Unmarshal([]byte(params), &m); err != nil {
+		return 0, false
+	}
+	for _, k := range keys {
+		v, ok := m[k]
+		if !ok || v == nil {
+			continue
+		}
+		switch t := v.(type) {
+		case float64:
+			if t != math.Trunc(t) {
+				continue // 非整数（如 1024.5）视为非法配置
+			}
+			return int(t), true
+		case string:
+			n, err := strconv.Atoi(strings.TrimSpace(t))
+			if err != nil {
+				continue
+			}
+			return n, true
+		}
+	}
+	return 0, false
+}
+
+// embeddingDims 期望的向量维度：优先 params.dimensions，兼容 params.dims，兜底 1024。
+// hasExplicit 表示模型条目是否显式配置了维度（决定是否向服务端发送 dimensions）。
+func embeddingDims(params string) (dims int, hasExplicit bool) {
+	if n, ok := paramInt(params, "dimensions", "dims"); ok && n > 0 {
+		return n, true
+	}
+	return embeddingDefaultDims, false
 }
 
 func classifyErr(err error, action string) error {
@@ -113,14 +162,23 @@ func (p *OpenAIProvider) ChatStream(ctx context.Context, cfg ResolvedConfig, req
 }
 
 // Embed 批量向量化（Provider 接口实现）。
+//
+// 维度处理（审计 P1-14）：模型条目 params 里配了 dimensions（或 dims）就随请求发送，
+// 并对返回向量做维度校验；未配置则按 vector(1024) 校验。
+// 校验失败返回可读错误，避免脏数据一路走到 DB 才报 `expected 1024 dimensions`。
 func (p *OpenAIProvider) Embed(ctx context.Context, cfg ResolvedConfig, texts []string) ([][]float32, error) {
 	if len(texts) == 0 {
 		return nil, nil
 	}
-	resp, err := p.client(cfg).CreateEmbeddings(ctx, openai.EmbeddingRequest{
+	expectDims, hasExplicit := embeddingDims(cfg.Params)
+	req := openai.EmbeddingRequest{
 		Model: openai.EmbeddingModel(cfg.ModelName),
 		Input: texts,
-	})
+	}
+	if hasExplicit {
+		req.Dimensions = expectDims // 0 值表示不发送（见 go-openai 的 omitempty）
+	}
+	resp, err := p.client(cfg).CreateEmbeddings(ctx, req)
 	if err != nil {
 		return nil, classifyErr(err, "向量化")
 	}
@@ -131,6 +189,11 @@ func (p *OpenAIProvider) Embed(ctx context.Context, cfg ResolvedConfig, texts []
 	for _, d := range resp.Data {
 		if d.Index < 0 || d.Index >= len(texts) {
 			return nil, fmt.Errorf("%w（向量化）: 非法索引 %d", ErrBadResponse, d.Index)
+		}
+		if got := len(d.Embedding); got != expectDims {
+			return nil, fmt.Errorf(
+				"%w（向量化）: 向量化维度不符: 期望 %d 实际 %d（请检查模型条目 params.dimensions 或更换模型）",
+				ErrBadResponse, expectDims, got)
 		}
 		out[d.Index] = d.Embedding
 	}
@@ -143,6 +206,15 @@ type rerankRequest struct {
 	Query     string   `json:"query"`
 	Documents []string `json:"documents"`
 	TopN      int      `json:"top_n"`
+}
+
+// rerankTopN 重排请求的 top_n：默认取候选文档数（全量打分），
+// 模型条目 params.top_n 存在时透传该值（审计 P1-14 同一 params 契约）。
+func rerankTopN(params string, docs int) int {
+	if n, ok := paramInt(params, "top_n"); ok && n > 0 {
+		return n
+	}
+	return docs
 }
 
 type rerankResult struct {
@@ -159,7 +231,9 @@ func (p *OpenAIProvider) Rerank(ctx context.Context, cfg ResolvedConfig, query s
 	if len(docs) == 0 {
 		return nil, nil
 	}
-	payload, _ := json.Marshal(rerankRequest{Model: cfg.ModelName, Query: query, Documents: docs, TopN: len(docs)})
+	payload, _ := json.Marshal(rerankRequest{
+		Model: cfg.ModelName, Query: query, Documents: docs, TopN: rerankTopN(cfg.Params, len(docs)),
+	})
 	url := strings.TrimSuffix(cfg.BaseURL, "/") + "/rerank"
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {

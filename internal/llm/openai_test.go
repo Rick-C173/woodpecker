@@ -2,9 +2,11 @@ package llm_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +18,15 @@ import (
 )
 
 func provider() *llm.OpenAIProvider { return llm.NewOpenAIProvider() }
+
+// vecJSON 生成 n 维向量的 JSON 数组文本（首个元素为 seed，便于断言归位）。
+func vecJSON(n int, seed float32) string {
+	parts := make([]string, n)
+	for i := range parts {
+		parts[i] = strconv.FormatFloat(float64(seed)+float64(i)/1000, 'f', -1, 32)
+	}
+	return "[" + strings.Join(parts, ",") + "]"
+}
 
 func cfgOf(baseURL string) llm.ResolvedConfig {
 	return llm.ResolvedConfig{BaseURL: baseURL, APIKey: "sk-test", ModelName: "test-model", Params: `{"temperature":0.3}`}
@@ -80,21 +91,24 @@ func TestChatStreamDialFail(t *testing.T) {
 
 // TestEmbed 批量向量化按 index 归位。
 func TestEmbed(t *testing.T) {
+	const dims = 1024 // chunks.embedding 为 vector(1024)
 	ts := mockOpenAI(t, func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/embeddings", r.URL.Path)
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"data":[{"index":1,"embedding":[3,4]},{"index":0,"embedding":[1,2]}],"model":"test-model"}`)
+		fmt.Fprintf(w, `{"data":[{"index":1,"embedding":%s},{"index":0,"embedding":%s}],"model":"test-model"}`,
+			vecJSON(dims, 3), vecJSON(dims, 1))
 	})
 	vecs, err := provider().Embed(context.Background(), cfgOf(ts.URL), []string{"a", "b"})
 	require.NoError(t, err)
 	require.Len(t, vecs, 2)
-	assert.Equal(t, []float32{1, 2}, vecs[0])
-	assert.Equal(t, []float32{3, 4}, vecs[1])
+	require.Len(t, vecs[0], dims)
+	assert.Equal(t, float32(1), vecs[0][0])
+	assert.Equal(t, float32(3), vecs[1][0])
 
 	// 数量不符 → ErrBadResponse
 	ts2 := mockOpenAI(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"data":[{"index":0,"embedding":[1]}]}`)
+		fmt.Fprintf(w, `{"data":[{"index":0,"embedding":%s}]}`, vecJSON(dims, 1))
 	})
 	_, err = provider().Embed(context.Background(), cfgOf(ts2.URL), []string{"a", "b"})
 	require.ErrorIs(t, err, llm.ErrBadResponse)
@@ -103,6 +117,68 @@ func TestEmbed(t *testing.T) {
 	vecs, err = provider().Embed(context.Background(), cfgOf(ts.URL), nil)
 	require.NoError(t, err)
 	assert.Nil(t, vecs)
+}
+
+// TestEmbedSendsDimensions params.dimensions 透传到请求体 dimensions 字段（审计 P1-14）。
+func TestEmbedSendsDimensions(t *testing.T) {
+	var body map[string]any
+	ts := mockOpenAI(t, func(w http.ResponseWriter, r *http.Request) {
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"data":[{"index":0,"embedding":%s}]}`, vecJSON(1536, 1))
+	})
+	cfg := cfgOf(ts.URL)
+	cfg.Params = `{"dimensions":1536}`
+	vecs, err := provider().Embed(context.Background(), cfg, []string{"a"})
+	require.NoError(t, err)
+	require.Len(t, vecs, 1)
+	require.Len(t, vecs[0], 1536)
+	assert.EqualValues(t, 1536, body["dimensions"], "请求体应带 dimensions=1536")
+
+	// dims 别名 + 字符串数字同样生效
+	body = nil
+	cfg.Params = `{"dims":"1536"}`
+	_, err = provider().Embed(context.Background(), cfg, []string{"a"})
+	require.NoError(t, err)
+	assert.EqualValues(t, 1536, body["dimensions"], "params.dims 作为别名透传")
+}
+
+// TestEmbedDimensionMismatch 返回维度与期望不符 → 明确错误（不是 DB 的 vector 报错）。
+func TestEmbedDimensionMismatch(t *testing.T) {
+	ts := mockOpenAI(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"data":[{"index":0,"embedding":%s}]}`, vecJSON(1536, 1))
+	})
+	// params 无 dimensions → 期望 1024
+	_, err := provider().Embed(context.Background(), cfgOf(ts.URL), []string{"a"})
+	require.Error(t, err)
+	require.ErrorIs(t, err, llm.ErrBadResponse)
+	assert.Contains(t, err.Error(), "向量化维度不符: 期望 1024 实际 1536")
+	assert.Contains(t, err.Error(), "params.dimensions")
+
+	// params 显式配 768 而实际 1536 → 期望值取配置值
+	cfg := cfgOf(ts.URL)
+	cfg.Params = `{"dimensions":768}`
+	_, err = provider().Embed(context.Background(), cfg, []string{"a"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "期望 768 实际 1536")
+}
+
+// TestEmbedNoDimensionsInParams params 为空且返回 1024 维 → 通过且请求体不含 dimensions。
+func TestEmbedNoDimensionsInParams(t *testing.T) {
+	var body map[string]any
+	ts := mockOpenAI(t, func(w http.ResponseWriter, r *http.Request) {
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"data":[{"index":0,"embedding":%s}]}`, vecJSON(1024, 1))
+	})
+	cfg := cfgOf(ts.URL)
+	cfg.Params = ""
+	vecs, err := provider().Embed(context.Background(), cfg, []string{"a"})
+	require.NoError(t, err)
+	require.Len(t, vecs[0], 1024)
+	_, sent := body["dimensions"]
+	assert.False(t, sent, "未配置维度时不发送 dimensions")
 }
 
 // TestRerank 分数按原始 index 归位。
@@ -135,6 +211,27 @@ func TestRerank(t *testing.T) {
 	assert.ErrorIs(t, err, llm.ErrUnavailable)
 }
 
+// TestRerankTopNFromParams params.top_n 存在时透传，否则取候选文档数（审计 P1-14）。
+func TestRerankTopNFromParams(t *testing.T) {
+	var body map[string]any
+	ts := mockOpenAI(t, func(w http.ResponseWriter, r *http.Request) {
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"results":[{"index":0,"relevance_score":0.9}]}`)
+	})
+	cfg := cfgOf(ts.URL)
+	cfg.Params = `{"top_n":2}`
+	_, err := provider().Rerank(context.Background(), cfg, "q", []string{"a", "b", "c"})
+	require.NoError(t, err)
+	assert.EqualValues(t, 2, body["top_n"], "params.top_n 透传")
+
+	body = nil
+	cfg.Params = `{"temperature":0.3}`
+	_, err = provider().Rerank(context.Background(), cfg, "q", []string{"a", "b", "c"})
+	require.NoError(t, err)
+	assert.EqualValues(t, 3, body["top_n"], "未配置时取候选数")
+}
+
 // TestTesterImplementations 三项连通性测试。
 func TestTesterImplementations(t *testing.T) {
 	ts := mockOpenAI(t, func(w http.ResponseWriter, r *http.Request) {
@@ -143,7 +240,7 @@ func TestTesterImplementations(t *testing.T) {
 		case "/chat/completions":
 			fmt.Fprint(w, `{"choices":[{"message":{"content":"ok"}}]}`)
 		case "/embeddings":
-			fmt.Fprint(w, `{"data":[{"index":0,"embedding":[1]}]}`)
+			fmt.Fprintf(w, `{"data":[{"index":0,"embedding":%s}]}`, vecJSON(1024, 1))
 		case "/rerank":
 			fmt.Fprint(w, `{"results":[{"index":0,"relevance_score":0.5}]}`)
 		default:
