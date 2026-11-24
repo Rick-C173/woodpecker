@@ -1,9 +1,12 @@
 package handler
 
 import (
+	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -51,28 +54,76 @@ func (h *DocumentHandler) List(c *gin.Context) {
 	httpx.PageOK(c, items, total, page, perPage)
 }
 
+// CredentialInput Git 仓库凭证对象（API设计.md §5 / 数据库设计.md §3.2：{"kind","secret"}）。
+// kind 决定 worker 走 HTTPS BasicAuth 还是 SSH PublicKeys（审计 P1-12）。
+type CredentialInput struct {
+	Kind   string `json:"kind" binding:"required,oneof=token ssh"`
+	Secret string `json:"secret" binding:"required"`
+}
+
+// parseCredentialInput 解析请求体里的 credential 字段。
+// 新契约为对象 {"kind","secret"}；**向后兼容**裸字符串（按 kind=token 处理，
+// 避免旧前端/脚本直接 422——审计 P1-12）。空值表示匿名访问。
+func parseCredentialInput(raw json.RawMessage) (service.GitCredential, error) {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" || trimmed == "null" {
+		return service.GitCredential{}, nil
+	}
+	// 旧契约：裸字符串 → kind=token
+	if strings.HasPrefix(trimmed, `"`) {
+		var s string
+		if err := json.Unmarshal([]byte(trimmed), &s); err != nil {
+			return service.GitCredential{}, errCredentialFormat
+		}
+		return service.GitCredential{Kind: service.CredentialKindToken, Secret: s}, nil
+	}
+	var in CredentialInput
+	if err := json.Unmarshal([]byte(trimmed), &in); err != nil {
+		return service.GitCredential{}, errCredentialFormat
+	}
+	if in.Kind != service.CredentialKindToken && in.Kind != service.CredentialKindSSH {
+		return service.GitCredential{}, errCredentialKind
+	}
+	if strings.TrimSpace(in.Secret) == "" {
+		return service.GitCredential{}, errCredentialSecret
+	}
+	return service.GitCredential{Kind: in.Kind, Secret: in.Secret}, nil
+}
+
+var (
+	errCredentialFormat = errors.New("credential 必须是 {kind, secret} 对象或字符串")
+	errCredentialKind   = errors.New("credential.kind 必须是 token 或 ssh")
+	errCredentialSecret = errors.New("credential.secret 不能为空")
+)
+
 // CreateGit POST /kbs/{kb}/documents/git（编辑者+）
 //
 //	@Summary	接入 Git 仓库
 //	@Tags		documents
 //	@Accept		json
 //	@Produce	json
+//	@Param		body	body		object{repo_url=string,git_ref=string,credential=handler.CredentialInput,ignore_rules=[]string}	true	"仓库地址与凭证"
 //	@Success	201	{object}	service.DocumentItem
 //	@Router		/kbs/{kb}/documents/git [post]
 func (h *DocumentHandler) CreateGit(c *gin.Context) {
 	var req struct {
-		RepoURL     string   `json:"repo_url" binding:"required"`
-		GitRef      string   `json:"git_ref"`
-		Credential  string   `json:"credential"`
-		IgnoreRules []string `json:"ignore_rules"`
+		RepoURL     string          `json:"repo_url" binding:"required"`
+		GitRef      string          `json:"git_ref"`
+		Credential  json.RawMessage `json:"credential"`
+		IgnoreRules []string        `json:"ignore_rules"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httpx.Fail(c, httpx.CodeValidation, "repo_url 不能为空")
 		return
 	}
-	item, err := h.svc.CreateGit(c.Request.Context(), middleware.UserID(c), middleware.KBID(c), req.RepoURL, req.GitRef, req.Credential, req.IgnoreRules, c.ClientIP())
+	cred, err := parseCredentialInput(req.Credential)
 	if err != nil {
-		httpx.FailServiceError(c, err)
+		httpx.Fail(c, httpx.CodeValidation, err.Error())
+		return
+	}
+	item, serr := h.svc.CreateGit(c.Request.Context(), middleware.UserID(c), middleware.KBID(c), req.RepoURL, req.GitRef, cred, req.IgnoreRules, c.ClientIP())
+	if serr != nil {
+		httpx.FailServiceError(c, serr)
 		return
 	}
 	httpx.Created(c, item)

@@ -26,7 +26,10 @@ func TestProbeGitCredentialPlacement(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	_, err := rag.FetchGit(context.Background(), ts.URL+"/repo.git", "", "MYTOKEN123",
+	// 凭证按契约改为 {kind, secret} 对象（审计 P1-12）：token 走 HTTPS BasicAuth。
+	// 断言内容未变——仍是「token 必须出现在密码位」。
+	_, err := rag.FetchGit(context.Background(), ts.URL+"/repo.git", "",
+		rag.Credential{Kind: rag.CredentialKindToken, Secret: "MYTOKEN123"},
 		1<<30, 50000, nil, rag.ExclusionRules{})
 	t.Logf("【FetchGit 返回】err = %v", err)
 	t.Logf("【服务端收到的 Authorization】%q", gotAuth)

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -39,7 +40,8 @@ func TestDocCreateGit(t *testing.T) {
 	e := newDocEnv(t)
 	ctx := context.Background()
 
-	item, err := e.svc.CreateGit(ctx, 1, 10, "https://github.com/x/y.git", "main", "gh-token", []string{"*.tmp"}, "ip")
+	token := service.GitCredential{Kind: service.CredentialKindToken, Secret: "gh-token"}
+	item, err := e.svc.CreateGit(ctx, 1, 10, "https://github.com/x/y.git", "main", token, []string{"*.tmp"}, "ip")
 	require.NoError(t, err)
 	assert.Equal(t, "git", item.Type)
 	assert.Equal(t, "pending", item.Status)
@@ -48,14 +50,33 @@ func TestDocCreateGit(t *testing.T) {
 
 	stored := e.docs.DocByID(item.ID)
 	require.NotNil(t, stored)
-	assert.Equal(t, "enc:gh-token", string(stored.CredentialEnc), "凭证加密落库")
+	// 凭证按契约 {kind,secret} 序列化后加密落库（审计 P1-12：kind 不再丢失）
+	assert.Equal(t, `enc:{"kind":"token","secret":"gh-token"}`, string(stored.CredentialEnc), "凭证加密落库且保留 kind")
 	assert.Equal(t, []string{"*.tmp"}, stored.IgnoreRules)
 
 	// 校验分支
-	_, err = e.svc.CreateGit(ctx, 1, 10, "", "", "", nil, "")
+	_, err = e.svc.CreateGit(ctx, 1, 10, "", "", service.GitCredential{}, nil, "")
 	assert.Equal(t, service.CodeValidation, svcErr(t, err).Code)
-	_, err = e.svc.CreateGit(ctx, 1, 10, "ftp://x", "", "", nil, "")
+	_, err = e.svc.CreateGit(ctx, 1, 10, "ftp://x", "", service.GitCredential{}, nil, "")
 	assert.Equal(t, service.CodeValidation, svcErr(t, err).Code)
+
+	// 凭证校验（审计 P1-12）：kind 非法 / ssh 非 PEM / secret 超长 → 422
+	_, err = e.svc.CreateGit(ctx, 1, 10, "https://x/y.git", "", service.GitCredential{Kind: "basic", Secret: "s"}, nil, "")
+	assert.Equal(t, service.CodeValidation, svcErr(t, err).Code)
+	_, err = e.svc.CreateGit(ctx, 1, 10, "git@x:y.git", "", service.GitCredential{Kind: service.CredentialKindSSH, Secret: "not-a-key"}, nil, "")
+	assert.Equal(t, service.CodeValidation, svcErr(t, err).Code)
+	_, err = e.svc.CreateGit(ctx, 1, 10, "https://x/y.git", "", service.GitCredential{Kind: service.CredentialKindToken, Secret: strings.Repeat("t", 4097)}, nil, "")
+	assert.Equal(t, service.CodeValidation, svcErr(t, err).Code)
+
+	// ssh:// 前缀被放行（P1-11：SSH 传输层）
+	item, err = e.svc.CreateGit(ctx, 1, 10, "ssh://git@git.internal/o/r.git", "", service.GitCredential{}, nil, "")
+	require.NoError(t, err, "ssh:// 地址应被接受")
+	assert.NotEmpty(t, item.ID)
+
+	// 无 secret 视为匿名：不落凭据
+	anon := e.docs.DocByID(item.ID)
+	require.NotNil(t, anon)
+	assert.Empty(t, anon.CredentialEnc, "匿名接入不应写入 credential_enc")
 }
 
 func TestDocCreateUploadAndURL(t *testing.T) {
@@ -184,7 +205,7 @@ func TestDocRepoErrorPaths(t *testing.T) {
 	e.docs.ErrOnCount = nil
 
 	e.docs.ErrOnCreateDoc = boom
-	_, err = e.svc.CreateGit(ctx, 1, 10, "https://x/y.git", "", "", nil, "")
+	_, err = e.svc.CreateGit(ctx, 1, 10, "https://x/y.git", "", service.GitCredential{}, nil, "")
 	require.ErrorIs(t, err, boom)
 	e.docs.ErrOnCreateDoc = nil
 

@@ -2,9 +2,11 @@ package rag
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -16,7 +18,10 @@ import (
 	"github.com/go-enry/go-enry/v2"
 	git "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/transport"
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
+	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
+	xssh "golang.org/x/crypto/ssh"
 )
 
 // 分类错误：service 层映射到 DOC_001/DOC_003 错误码。
@@ -57,14 +62,127 @@ type FetchResult struct {
 	FileSeen  int      // 遍历到的全部文件数（R2 上限判定）
 }
 
-// gitTokenUsername 私有仓库 token 认证的用户名位取值。
+// gitTokenUsername 私有仓库 token 认证的用户名位取值（可用 GIT_TOKEN_USERNAME 覆盖）。
 // GitLab PAT 要求 `oauth2:<token>`；GitHub / Bitbucket 同样接受该组合，
-// 故统一用它覆盖三类平台的 HTTPS 认证（审计 P2-36）。
-const gitTokenUsername = "oauth2"
+// 故默认用它覆盖三类平台的 HTTPS 认证（审计 P2-36）。
+const defaultGitTokenUsername = "oauth2"
+
+// 凭证类型（与 service.CredentialKind* 保持一致，落库为 {"kind","secret"}）。
+const (
+	CredentialKindToken = "token" // HTTPS 访问令牌（BasicAuth 密码位）
+	CredentialKindSSH   = "ssh"   // SSH 私钥（PEM），PublicKeys 认证
+)
+
+// Credential Git 仓库凭证（解密后的明文结构）。
+// 零值表示匿名访问；kind 缺省但 secret 非空时按 token 处理（旧客户端/旧数据兼容）。
+type Credential struct {
+	Kind   string `json:"kind"`
+	Secret string `json:"secret"`
+}
+
+// ParseCredential 解析解密后的凭证明文（审计 P1-11/P1-12）：
+//   - 新数据：{"kind":"token|ssh","secret":"..."}
+//   - 旧数据：裸 token 字符串（kind 信息在落库前即丢失）→ 按 kind=token 兼容处理
+func ParseCredential(plain []byte) Credential {
+	s := strings.TrimSpace(string(plain))
+	if s == "" {
+		return Credential{}
+	}
+	var c Credential
+	if err := json.Unmarshal([]byte(s), &c); err == nil {
+		c.Kind = strings.ToLower(strings.TrimSpace(c.Kind))
+		if c.Secret != "" && (c.Kind == CredentialKindToken || c.Kind == CredentialKindSSH) {
+			return c
+		}
+	}
+	return Credential{Kind: CredentialKindToken, Secret: s}
+}
+
+// gitTokenUsername token 认证的用户名位（GIT_TOKEN_USERNAME 可覆盖，默认 oauth2）。
+func gitTokenUsername() string {
+	if v := strings.TrimSpace(os.Getenv("GIT_TOKEN_USERNAME")); v != "" {
+		return v
+	}
+	return defaultGitTokenUsername
+}
+
+// IsSSHURL 地址是否走 SSH 传输层：ssh:// 前缀，或 scp 形式 user@host:path。
+func IsSSHURL(repoURL string) bool {
+	if strings.HasPrefix(repoURL, "ssh://") {
+		return true
+	}
+	if strings.Contains(repoURL, "://") {
+		return false // http(s)/file 等显式 scheme 不走 SSH
+	}
+	at := strings.Index(repoURL, "@")
+	if at <= 0 {
+		return false
+	}
+	return strings.Contains(repoURL[at+1:], ":")
+}
+
+// sshUserFromURL 解析 SSH 地址中的用户名（scp 形式 git@host:path / ssh://git@host/path）。
+func sshUserFromURL(repoURL string) string {
+	if u, err := url.Parse(repoURL); err == nil && u.User != nil {
+		if name := u.User.Username(); name != "" {
+			return name
+		}
+	}
+	if at := strings.Index(repoURL, "@"); at > 0 {
+		return repoURL[:at]
+	}
+	return gitssh.DefaultUsername // "git"
+}
+
+// knownHostsCallback 优先用 known_hosts 校验主机指纹；文件缺失时退化为不校验并告警一次
+// （审计 P1-11：生产应配置 ~/.ssh/known_hosts 或 SSH_KNOWN_HOSTS）。
+func knownHostsCallback() xssh.HostKeyCallback {
+	cb, err := gitssh.NewKnownHostsCallback()
+	if err != nil {
+		slog.Warn("known_hosts 不可用，SSH 主机指纹将不做校验；生产环境应配置 ~/.ssh/known_hosts 或 SSH_KNOWN_HOSTS",
+			"err", err)
+		return xssh.InsecureIgnoreHostKey() //nolint:gosec // 显式降级并已告警，避免无 known_hosts 时完全不可用
+	}
+	return cb
+}
+
+// authFor 按凭证 kind 与地址前缀选择传输层认证（审计 P1-11/P1-12）。
+// 返回 nil 表示匿名访问。
+func authFor(repoURL string, cred Credential) (transport.AuthMethod, error) {
+	kind := strings.ToLower(strings.TrimSpace(cred.Kind))
+	secret := strings.TrimSpace(cred.Secret)
+	if kind == "" && secret != "" {
+		kind = CredentialKindToken // 兼容旧客户端：未带 kind 时按 token
+	}
+	if secret == "" {
+		if IsSSHURL(repoURL) {
+			// SSH 必须提供私钥；否则问题会被误报成「仓库不可达」（PRD FR-03 要求凭证）
+			return nil, fmt.Errorf("%w: SSH 仓库必须提供 credential{kind:\"ssh\",secret:<PEM 私钥>}",
+				ErrRepoUnreachable)
+		}
+		return nil, nil // HTTPS 匿名
+	}
+	switch kind {
+	case CredentialKindToken:
+		// token 必须放**密码位**：GitLab PAT 只认 oauth2:<token>（审计 P2-36）
+		return &githttp.BasicAuth{Username: gitTokenUsername(), Password: secret}, nil
+	case CredentialKindSSH:
+		pub, err := gitssh.NewPublicKeys(sshUserFromURL(repoURL), []byte(secret), "")
+		if err != nil {
+			return nil, fmt.Errorf("%w: 解析 SSH 私钥失败（需要未加密的 PEM 私钥）: %s",
+				ErrRepoUnreachable, err.Error())
+		}
+		pub.HostKeyCallback = knownHostsCallback()
+		return pub, nil
+	default:
+		return nil, fmt.Errorf("%w: 不支持的凭证类型 %q（token|ssh）", ErrRepoUnreachable, kind)
+	}
+}
 
 // FetchGit 克隆仓库（浅克隆）并读取受支持文件。
-// credential 为空时匿名拉取；非空时按 access token 处理（HTTPS BasicAuth，token 放密码位）。
-func FetchGit(ctx context.Context, repoURL, gitRef, credential string, maxRepoBytes int64, maxFiles int, ignoreRules []string, excl ExclusionRules) (*FetchResult, error) {
+// cred 为零值时匿名拉取；kind=token 走 HTTPS BasicAuth（token 放密码位），
+// kind=ssh 走 PublicKeys（私钥 PEM + known_hosts 主机指纹校验）。
+func FetchGit(ctx context.Context, repoURL, gitRef string, cred Credential, maxRepoBytes int64, maxFiles int, ignoreRules []string, excl ExclusionRules) (*FetchResult, error) {
 	tmp, err := os.MkdirTemp("", "wp-clone-*")
 	if err != nil {
 		return nil, fmt.Errorf("创建临时目录: %w", err)
@@ -75,11 +193,11 @@ func FetchGit(ctx context.Context, repoURL, gitRef, credential string, maxRepoBy
 	if gitRef != "" {
 		cloneOpts.ReferenceName = plumbing.NewBranchReferenceName(gitRef)
 	}
-	if credential != "" {
-		// 私有仓库 token 必须放**密码位**：GitLab PAT 只认 `oauth2:<token>`，
-		// GitHub / Bitbucket 也接受该形式；反之把 token 放用户名位会让 GitLab 必 401（审计 P2-36）。
-		cloneOpts.Auth = &githttp.BasicAuth{Username: gitTokenUsername, Password: credential}
+	auth, aerr := authFor(repoURL, cred)
+	if aerr != nil {
+		return nil, aerr
 	}
+	cloneOpts.Auth = auth
 	cloneCtx, cancel := context.WithTimeout(ctx, gitTimeout)
 	defer cancel()
 	repo, err := git.PlainCloneContext(cloneCtx, tmp, false, cloneOpts)

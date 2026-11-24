@@ -202,13 +202,14 @@ func (p *Pipeline) fetch(ctx context.Context, d *model.Document, _ *model.Ingest
 
 	switch d.Type {
 	case model.DocTypeGit:
-		cred := ""
+		cred := rag.Credential{}
 		if len(d.CredentialEnc) > 0 {
 			plain, derr := p.cipher.Decrypt(d.CredentialEnc)
 			if derr != nil {
 				return nil, fmt.Errorf("解密仓库凭证: %w", derr)
 			}
-			cred = string(plain)
+			// 新数据为 {"kind","secret"}；旧数据为裸 token 字符串 → 按 token 兼容（审计 P1-12）
+			cred = rag.ParseCredential(plain)
 		}
 		ref := ""
 		if d.GitRef != nil {

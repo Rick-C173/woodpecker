@@ -137,3 +137,73 @@ func TestDocUploadMultipartValidation(t *testing.T) {
 	sc, _ := post(t, h.ts, "/api/v1/kbs/"+i64(kbID)+"/documents/upload", rootToken, nil)
 	assert.Equal(t, 422, sc)
 }
+
+// TestDocGitCredentialContract credential 契约（审计 P1-12）：
+// 新契约为 {"kind","secret"} 对象并保留 kind 落库；裸字符串按 kind=token 向后兼容；
+// 非法 kind / 空 secret / 非 PEM 的 ssh 私钥 → 422 VALIDATION_FAILED。
+func TestDocGitCredentialContract(t *testing.T) {
+	h, docs, _ := docSetupHandler(t)
+	_, body := post(t, h.ts, "/api/v1/auth/register", "", map[string]any{"username": "root", "password": "password8"})
+	rootToken, _ := body["token"].(string)
+	sc, body := post(t, h.ts, "/api/v1/kbs", rootToken, map[string]any{"name": "凭证库"})
+	require.Equal(t, 201, sc, body)
+	kbID := int64(body["id"].(float64))
+	path := "/api/v1/kbs/" + i64(kbID) + "/documents/git"
+
+	// 对象契约：kind 保留到密文载荷
+	sc, body = post(t, h.ts, path, rootToken, map[string]any{
+		"repo_url":   "https://github.com/x/y.git",
+		"credential": map[string]any{"kind": "token", "secret": "ghp_obj"},
+	})
+	require.Equal(t, 201, sc, body)
+	gitID := int64(body["id"].(float64))
+	assert.NotContains(t, jsonOf(body), "ghp_obj", "凭证不回显")
+	stored := docs.DocByID(gitID)
+	require.NotNil(t, stored)
+	assert.Equal(t, `enc:{"kind":"token","secret":"ghp_obj"}`, string(stored.CredentialEnc),
+		"落库载荷必须是 {kind,secret} JSON，kind 不再丢失")
+
+	// 向后兼容：裸字符串 → kind=token
+	sc, body = post(t, h.ts, path, rootToken, map[string]any{
+		"repo_url": "https://github.com/x/z.git", "credential": "ghp_legacy",
+	})
+	require.Equal(t, 201, sc, body)
+	legacy := docs.DocByID(int64(body["id"].(float64)))
+	require.NotNil(t, legacy)
+	assert.Equal(t, `enc:{"kind":"token","secret":"ghp_legacy"}`, string(legacy.CredentialEnc),
+		"裸字符串应按 kind=token 兼容")
+
+	// ssh + PEM 私钥 → 201（此处只校验契约，私钥在 worker 拉取时才真正使用）
+	sc, body = post(t, h.ts, path, rootToken, map[string]any{
+		"repo_url":   "git@github.com:x/w.git",
+		"credential": map[string]any{"kind": "ssh", "secret": "-----BEGIN OPENSSH PRIVATE KEY-----\nabc\n-----END OPENSSH PRIVATE KEY-----"},
+	})
+	require.Equal(t, 201, sc, body)
+
+	// 非法 kind → 422
+	sc, body = post(t, h.ts, path, rootToken, map[string]any{
+		"repo_url": "https://github.com/x/y.git", "credential": map[string]any{"kind": "basic", "secret": "x"},
+	})
+	assert.Equal(t, 422, sc)
+	assert.Equal(t, "VALIDATION_FAILED", jcode(t, body))
+
+	// 空 secret → 422
+	sc, body = post(t, h.ts, path, rootToken, map[string]any{
+		"repo_url": "https://github.com/x/y.git", "credential": map[string]any{"kind": "token", "secret": ""},
+	})
+	assert.Equal(t, 422, sc)
+	assert.Equal(t, "VALIDATION_FAILED", jcode(t, body))
+
+	// ssh 但 secret 不是 PEM → 422
+	sc, body = post(t, h.ts, path, rootToken, map[string]any{
+		"repo_url": "git@github.com:x/y.git", "credential": map[string]any{"kind": "ssh", "secret": "not-a-private-key"},
+	})
+	assert.Equal(t, 422, sc)
+	assert.Equal(t, "VALIDATION_FAILED", jcode(t, body))
+
+	// credential 非法类型（数字）→ 422
+	sc, _ = post(t, h.ts, path, rootToken, map[string]any{
+		"repo_url": "https://github.com/x/y.git", "credential": 123,
+	})
+	assert.Equal(t, 422, sc)
+}

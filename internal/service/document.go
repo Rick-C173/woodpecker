@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -23,6 +24,48 @@ const (
 	CodeDocTaskRunning  = "DOC_TASK_RUNNING" // 409 已有运行中任务
 )
 
+// 凭证类型（API设计.md §5 / 数据库设计.md §3.2：credential = {"kind","secret"}）。
+const (
+	CredentialKindToken = "token" // HTTPS 访问令牌（放 BasicAuth 密码位）
+	CredentialKindSSH   = "ssh"   // SSH 私钥（PEM 明文），走 PublicKeys 认证
+)
+
+// GitCredential Git 仓库凭证明文结构（落库前 JSON 序列化后 AES-GCM 加密）。
+// 零值表示匿名访问；旧数据（加密的是裸 token 字符串）由 rag.ParseCredential 兼容。
+type GitCredential struct {
+	Kind   string `json:"kind"`   // token | ssh
+	Secret string `json:"secret"` // token 明文或 SSH 私钥 PEM
+}
+
+// validateGitCredential 凭证校验（422）：kind 必须为 token/ssh，secret 非空。
+// 兼容旧客户端：kind 缺省但 secret 非空时按 token 处理（审计 P1-12 向后兼容）。
+func validateGitCredential(c GitCredential) (GitCredential, error) {
+	c.Kind = strings.ToLower(strings.TrimSpace(c.Kind))
+	c.Secret = strings.TrimSpace(c.Secret)
+	if c.Secret == "" {
+		return GitCredential{}, nil // 匿名访问
+	}
+	if c.Kind == "" {
+		c.Kind = CredentialKindToken
+	}
+	switch c.Kind {
+	case CredentialKindToken:
+		if len(c.Secret) > maxCredentialLen {
+			return GitCredential{}, NewServiceError(CodeValidation, "凭证长度超过上限")
+		}
+	case CredentialKindSSH:
+		if len(c.Secret) > maxSSHKeyLen {
+			return GitCredential{}, NewServiceError(CodeValidation, "SSH 私钥长度超过上限")
+		}
+		if !strings.Contains(c.Secret, "PRIVATE KEY") {
+			return GitCredential{}, NewServiceError(CodeValidation, "credential.kind=ssh 时 secret 必须是 PEM 私钥")
+		}
+	default:
+		return GitCredential{}, NewServiceError(CodeValidation, "credential.kind 必须是 token 或 ssh")
+	}
+	return c, nil
+}
+
 // R2 限制与配额（PRD §6）。
 const (
 	maxUploadFiles     = 50
@@ -31,6 +74,8 @@ const (
 	maxRepoFiles       = 50000
 	maxKBDocuments     = 1000
 	maxKBNameDocLen    = 500
+	maxCredentialLen   = 4096  // token 长度上限
+	maxSSHKeyLen       = 16384 // SSH 私钥（PEM）长度上限
 )
 
 // SettingGetter 设置读取（repo.SettingRepo 满足）。
@@ -179,20 +224,26 @@ func (s *DocumentService) newDocAndTask(ctx context.Context, d *model.Document, 
 	return d.ID, nil
 }
 
-// CreateGit 接入 Git 仓库（编辑者+，FR-03）。凭证加密落库，不回显。
-func (s *DocumentService) CreateGit(ctx context.Context, actorID, kbID int64, repoURL, gitRef, credential string, ignoreRules []string, ip string) (*DocumentItem, error) {
+// CreateGit 接入 Git 仓库（编辑者+，FR-03）。凭证按 {kind,secret} JSON 序列化后 AES-GCM 加密落库，
+// 不回显（审计 P1-12：kind 必须持久化，否则 worker 无法区分 token/ssh）。
+func (s *DocumentService) CreateGit(ctx context.Context, actorID, kbID int64, repoURL, gitRef string, credential GitCredential, ignoreRules []string, ip string) (*DocumentItem, error) {
 	repoURL = strings.TrimSpace(repoURL)
 	if repoURL == "" || len(repoURL) > 1000 {
 		return nil, NewServiceError(CodeValidation, "repo_url 不能为空且不超过 1000 字符")
 	}
-	if !strings.HasPrefix(repoURL, "http://") && !strings.HasPrefix(repoURL, "https://") && !strings.HasPrefix(repoURL, "git@") {
-		return nil, NewServiceError(CodeValidation, "repo_url 必须是 http(s) 或 git@ 形式")
+	if !strings.HasPrefix(repoURL, "http://") && !strings.HasPrefix(repoURL, "https://") &&
+		!strings.HasPrefix(repoURL, "git@") && !strings.HasPrefix(repoURL, "ssh://") {
+		return nil, NewServiceError(CodeValidation, "repo_url 必须是 http(s)、ssh:// 或 git@ 形式")
 	}
 	if gitRef != "" && len(gitRef) > 200 {
 		return nil, NewServiceError(CodeValidation, "git_ref 不超过 200 字符")
 	}
 	if len(ignoreRules) > 50 {
 		return nil, NewServiceError(CodeValidation, "ignore_rules 不超过 50 条")
+	}
+	cred, err := validateGitCredential(credential)
+	if err != nil {
+		return nil, err
 	}
 	if err := s.checkKBCapacity(ctx, kbID); err != nil {
 		return nil, err
@@ -204,16 +255,20 @@ func (s *DocumentService) CreateGit(ctx context.Context, actorID, kbID int64, re
 	if gitRef != "" {
 		d.GitRef = &gitRef
 	}
-	if cred := strings.TrimSpace(credential); cred != "" {
-		enc, err := s.cipher.Encrypt([]byte(cred))
-		if err != nil {
-			return nil, err
+	if cred.Secret != "" {
+		plain, merr := json.Marshal(cred) // {"kind","secret"}（数据库设计 §3.2）
+		if merr != nil {
+			return nil, fmt.Errorf("序列化仓库凭证: %w", merr)
+		}
+		enc, eerr := s.cipher.Encrypt(plain)
+		if eerr != nil {
+			return nil, eerr
 		}
 		d.CredentialEnc = enc
 	}
-	id, err := s.newDocAndTask(ctx, d, model.TaskTypeFull, ip)
-	if err != nil {
-		return nil, err
+	id, nerr := s.newDocAndTask(ctx, d, model.TaskTypeFull, ip)
+	if nerr != nil {
+		return nil, nerr
 	}
 	return s.itemOf(d, id), nil
 }
