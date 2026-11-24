@@ -44,7 +44,7 @@ func TestDocCreateGit(t *testing.T) {
 	assert.Equal(t, "git", item.Type)
 	assert.Equal(t, "pending", item.Status)
 	assert.Len(t, e.queue.IDs, 1, "任务已入队")
-	assert.Equal(t, 1, e.audit.CountAction("doc.create"))
+	assert.Equal(t, 1, e.audit.CountAction("document.create"))
 
 	stored := e.docs.DocByID(item.ID)
 	require.NotNil(t, stored)
@@ -131,7 +131,7 @@ func TestDocListGetDelete(t *testing.T) {
 
 	// 删除
 	require.NoError(t, e.svc.Delete(ctx, 1, 10, d1.ID, "ip"))
-	assert.Equal(t, 1, e.audit.CountAction("doc.delete"))
+	assert.Equal(t, 1, e.audit.CountAction("document.delete"))
 	err = e.svc.Delete(ctx, 1, 10, d1.ID, "")
 	assert.Equal(t, service.CodeNotFound, svcErr(t, err).Code)
 }
@@ -146,7 +146,7 @@ func TestDocRetryReindexSyncGuards(t *testing.T) {
 	assert.Equal(t, service.CodeValidation, svcErr(t, err).Code)
 	failed := e.docs.SeedDoc(10, model.DocTypeGit, model.DocStatusFailed)
 	require.NoError(t, e.svc.Retry(ctx, 1, 10, failed.ID, "ip"))
-	assert.Equal(t, 1, e.audit.CountAction("doc.retry"))
+	assert.Equal(t, 1, e.audit.CountAction("document.retry"))
 	require.Len(t, e.queue.IDs, 1)
 
 	// Reindex：仅就绪态（独立文档避免 409）
@@ -154,7 +154,7 @@ func TestDocRetryReindexSyncGuards(t *testing.T) {
 	assert.Equal(t, service.CodeValidation, svcErr(t, err).Code)
 	reindex := e.docs.SeedDoc(10, model.DocTypeGit, model.DocStatusReady)
 	require.NoError(t, e.svc.Reindex(ctx, 1, 10, reindex.ID, "ip"))
-	assert.Equal(t, 1, e.audit.CountAction("doc.reindex"))
+	assert.Equal(t, 1, e.audit.CountAction("document.reindex"))
 
 	// Sync：仅 git 类型（独立文档）
 	upload := e.docs.SeedDoc(10, model.DocTypeUpload, model.DocStatusReady)
@@ -162,7 +162,7 @@ func TestDocRetryReindexSyncGuards(t *testing.T) {
 	assert.Equal(t, service.CodeValidation, svcErr(t, err).Code)
 	syncDoc := e.docs.SeedDoc(10, model.DocTypeGit, model.DocStatusReady)
 	require.NoError(t, e.svc.Sync(ctx, 1, 10, syncDoc.ID, "ip"))
-	assert.Equal(t, 1, e.audit.CountAction("doc.sync"))
+	assert.Equal(t, 1, e.audit.CountAction("document.sync"))
 
 	// 幂等：存在运行中任务 → 409 DOC_TASK_RUNNING
 	e.queue.IDs = nil

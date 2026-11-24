@@ -21,18 +21,19 @@ import (
 )
 
 type hEnv struct {
-	ts          *httptest.Server
-	env         *testutil.TestEnv
-	rootToken   string
-	mcTester    *testutil.FakeTester
-	mcRepo      *testutil.FakeModelCfgRepo
-	docDocs     *testutil.FakeDocRepo
-	docQueue    *testutil.FakeQueue
-	docSvc      *service.DocumentService
-	searchStore *fakeSearchHandlerStore
-	chatStore   *fakeChatStore
-	chatStream  *fakeChatStreamH
-	chatSearch  *fakeChatSearchH
+	ts           *httptest.Server
+	env          *testutil.TestEnv
+	rootToken    string
+	mcTester     *testutil.FakeTester
+	mcRepo       *testutil.FakeModelCfgRepo
+	docDocs      *testutil.FakeDocRepo
+	docQueue     *testutil.FakeQueue
+	docSvc       *service.DocumentService
+	searchStore  *fakeSearchHandlerStore
+	chatStore    *fakeChatStore
+	chatStream   *fakeChatStreamH
+	chatSearch   *fakeChatSearchH
+	feedbackRepo *testutil.FakeFeedbackRepo
 }
 
 func setup(t *testing.T) *hEnv {
@@ -55,18 +56,23 @@ func setup(t *testing.T) *hEnv {
 	chatStream := &fakeChatStreamH{deltas: []string{"回答内容"}}
 	chatSearch := &fakeChatSearchH{}
 	chatSvc := service.NewChatService(chatStore, env.KBs, &fakeChatResolverH{}, chatStream, chatSearch)
+	// M7：系统设置与审计/反馈查询 handler（fake 查询仓储）
+	feedbackRepo := &testutil.FakeFeedbackRepo{}
+	settingsSvc := service.NewSettingsService(env.Settings, env.AuditSvc)
+	adminQuerySvc := service.NewAdminQueryService(env.Audit, feedbackRepo)
 	router := handler.NewRouter(handler.Deps{
-		Cfg:      cfg,
-		Auth:     handler.NewAuthHandler(env.AuthSvc),
-		Admin:    handler.NewAdminUsersHandler(env.AdminSvc),
-		KB:       handler.NewKBHandler(env.KBSvc),
-		ModelCfg: handler.NewModelCfgHandler(mcSvc),
-		Document: handler.NewDocumentHandler(docSvc),
-		Search:   handler.NewSearchHandler(searchSvc),
-		Chat:     handler.NewChatHandler(chatSvc),
-		UserRepo: env.Users,
-		Issuer:   env.Issuer,
-		KBLookup: env.KBs,
+		Cfg:           cfg,
+		Auth:          handler.NewAuthHandler(env.AuthSvc),
+		Admin:         handler.NewAdminUsersHandler(env.AdminSvc),
+		KB:            handler.NewKBHandler(env.KBSvc),
+		ModelCfg:      handler.NewModelCfgHandler(mcSvc),
+		Document:      handler.NewDocumentHandler(docSvc),
+		Search:        handler.NewSearchHandler(searchSvc),
+		Chat:          handler.NewChatHandler(chatSvc),
+		AdminSettings: handler.NewAdminSettingsHandler(settingsSvc, adminQuerySvc),
+		UserRepo:      env.Users,
+		Issuer:        env.Issuer,
+		KBLookup:      env.KBs,
 		OnAdminKBAccess: func(ctx context.Context, userID, kbID int64, _, _, _ string) {
 			_ = env.Audit.Add(ctx, &model.AuditLog{
 				UserID: &userID, Action: "kb.admin_access", ObjectType: "kb", ObjectID: &kbID,
@@ -76,7 +82,7 @@ func setup(t *testing.T) *hEnv {
 	})
 	ts := httptest.NewServer(router)
 	t.Cleanup(ts.Close)
-	return &hEnv{ts: ts, env: env, mcTester: mcTester, mcRepo: mcRepo, docDocs: docDocs, docQueue: docQueue, docSvc: docSvc, searchStore: searchStore, chatStore: chatStore, chatStream: chatStream, chatSearch: chatSearch}
+	return &hEnv{ts: ts, env: env, mcTester: mcTester, mcRepo: mcRepo, docDocs: docDocs, docQueue: docQueue, docSvc: docSvc, searchStore: searchStore, chatStore: chatStore, chatStream: chatStream, chatSearch: chatSearch, feedbackRepo: feedbackRepo}
 }
 
 // postMultipart 提交 multipart/form-data（files[] 字段）。

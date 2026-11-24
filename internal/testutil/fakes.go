@@ -3,6 +3,7 @@ package testutil
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 	"testing"
@@ -184,8 +185,9 @@ func (f *FakeUserRepo) Mutate(name string, fn func(u *model.User)) {
 // ---- 设置与审计替身 ----
 
 type FakeSettingRepo struct {
-	Vals map[string]bool
-	Err  error
+	Vals    map[string]bool
+	StrVals map[string]string // Set 写入的字符串值（key → 原始 JSON）
+	Err     error
 }
 
 func (f *FakeSettingRepo) GetBool(context.Context, string, bool) (bool, error) {
@@ -196,11 +198,35 @@ func (f *FakeSettingRepo) GetBool(context.Context, string, bool) (bool, error) {
 }
 
 // GetString 字符串设置（M4：exclusion_rules 用；返回 def，可按需扩展）。
-func (f *FakeSettingRepo) GetString(_ context.Context, _, def string) (string, error) {
+func (f *FakeSettingRepo) GetString(_ context.Context, key, def string) (string, error) {
 	if f.Err != nil {
 		return def, f.Err
 	}
+	if v, ok := f.StrVals[key]; ok {
+		return v, nil
+	}
 	return def, nil
+}
+
+// Set 记录写入（M7：settings 管理用）。
+func (f *FakeSettingRepo) Set(_ context.Context, key string, value []byte, _ int64) error {
+	if f.Err != nil {
+		return f.Err
+	}
+	if f.StrVals == nil {
+		f.StrVals = map[string]string{}
+	}
+	f.StrVals[key] = string(value)
+	switch key {
+	case "self_register_enabled":
+		var b bool
+		_ = json.Unmarshal(value, &b)
+		if f.Vals == nil {
+			f.Vals = map[string]bool{}
+		}
+		f.Vals["self_register_enabled"] = b
+	}
+	return nil
 }
 
 // FakeQueue 摄取任务入队替身（记录 task_id）。
@@ -251,6 +277,99 @@ func (f *FakeAuditRepo) CountAction(action string) int {
 		}
 	}
 	return n
+}
+
+// List 审计查询（M7：筛选分页；from/to 语义为 [from, to)）。
+func (f *FakeAuditRepo) List(_ context.Context, q repo.AuditQuery) ([]repo.AuditRow, int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if q.Page < 1 {
+		q.Page = 1
+	}
+	if q.PerPage < 1 || q.PerPage > 100 {
+		q.PerPage = 20
+	}
+	all := make([]repo.AuditRow, 0, len(f.Entries))
+	for _, e := range f.Entries {
+		if q.UserID > 0 && (e.UserID == nil || *e.UserID != q.UserID) {
+			continue
+		}
+		if q.Action != "" && e.Action != q.Action {
+			continue
+		}
+		if q.ObjectType != "" && e.ObjectType != q.ObjectType {
+			continue
+		}
+		if q.From != nil && e.CreatedAt.Before(*q.From) {
+			continue
+		}
+		if q.To != nil && !e.CreatedAt.Before(*q.To) {
+			continue
+		}
+		row := repo.AuditRow{ID: e.ID, UserID: e.UserID, Action: e.Action, ObjectType: e.ObjectType,
+			ObjectID: e.ObjectID, IP: e.IP, CreatedAt: e.CreatedAt}
+		if len(e.Detail) > 0 {
+			var d map[string]any
+			_ = json.Unmarshal(e.Detail, &d)
+			row.Detail = d
+		}
+		all = append(all, row)
+	}
+	// created_at DESC：倒序返回（Entries 为写入顺序）
+	rev := make([]repo.AuditRow, 0, len(all))
+	for i := len(all) - 1; i >= 0; i-- {
+		rev = append(rev, all[i])
+	}
+	total := int64(len(rev))
+	lo := (q.Page - 1) * q.PerPage
+	if lo > len(rev) {
+		lo = len(rev)
+	}
+	hi := lo + q.PerPage
+	if hi > len(rev) {
+		hi = len(rev)
+	}
+	return rev[lo:hi], total, nil
+}
+
+// FakeFeedbackRepo 反馈查询替身（M7：管理端筛选分页）。
+type FakeFeedbackRepo struct {
+	Rows []repo.FeedbackAdminRow
+}
+
+func (f *FakeFeedbackRepo) ListFeedbacks(_ context.Context, q repo.FeedbackQuery) ([]repo.FeedbackAdminRow, int64, error) {
+	if q.Page < 1 {
+		q.Page = 1
+	}
+	if q.PerPage < 1 || q.PerPage > 100 {
+		q.PerPage = 20
+	}
+	all := make([]repo.FeedbackAdminRow, 0, len(f.Rows))
+	for _, r := range f.Rows {
+		if q.KBID > 0 && r.KBID != q.KBID {
+			continue
+		}
+		if q.Reason > 0 && r.Reason != q.Reason {
+			continue
+		}
+		if q.From != nil && r.CreatedAt.Before(*q.From) {
+			continue
+		}
+		if q.To != nil && !r.CreatedAt.Before(*q.To) {
+			continue
+		}
+		all = append(all, r)
+	}
+	total := int64(len(all))
+	lo := (q.Page - 1) * q.PerPage
+	if lo > len(all) {
+		lo = len(all)
+	}
+	hi := lo + q.PerPage
+	if hi > len(all) {
+		hi = len(all)
+	}
+	return all[lo:hi], total, nil
 }
 
 // ---- 环境组装 ----

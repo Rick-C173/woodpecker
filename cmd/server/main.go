@@ -195,19 +195,24 @@ func runAPI(ctx context.Context, cfg *config.Config) error {
 	// M6：对话问答（FR-07/08/09/14）—— SSE 流式问答 + 会话管理 + 引用落库 + 点踩反馈
 	chatSvc := service.NewChatService(repo.NewConversationRepo(db), kbs, modelCfgSvc, provider, searchSvc)
 
+	// M7：系统设置与审计/反馈查询（FR-13 / FR-14 / FR-15）
+	settingsSvc := service.NewSettingsService(repo.NewSettingRepo(db), auditSvc)
+	adminQuerySvc := service.NewAdminQueryService(repo.NewAuditRepo(db), repo.NewConversationRepo(db))
+
 	router := handler.NewRouter(handler.Deps{
-		Cfg:      cfg,
-		DB:       db,
-		Auth:     handler.NewAuthHandler(authSvc),
-		Admin:    handler.NewAdminUsersHandler(adminSvc),
-		KB:       handler.NewKBHandler(kbSvc),
-		ModelCfg: handler.NewModelCfgHandler(modelCfgSvc),
-		Document: handler.NewDocumentHandler(docSvc),
-		Search:   handler.NewSearchHandler(searchSvc),
-		Chat:     handler.NewChatHandler(chatSvc),
-		UserRepo: users,
-		Issuer:   issuer,
-		KBLookup: kbs,
+		Cfg:           cfg,
+		DB:            db,
+		Auth:          handler.NewAuthHandler(authSvc),
+		Admin:         handler.NewAdminUsersHandler(adminSvc),
+		KB:            handler.NewKBHandler(kbSvc),
+		ModelCfg:      handler.NewModelCfgHandler(modelCfgSvc),
+		Document:      handler.NewDocumentHandler(docSvc),
+		Search:        handler.NewSearchHandler(searchSvc),
+		Chat:          handler.NewChatHandler(chatSvc),
+		AdminSettings: handler.NewAdminSettingsHandler(settingsSvc, adminQuerySvc),
+		UserRepo:      users,
+		Issuer:        issuer,
+		KBLookup:      kbs,
 		OnAdminKBAccess: func(ctx context.Context, userID, kbID int64, method, path, ip string) {
 			auditSvc.Record(ctx, &userID, "kb.admin_access", "kb", &kbID,
 				map[string]any{"method": method, "path": path}, ip)

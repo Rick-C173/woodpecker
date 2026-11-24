@@ -40,6 +40,9 @@ type Deps struct {
 	// M6：会话与问答（FR-07/08/09/14）
 	Chat *ChatHandler
 
+	// M7：系统设置与审计/反馈查询（FR-13 / FR-14 / FR-15）
+	AdminSettings *AdminSettingsHandler
+
 	KBLookup middleware.KBLookup
 	// OnAdminKBAccess 管理员以非成员身份访问库时回调（审计）
 	OnAdminKBAccess func(ctx context.Context, userID, kbID int64, method, path, ip string)
@@ -166,6 +169,15 @@ func NewRouter(d Deps) *gin.Engine {
 		admin.POST("/model-entries", mc.CreateEntry)
 		admin.PATCH("/model-entries/:id", mc.UpdateEntry)
 		admin.DELETE("/model-entries/:id", mc.DeleteEntry)
+
+		// 系统设置与审计/反馈查询（FR-13 / FR-14 / FR-15，API设计.md §3.4）
+		if d.AdminSettings != nil {
+			as := d.AdminSettings
+			admin.GET("/settings", as.Get)
+			admin.PATCH("/settings", as.Update)
+			admin.GET("/audit-logs", as.ListAuditLogs)
+			admin.GET("/feedbacks", as.ListFeedbacks)
+		}
 	}
 
 	r.GET("/healthz", Health(pinger)) // 基础设施探针挂在根路径

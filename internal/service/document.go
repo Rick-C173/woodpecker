@@ -174,7 +174,7 @@ func (s *DocumentService) newDocAndTask(ctx context.Context, d *model.Document, 
 	if err := s.queue.EnqueueIngest(ctx, t.ID); err != nil {
 		return 0, fmt.Errorf("任务入队: %w", err)
 	}
-	s.audit.Record(ctx, &d.CreatedBy, "doc.create", "document", &d.ID,
+	s.audit.Record(ctx, &d.CreatedBy, "document.create", "document", &d.ID,
 		map[string]any{"type": d.Type, "name": d.Name}, ip)
 	return d.ID, nil
 }
@@ -345,7 +345,7 @@ func (s *DocumentService) Delete(ctx context.Context, actorID, kbID, docID int64
 	if err := s.docs.DeleteDocument(ctx, docID); err != nil {
 		return err
 	}
-	s.audit.Record(ctx, &actorID, "doc.delete", "document", &docID, map[string]any{"kb_id": kbID}, ip)
+	s.audit.Record(ctx, &actorID, "document.delete", "document", &docID, map[string]any{"kb_id": kbID}, ip)
 	return nil
 }
 
@@ -413,13 +413,13 @@ func (s *DocumentService) enqueueNewTask(ctx context.Context, actorID int64, d *
 	if err := s.queue.EnqueueIngest(ctx, t.ID); err != nil {
 		return fmt.Errorf("任务入队: %w", err)
 	}
-	action := "doc.retry"
+	action := "document.retry"
 	switch taskType {
 	case model.TaskTypeSync:
-		action = "doc.sync"
+		action = "document.sync"
 	case model.TaskTypeFull:
 		if statusBefore == model.DocStatusReady {
-			action = "doc.reindex"
+			action = "document.reindex"
 		}
 	}
 	s.audit.Record(ctx, &actorID, action, "document", &d.ID,
