@@ -26,7 +26,9 @@ go.work.sum
 .env
 
 .idea
-md
+# 设计/契约文档入库（PRD/API/数据库/技术选型/开发计划/调参笔记/openapi/审计报告）；
+# 只忽略测试与覆盖率产物类 HTML（审计 P1-15）
+md/*.html
 
 # web (M8 起生效)
 web/node_modules/
