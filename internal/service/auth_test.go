@@ -57,10 +57,10 @@ func TestRegisterDuplicateAndWeak(t *testing.T) {
 	assert.Equal(t, service.CodeUserExists, svcErr(t, err).Code)
 
 	_, err = env.AuthSvc.Register(context.Background(), "bob", "short", "ip")
-	assert.Equal(t, service.CodePasswordWeak, svcErr(t, err).Code)
+	assert.Equal(t, service.CodeValidation, svcErr(t, err).Code)
 
 	_, err = env.AuthSvc.Register(context.Background(), "", "password8", "ip")
-	assert.Equal(t, service.CodeAuthInvalid, svcErr(t, err).Code, "空用户名")
+	assert.Equal(t, service.CodeValidation, svcErr(t, err).Code, "空用户名")
 }
 
 func TestRegisterSettingsError(t *testing.T) {
@@ -179,9 +179,9 @@ func TestAdminCreateListResetDisable(t *testing.T) {
 	_, _, err = env.AdminSvc.Create(context.Background(), admin.ID, "newbie", "", false, "ip")
 	assert.Equal(t, service.CodeUserExists, svcErr(t, err).Code, "重名 USER_001")
 
-	// 弱密码（指定密码过短）
+	// 弱密码（指定密码过短）→ 请求校验 VALIDATION_FAILED
 	_, _, err = env.AdminSvc.Create(context.Background(), admin.ID, "weak", "short", false, "ip")
-	assert.Equal(t, service.CodePasswordWeak, svcErr(t, err).Code)
+	assert.Equal(t, service.CodeValidation, svcErr(t, err).Code)
 
 	// 列表（含 kb_count、关键词过滤）
 	items, total, err := env.AdminSvc.List(context.Background(), repo.UserListQuery{Page: 1, PerPage: 20})

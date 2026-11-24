@@ -279,23 +279,23 @@ func i64(v int64) string { return strconv.FormatInt(v, 10) }
 func TestAuthBindFailures(t *testing.T) {
 	h := setup(t)
 
-	// 注册：非 JSON body → 401 AUTH_001
+	// 注册：非 JSON body → 422 VALIDATION_FAILED（请求校验；登录失败才是 AUTH_001）
 	sc, body := post(t, h.ts, "/api/v1/auth/register", "", "not-json")
-	assert.Equal(t, 401, sc)
-	assert.Equal(t, "AUTH_001", jcode(t, body))
+	assert.Equal(t, 422, sc)
+	assert.Equal(t, "VALIDATION_FAILED", jcode(t, body))
 	// 缺密码字段
 	sc, body = post(t, h.ts, "/api/v1/auth/register", "", map[string]any{"username": "x"})
-	assert.Equal(t, 401, sc)
-	assert.Equal(t, "AUTH_001", jcode(t, body))
+	assert.Equal(t, 422, sc)
+	assert.Equal(t, "VALIDATION_FAILED", jcode(t, body))
 
-	// 改密：非 JSON / 缺新密码
+	// 改密：非 JSON / 缺新密码 → 422
 	_, _ = post(t, h.ts, "/api/v1/auth/register", "", map[string]any{"username": "root", "password": "password8"})
 	token := loginToken(t, h.ts, "root", "password8")
 	sc, body = post(t, h.ts, "/api/v1/auth/password", token, "not-json")
-	assert.Equal(t, 401, sc)
-	assert.Equal(t, "AUTH_001", jcode(t, body))
+	assert.Equal(t, 422, sc)
+	assert.Equal(t, "VALIDATION_FAILED", jcode(t, body))
 	sc, _ = post(t, h.ts, "/api/v1/auth/password", token, map[string]any{"old_password": "password8"})
-	assert.Equal(t, 401, sc)
+	assert.Equal(t, 422, sc)
 }
 
 // TestAdminListPaginationBounds 管理员列表分页参数归一化（边界值）。
@@ -335,12 +335,12 @@ func TestAdminBindFailures(t *testing.T) {
 	_, _ = post(t, h.ts, "/api/v1/auth/register", "", map[string]any{"username": "root", "password": "password8"})
 	token := loginToken(t, h.ts, "root", "password8")
 
-	// 创建用户：非 JSON / 缺用户名
+	// 创建用户：非 JSON / 缺用户名 → 422 请求校验
 	sc, body := post(t, h.ts, "/api/v1/admin/users", token, "not-json")
-	assert.Equal(t, 401, sc)
-	assert.Equal(t, "AUTH_001", jcode(t, body))
+	assert.Equal(t, 422, sc)
+	assert.Equal(t, "VALIDATION_FAILED", jcode(t, body))
 	sc, _ = post(t, h.ts, "/api/v1/admin/users", token, map[string]any{})
-	assert.Equal(t, 401, sc)
+	assert.Equal(t, 422, sc)
 
 	// 重置密码：目标用户不存在 → 404
 	sc, _ = post(t, h.ts, "/api/v1/admin/users/9999/reset-password", token, nil)

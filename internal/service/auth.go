@@ -216,11 +216,12 @@ func (s *AuthService) ChangePassword(ctx context.Context, userID int64, oldPassw
 }
 
 func validateCredentials(username, password string, minLen int) error {
+	// 用户名/密码格式错误属于请求校验（422），与登录失败的 AUTH_001（401）区分
 	if username == "" || len(username) > 64 {
-		return NewServiceError(CodeAuthInvalid, "用户名非法（1~64 字符）")
+		return NewServiceError(CodeValidation, "用户名非法（1~64 字符）")
 	}
 	if len(password) < minLen {
-		return NewServiceError(CodePasswordWeak, fmt.Sprintf("密码长度不足 %d 位", minLen))
+		return NewServiceError(CodeValidation, fmt.Sprintf("密码长度不足 %d 位", minLen))
 	}
 	return nil
 }

@@ -79,7 +79,7 @@ type createUserResp struct {
 func (h *AdminUsersHandler) Create(c *gin.Context) {
 	var req createUserReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		httpx.Fail(c, httpx.CodeAuthInvalid, "用户名不能为空")
+		httpx.Fail(c, httpx.CodeValidation, "用户名与密码不能为空")
 		return
 	}
 	initial, u, err := h.svc.Create(c.Request.Context(), middleware.UserID(c), req.Username, req.Password, req.IsAdmin, c.ClientIP())

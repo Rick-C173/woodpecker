@@ -59,7 +59,7 @@ type registerReq struct {
 func (h *AuthHandler) Register(c *gin.Context) {
 	var req registerReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		httpx.Fail(c, httpx.CodeAuthInvalid, "用户名与密码不能为空")
+		httpx.Fail(c, httpx.CodeValidation, "用户名与密码不能为空")
 		return
 	}
 	res, err := h.svc.Register(c.Request.Context(), req.Username, req.Password, c.ClientIP())
@@ -87,7 +87,7 @@ type changePasswordReq struct {
 func (h *AuthHandler) ChangePassword(c *gin.Context) {
 	var req changePasswordReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		httpx.Fail(c, httpx.CodeAuthInvalid, "原密码与新密码不能为空")
+		httpx.Fail(c, httpx.CodeValidation, "原密码与新密码不能为空")
 		return
 	}
 	res, err := h.svc.ChangePassword(c.Request.Context(), middleware.UserID(c), req.OldPassword, req.NewPassword)
