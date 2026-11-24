@@ -47,3 +47,5 @@ it_nocoverpkg
 jwt_coverpkg
 coverage
 wp_cov*
+# 第三方 HTML 分享工具产物（Trae 导出的临时分享包，不入库）
+.trae-html-share-packages/
