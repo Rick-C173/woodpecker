@@ -24,6 +24,20 @@ func loginToken(t *testing.T, ts *httptest.Server, username, password string) st
 	return token
 }
 
+// loginReadyToken 管理员创建的账号首登必须改密（P1-4 起服务端强制，未改密访问业务接口返回
+// 403 AUTH_007）。需要访问业务接口的用例统一走这里：登录 → 改密 → 返回改密后的新 token，
+// 与真实用户流一致（不靠削弱中间件让测试变绿）。
+func loginReadyToken(t *testing.T, ts *httptest.Server, username, initial, newPassword string) string {
+	t.Helper()
+	token := loginToken(t, ts, username, initial)
+	sc, body := post(t, ts, "/api/v1/auth/password", token,
+		map[string]any{"old_password": initial, "new_password": newPassword})
+	require.Equal(t, 200, sc, body)
+	newToken, _ := body["token"].(string)
+	require.NotEmpty(t, newToken)
+	return newToken
+}
+
 func TestKBAdminCRUDAndVisibility(t *testing.T) {
 	h := setup(t)
 	_, body := post(t, h.ts, "/api/v1/auth/register", "", map[string]any{"username": "root", "password": "password8"})
@@ -84,7 +98,7 @@ func TestKBAdminCRUDAndVisibility(t *testing.T) {
 	// 普通用户：建库 403；列表为空；非成员访问详情 404（不泄露库名）
 	_, body = post(t, h.ts, "/api/v1/admin/users", rootToken, map[string]any{"username": "dev", "password": "dev-pass-123"})
 	require.NotNil(t, body["id"])
-	devToken := loginToken(t, h.ts, "dev", "dev-pass-123")
+	devToken := loginReadyToken(t, h.ts, "dev", "dev-pass-123", "dev-pass-456")
 	sc, body = post(t, h.ts, "/api/v1/kbs", devToken, map[string]any{"name": "越权库"})
 	assert.Equal(t, 403, sc)
 	assert.Equal(t, "FORBIDDEN", jcode(t, body))
@@ -112,7 +126,7 @@ func TestKBMembersFlows(t *testing.T) {
 
 	_, body = post(t, h.ts, "/api/v1/admin/users", rootToken, map[string]any{"username": "dev", "password": "dev-pass-123"})
 	devID := int64(body["id"].(float64))
-	devToken := loginToken(t, h.ts, "dev", "dev-pass-123")
+	devToken := loginReadyToken(t, h.ts, "dev", "dev-pass-123", "dev-pass-456")
 
 	// 初始成员为空
 	sc, body := get(t, h.ts, "/api/v1/kbs/"+i64(kbID)+"/members", rootToken)

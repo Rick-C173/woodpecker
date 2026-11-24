@@ -85,7 +85,7 @@ func TestSearchNotMemberInvisible(t *testing.T) {
 
 	// 非成员 → 404（KBAccess 不可见原则）
 	_, _ = post(t, h.ts, "/api/v1/admin/users", rootToken, map[string]any{"username": "guest", "password": "guest-pass-1"})
-	guestToken := loginToken(t, h.ts, "guest", "guest-pass-1")
+	guestToken := loginReadyToken(t, h.ts, "guest", "guest-pass-1", "guest-pass-2")
 	sc, _ := get(t, h.ts, "/api/v1/kbs/"+i64(kbID)+"/search?q=x", guestToken)
 	assert.Equal(t, 404, sc)
 }

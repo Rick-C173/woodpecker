@@ -5,6 +5,7 @@
 package integration_test
 
 import (
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -32,7 +33,14 @@ func TestM2KnowledgeBaseAndMembers(t *testing.T) {
 
 	sc, body = e.call(t, "POST", "/api/v1/auth/login", "", map[string]any{"username": "dev", "password": "dev-pass-123"})
 	require.Equal(t, 200, sc, body)
-	devToken, _ := body["token"].(string)
+	assert.Equal(t, true, body["must_change_password"], "管理员创建的账号首登必须改密")
+	// 首登未改密 → 业务接口 403 AUTH_007（审计 P1-4）
+	devInitialToken, _ := body["token"].(string)
+	sc, body = e.call(t, "GET", "/api/v1/kbs", devInitialToken, nil)
+	assert.Equal(t, http.StatusForbidden, sc)
+	assert.Equal(t, "AUTH_007", code(t, body))
+	// 改密后正常访问
+	devToken := e.loginReady(t, "dev", "dev-pass-123", "dev-pass-456")
 
 	// 建库（管理员）+ 重名 409
 	sc, body = e.call(t, "POST", "/api/v1/kbs", rootToken, map[string]any{"name": "订单服务文档", "description": "M2 集成测试"})

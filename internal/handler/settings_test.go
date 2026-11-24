@@ -52,7 +52,7 @@ func TestSettingsAPI(t *testing.T) {
 
 	// 非管理员 → 403
 	_, _ = post(t, h.ts, "/api/v1/admin/users", token, map[string]any{"username": "staff", "password": "staff-pass-1"})
-	staffToken := loginToken(t, h.ts, "staff", "staff-pass-1")
+	staffToken := loginReadyToken(t, h.ts, "staff", "staff-pass-1", "staff-pass-2")
 	sc, _ = get(t, h.ts, "/api/v1/admin/settings", staffToken)
 	assert.Equal(t, 403, sc)
 

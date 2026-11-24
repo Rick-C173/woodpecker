@@ -101,13 +101,14 @@ func TestAuthMiddleware(t *testing.T) {
 	users := map[int64]*model.User{
 		1: {ID: 1, Status: model.UserStatusActive, TokenVersion: 2},
 		2: {ID: 2, Status: model.UserStatusDisabled, TokenVersion: 0},
+		3: {ID: 3, Status: model.UserStatusActive, TokenVersion: 0, MustChangePassword: true},
 	}
-	lookup := func(_ *gin.Context, id int64) (int16, int, error) {
+	lookup := func(_ *gin.Context, id int64) (UserState, error) {
 		u, ok := users[id]
 		if !ok {
-			return 0, 0, errors.New("nf")
+			return UserState{}, errors.New("nf")
 		}
-		return u.Status, u.TokenVersion, nil
+		return UserState{Status: u.Status, TokenVersion: u.TokenVersion, MustChangePassword: u.MustChangePassword}, nil
 	}
 
 	r := gin.New()
@@ -175,6 +176,62 @@ func TestAuthMiddleware(t *testing.T) {
 	req = httptest.NewRequest("GET", "/p", nil)
 	req.Header.Set("Authorization", "Bearer "+tokenOld)
 	r.ServeHTTP(w, req)
+	assert.Equal(t, 401, w.Code)
+	assert.Contains(t, w.Body.String(), "AUTH_004")
+}
+
+// TestRequirePasswordChanged 首登强制改密拦截（审计 P1-4）：
+// 标记为 true 的会话只能访问改密白名单，其余一律 403 AUTH_007。
+func TestRequirePasswordChanged(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	issuer := jwt.NewIssuer("it-secret", time.Hour)
+	lookup := func(_ *gin.Context, id int64) (UserState, error) {
+		// id=3 为「首登未改密」账号
+		return UserState{Status: model.UserStatusActive, TokenVersion: 0, MustChangePassword: id == 3}, nil
+	}
+	token, err := issuer.Issue(&model.User{ID: 3, TokenVersion: 0})
+	require.NoError(t, err)
+	normal, err := issuer.Issue(&model.User{ID: 1, TokenVersion: 0})
+	require.NoError(t, err)
+
+	r := gin.New()
+	g := r.Group("/api/v1", Auth(issuer, lookup))
+	g.POST("/auth/password", func(c *gin.Context) { c.Status(200) })
+	guarded := g.Group("", RequirePasswordChanged())
+	guarded.GET("/kbs", func(c *gin.Context) { c.Status(200) })
+	guarded.GET("/admin/users", func(c *gin.Context) { c.Status(200) })
+	r.GET("/healthz", func(c *gin.Context) { c.Status(200) })
+
+	call := func(method, path, tk string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(method, path, nil)
+		if tk != "" {
+			req.Header.Set("Authorization", "Bearer "+tk)
+		}
+		r.ServeHTTP(w, req)
+		return w
+	}
+
+	// 改密白名单：放行
+	assert.Equal(t, 200, call("POST", "/api/v1/auth/password", token).Code)
+	// 业务接口：403 AUTH_007
+	w := call("GET", "/api/v1/kbs", token)
+	assert.Equal(t, 403, w.Code)
+	assert.Contains(t, w.Body.String(), "AUTH_007")
+
+	// 未标记账号：正常放行
+	assert.Equal(t, 200, call("GET", "/api/v1/kbs", normal).Code)
+
+	// 版本号不符优先于状态拦截（旧 token 应先被判 401，而非 403）
+	stale := func(_ *gin.Context, _ int64) (UserState, error) {
+		return UserState{Status: model.UserStatusActive, TokenVersion: 9, MustChangePassword: true}, nil
+	}
+	r2 := gin.New()
+	r2.GET("/api/v1/kbs", Auth(issuer, stale), RequirePasswordChanged(), func(c *gin.Context) { c.Status(200) })
+	w = httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/api/v1/kbs", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	r2.ServeHTTP(w, req)
 	assert.Equal(t, 401, w.Code)
 	assert.Contains(t, w.Body.String(), "AUTH_004")
 }

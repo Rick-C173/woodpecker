@@ -377,7 +377,7 @@ func TestChatAccessRulesAPI(t *testing.T) {
 
 	// 他人（非成员）访问 → 404（不泄露）
 	_, _ = post(t, h.ts, "/api/v1/admin/users", rootToken, map[string]any{"username": "guest", "password": "guest-pass-1"})
-	guestToken := loginToken(t, h.ts, "guest", "guest-pass-1")
+	guestToken := loginReadyToken(t, h.ts, "guest", "guest-pass-1", "guest-pass-2")
 	sc, body = get(t, h.ts, "/api/v1/conversations/"+i64(convID), guestToken)
 	assert.Equal(t, 404, sc)
 	assert.Equal(t, "NOT_FOUND", jcode(t, body))
@@ -386,7 +386,7 @@ func TestChatAccessRulesAPI(t *testing.T) {
 
 	// 管理员读他人会话 → 200；改删 → 404
 	_, _ = post(t, h.ts, "/api/v1/admin/users", rootToken, map[string]any{"username": "boss", "password": "boss-pass-12", "is_admin": true})
-	bossToken := loginToken(t, h.ts, "boss", "boss-pass-12")
+	bossToken := loginReadyToken(t, h.ts, "boss", "boss-pass-12", "boss-pass-13")
 	sc, _ = get(t, h.ts, "/api/v1/conversations/"+i64(convID), bossToken)
 	assert.Equal(t, 200, sc)
 	sc, _ = patch(t, h.ts, "/api/v1/conversations/"+i64(convID), bossToken, map[string]any{"title": "x"})

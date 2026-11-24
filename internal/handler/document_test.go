@@ -31,9 +31,9 @@ func TestDocAPIFlows(t *testing.T) {
 
 	// 编辑者与成员
 	_, _ = post(t, h.ts, "/api/v1/admin/users", rootToken, map[string]any{"username": "editor", "password": "editor-pass-1"})
-	editorToken := loginToken(t, h.ts, "editor", "editor-pass-1")
+	editorToken := loginReadyToken(t, h.ts, "editor", "editor-pass-1", "editor-pass-2")
 	_, _ = post(t, h.ts, "/api/v1/admin/users", rootToken, map[string]any{"username": "member", "password": "member-pass-1"})
-	memberToken := loginToken(t, h.ts, "member", "member-pass-1")
+	memberToken := loginReadyToken(t, h.ts, "member", "member-pass-1", "member-pass-2")
 	sc, _ = post(t, h.ts, "/api/v1/kbs/"+i64(kbID)+"/members", rootToken, map[string]any{"user_id": 2, "role": "editor"})
 	require.Equal(t, 201, sc)
 	sc, _ = post(t, h.ts, "/api/v1/kbs/"+i64(kbID)+"/members", rootToken, map[string]any{"user_id": 3, "role": "member"})
@@ -113,7 +113,7 @@ func TestDocAPIFlows(t *testing.T) {
 	assert.Equal(t, 403, sc)
 	// 非成员（不可见）→ 404
 	_, _ = post(t, h.ts, "/api/v1/admin/users", rootToken, map[string]any{"username": "outsider", "password": "outside-pass-1"})
-	outToken := loginToken(t, h.ts, "outsider", "outside-pass-1")
+	outToken := loginReadyToken(t, h.ts, "outsider", "outside-pass-1", "outside-pass-2")
 	sc, _ = get(t, h.ts, "/api/v1/kbs/"+i64(kbID)+"/documents", outToken)
 	assert.Equal(t, 404, sc)
 

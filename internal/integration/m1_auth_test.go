@@ -96,6 +96,22 @@ func (e *env) call(t *testing.T, method, path, token string, payload any) (int, 
 	return w.StatusCode, out
 }
 
+// loginReady 管理员创建的账号首登必须改密（P1-4 起服务端强制）：登录 → 改密 → 返回新 token。
+// 需要访问业务接口的集成用例统一走这里，与真实用户流一致。
+func (e *env) loginReady(t *testing.T, username, initial, newPassword string) string {
+	t.Helper()
+	sc, body := e.call(t, "POST", "/api/v1/auth/login", "", map[string]any{"username": username, "password": initial})
+	require.Equal(t, http.StatusOK, sc, body)
+	token, _ := body["token"].(string)
+	require.NotEmpty(t, token)
+	sc, body = e.call(t, "POST", "/api/v1/auth/password", token,
+		map[string]any{"old_password": initial, "new_password": newPassword})
+	require.Equal(t, http.StatusOK, sc, body)
+	newToken, _ := body["token"].(string)
+	require.NotEmpty(t, newToken)
+	return newToken
+}
+
 func code(t *testing.T, body map[string]any) string {
 	t.Helper()
 	c, _ := body["code"].(string)

@@ -198,7 +198,14 @@ func TestAuthHandlerFlows(t *testing.T) {
 	// 非管理员 → 403
 	sc, body = post(t, h.ts, "/api/v1/auth/login", "", map[string]any{"username": "dev01", "password": initial})
 	require.Equal(t, 200, sc, body)
+	assert.Equal(t, true, body["must_change_password"], "管理员创建的账号首登必须改密")
 	devToken, _ := body["token"].(string)
+
+	// P1-4：首登未改密 → 业务接口 403 AUTH_007（服务端强制，不依赖前端）
+	sc, body = get(t, h.ts, "/api/v1/kbs", devToken)
+	assert.Equal(t, 403, sc)
+	assert.Equal(t, "AUTH_007", jcode(t, body))
+
 	sc, body = get(t, h.ts, "/api/v1/admin/users", devToken)
 	assert.Equal(t, 403, sc)
 	assert.Equal(t, "FORBIDDEN", jcode(t, body))
@@ -212,6 +219,10 @@ func TestAuthHandlerFlows(t *testing.T) {
 	sc, body = post(t, h.ts, "/api/v1/auth/password", devToken, map[string]any{"old_password": initial, "new_password": "dev01-new-pass"})
 	assert.Equal(t, 200, sc, body)
 	newToken, _ := body["token"].(string)
+
+	// P1-4：改密后标记清除，业务接口恢复可用
+	sc, body = get(t, h.ts, "/api/v1/kbs", newToken)
+	assert.Equal(t, 200, sc, body)
 
 	// 旧 token 失效 → 401 AUTH_004
 	sc, body = get(t, h.ts, "/api/v1/admin/users", devToken)
@@ -274,6 +285,7 @@ func TestAdminUserHandlerFlows(t *testing.T) {
 }
 
 func i64(v int64) string { return strconv.FormatInt(v, 10) }
+
 
 // TestAuthBindFailures 注册与改密的请求体绑定失败分支（边界：非法/缺字段）。
 func TestAuthBindFailures(t *testing.T) {

@@ -130,7 +130,7 @@ func TestMCAdminFlows(t *testing.T) {
 
 	// 普通用户访问 → 403（由 Admin 中间件拦截）
 	_, _ = post(t, h.ts, "/api/v1/admin/users", h.rootToken, map[string]any{"username": "dev", "password": "dev-pass-123"})
-	devToken := loginToken(t, h.ts, "dev", "dev-pass-123")
+	devToken := loginReadyToken(t, h.ts, "dev", "dev-pass-123", "dev-pass-456")
 	sc, body = get(t, h.ts, base+"/model-services", devToken)
 	assert.Equal(t, 403, sc)
 	assert.Equal(t, "FORBIDDEN", jcode(t, body))

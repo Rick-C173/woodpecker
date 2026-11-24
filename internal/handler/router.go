@@ -86,7 +86,12 @@ func NewRouter(d Deps) *gin.Engine {
 	// auth（登录态）：全局限流（API 设计 §1，阈值可配 RATE_LIMIT_PER_MIN，<=0 关闭）
 	limiter := middleware.NewRateLimiter(cfg.RateLimitPerMin, time.Minute)
 	authed := v1.Group("", middleware.Auth(d.Issuer, userLookup(d.UserRepo)), limiter.Handler(middleware.UserKey))
+	// 改密接口本身（含首登强制改密）不受强制改密拦截；成功后 token_version+1 需重新登录。
 	authed.POST("/auth/password", d.Auth.ChangePassword)
+
+	// 首登强制改密（PRD FR-01 / 审计 P1-4）：除改密白名单外，带 must_change_password 的会话一律 403 AUTH_007。
+	// mustChangeOK 与 authed 权限完全一致，只是多一层状态拦截。
+	mustChangeOK := authed.Group("", middleware.RequirePasswordChanged())
 
 	// 知识库（FR-02）：建/改/删与成员授权仅管理员；库内读取需成员资格（R6 不可见原则）
 	var adminBypass func(*gin.Context, int64, int64)
@@ -96,7 +101,7 @@ func NewRouter(d Deps) *gin.Engine {
 				c.Request.Method, c.Request.URL.Path, c.ClientIP())
 		}
 	}
-	kbs := authed.Group("/kbs")
+	kbs := mustChangeOK.Group("/kbs")
 	kbs.GET("", d.KB.List)
 	kbs.POST("", middleware.Admin(), d.KB.Create)
 	kb := kbs.Group("/:kb", middleware.KBAccess(d.KBLookup, adminBypass))
@@ -139,18 +144,24 @@ func NewRouter(d Deps) *gin.Engine {
 	// 访问规则在 service 层（先校验库成员资格再校验所属用户，非成员/他人会话统一 404）；
 	// 提问挂问答限流 10 req/min（API 设计 §1）
 	if d.Chat != nil {
-		convs := authed.Group("/conversations", chatAccess(d.Chat, d.KBLookup))
+		convs := mustChangeOK.Group("/conversations", chatAccess(d.Chat, d.KBLookup))
 		convs.GET("/:c", d.Chat.GetConversation)
 		convs.PATCH("/:c", d.Chat.RenameConversation)
 		convs.DELETE("/:c", d.Chat.DeleteConversation)
 		convs.POST("/:c/messages", middleware.NewRateLimiter(10, time.Minute).Handler(middleware.UserKey), d.Chat.Ask)
-		authed.POST("/messages/:m/regenerate", d.Chat.Regenerate)
-		authed.POST("/messages/:m/feedback", d.Chat.Feedback)
-		authed.DELETE("/messages/:m/feedback", d.Chat.DeleteFeedback)
+		mustChangeOK.POST("/messages/:m/regenerate", d.Chat.Regenerate)
+		mustChangeOK.POST("/messages/:m/feedback", d.Chat.Feedback)
+		mustChangeOK.DELETE("/messages/:m/feedback", d.Chat.DeleteFeedback)
 	}
 
 	// admin（管理员）
-	admin := v1.Group("/admin", middleware.Auth(d.Issuer, userLookup(d.UserRepo)), middleware.Admin())
+	// 顺序：Auth → Admin → 强制改密。越权优先返回 FORBIDDEN（不向无权限者泄露账号改密状态），
+	// 管理员一旦被标记改密仍会被 AUTH_007 拦在业务接口之外。
+	admin := v1.Group("/admin",
+		middleware.Auth(d.Issuer, userLookup(d.UserRepo)),
+		middleware.Admin(),
+		middleware.RequirePasswordChanged(),
+	)
 	{
 		au := d.Admin
 		admin.GET("/users", au.List)
@@ -185,14 +196,19 @@ func NewRouter(d Deps) *gin.Engine {
 	return r
 }
 
-// userLookup Auth 中间件的用户状态查询（token_version 比对 + 禁用校验）。
-func userLookup(users UserLookupRepo) func(c *gin.Context, userID int64) (int16, int, error) {
-	return func(c *gin.Context, userID int64) (int16, int, error) {
+// userLookup Auth 中间件的用户状态查询：一次回查同时提供 token_version 比对、
+// 禁用校验与首登强制改密标记（审计 P1-4，避免每请求多一次查库）。
+func userLookup(users UserLookupRepo) middleware.UserLookup {
+	return func(c *gin.Context, userID int64) (middleware.UserState, error) {
 		u, err := users.GetByID(c.Request.Context(), userID)
 		if err != nil {
-			return 0, 0, err
+			return middleware.UserState{}, err
 		}
-		return u.Status, u.TokenVersion, nil
+		return middleware.UserState{
+			Status:             u.Status,
+			TokenVersion:       u.TokenVersion,
+			MustChangePassword: u.MustChangePassword,
+		}, nil
 	}
 }
 

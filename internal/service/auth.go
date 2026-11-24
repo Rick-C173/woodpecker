@@ -26,19 +26,20 @@ func NewServiceError(code, message string) *ServiceError {
 
 // 错误码常量（与 internal/httpx/errcode.go 保持同步）
 const (
-	CodeAuthInvalid     = "AUTH_001"
-	CodeAuthLocked      = "AUTH_002"
-	CodeAuthDisabled    = "AUTH_003"
-	CodeAuthStaleToken  = "AUTH_004"
-	CodeRegisterClosed  = "AUTH_005"
-	CodePasswordWeak    = "AUTH_006"
-	CodeUserExists      = "USER_001"
-	CodeUserSelfDisable = "USER_002"
-	CodeUserLastAdmin   = "USER_003"
-	CodeKBNameExists    = "KB_001"
-	CodeNotFound        = "NOT_FOUND"
-	CodeValidation      = "VALIDATION_FAILED"
-	CodeForbidden       = "FORBIDDEN"
+	CodeAuthInvalid        = "AUTH_001"
+	CodeAuthLocked         = "AUTH_002"
+	CodeAuthDisabled       = "AUTH_003"
+	CodeAuthStaleToken     = "AUTH_004"
+	CodeRegisterClosed     = "AUTH_005"
+	CodePasswordWeak       = "AUTH_006"
+	CodeMustChangePassword = "AUTH_007" // 403 需先修改初始密码（中间件拦截，此处仅保持码表同步）
+	CodeUserExists         = "USER_001"
+	CodeUserSelfDisable    = "USER_002"
+	CodeUserLastAdmin      = "USER_003"
+	CodeKBNameExists       = "KB_001"
+	CodeNotFound           = "NOT_FOUND"
+	CodeValidation         = "VALIDATION_FAILED"
+	CodeForbidden          = "FORBIDDEN"
 )
 
 // PasswordPolicy 密码与锁定策略（PRD FR-01）：默认值见 DefaultPasswordPolicy，
