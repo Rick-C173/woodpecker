@@ -177,6 +177,7 @@ func (s *UserAdminService) SetAdmin(ctx context.Context, actorID, targetID int64
 	// 权限变化即失效旧 token（审计 P1-2）：middleware 的 adm 取自 JWT claim，
 	// 不 bump 版本号会让「已撤权管理员」在 JWT 有效期内继续越权（PRD R6 要求立即生效）。
 	// 设/撤两个方向都 bump：与 SetStatus/ResetPassword 保持一致的失效模型。
+	target.TokenVersion++
 	target.UpdatedAt = s.now()
 	if err := s.users.Save(ctx, target); err != nil {
 		return err
