@@ -57,8 +57,13 @@ type FetchResult struct {
 	FileSeen  int      // 遍历到的全部文件数（R2 上限判定）
 }
 
+// gitTokenUsername 私有仓库 token 认证的用户名位取值。
+// GitLab PAT 要求 `oauth2:<token>`；GitHub / Bitbucket 同样接受该组合，
+// 故统一用它覆盖三类平台的 HTTPS 认证（审计 P2-36）。
+const gitTokenUsername = "oauth2"
+
 // FetchGit 克隆仓库（浅克隆）并读取受支持文件。
-// credential 为空时匿名拉取；非空时按 access token 处理（HTTPS BasicAuth）。
+// credential 为空时匿名拉取；非空时按 access token 处理（HTTPS BasicAuth，token 放密码位）。
 func FetchGit(ctx context.Context, repoURL, gitRef, credential string, maxRepoBytes int64, maxFiles int, ignoreRules []string, excl ExclusionRules) (*FetchResult, error) {
 	tmp, err := os.MkdirTemp("", "wp-clone-*")
 	if err != nil {
@@ -71,7 +76,9 @@ func FetchGit(ctx context.Context, repoURL, gitRef, credential string, maxRepoBy
 		cloneOpts.ReferenceName = plumbing.NewBranchReferenceName(gitRef)
 	}
 	if credential != "" {
-		cloneOpts.Auth = &githttp.BasicAuth{Username: credential, Password: ""}
+		// 私有仓库 token 必须放**密码位**：GitLab PAT 只认 `oauth2:<token>`，
+		// GitHub / Bitbucket 也接受该形式；反之把 token 放用户名位会让 GitLab 必 401（审计 P2-36）。
+		cloneOpts.Auth = &githttp.BasicAuth{Username: gitTokenUsername, Password: credential}
 	}
 	cloneCtx, cancel := context.WithTimeout(ctx, gitTimeout)
 	defer cancel()
