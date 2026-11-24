@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
@@ -90,6 +91,24 @@ func probeChunkCount(t *testing.T, db *gorm.DB, docID int64) int64 {
 	var n int64
 	require.NoError(t, db.Raw(`SELECT count(*) FROM chunks WHERE document_id = ?`, docID).Scan(&n).Error)
 	return n
+}
+
+// probeChunkCountsByFile 按文件统计分块数（验收回归 8-2 断言用）。
+func probeChunkCountsByFile(t *testing.T, db *gorm.DB, docID int64) map[string]int64 {
+	t.Helper()
+	type row struct {
+		FilePath string
+		N        int64
+	}
+	var rows []row
+	require.NoError(t, db.Raw(
+		`SELECT file_path, count(*) AS n FROM chunks WHERE document_id = ? GROUP BY file_path`, docID).
+		Scan(&rows).Error)
+	out := map[string]int64{}
+	for _, r := range rows {
+		out[r.FilePath] = r.N
+	}
+	return out
 }
 
 // TestProbeSyncWipesChunks 全量摄取 → 增量同步（文件内容未变）→ 分块必须原样保留。
@@ -191,4 +210,57 @@ func TestProbeSyncPartialChange(t *testing.T) {
 		require.NotZero(t, byFile[r.FilePath], "未变更文件 %s 的分块不得被清空", r.FilePath)
 	}
 	require.NotZero(t, byFile["a.md"], "变更文件 a.md 应有分块")
+}
+
+// TestProbeSyncClearsChunksWhenFileBecomesEmpty 验收回归 8-2：某文件被改成「切不出块」的内容
+// （典型：用户把文件清空）后，增量同步必须删掉该文件的旧分块，且不影响其它文件。
+//
+// 修复前全红：buildChunks 已更新该文件的 content_hash（后续 sync 会跳过它），
+// 而 embedAndStore 见 len(flat)==0 就当「本轮无变更文件」早退，DeleteChunksByFile 从未执行
+// → 已删除的内容永久可被检索命中。
+func TestProbeSyncClearsChunksWhenFileBecomesEmpty(t *testing.T) {
+	db := probeOpenDB(t)
+	ctx := context.Background()
+	userID, kbID := probeSeed(t, db, "probe-empty")
+
+	uploadDir := t.TempDir()
+	docs := repo.NewDocumentRepo(db)
+	p := worker.NewPipeline(docs, nil, &testutil.FakeCipher{}, &fakeResolver{}, &probeEmbedder{}, &fakeQueue{})
+	p.SetUploadDir(uploadDir)
+
+	d := &model.Document{KBID: kbID, Type: model.DocTypeUpload, Name: "probe-empty", Status: model.DocStatusPending, CreatedBy: userID, CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	require.NoError(t, docs.CreateDocument(ctx, d))
+	dir := filepath.Join(uploadDir, fmt.Sprint(d.KBID), fmt.Sprint(d.ID))
+	require.NoError(t, os.MkdirAll(dir, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.md"), []byte("# A\n\n内容甲。\n\n## A2\n\n甲二。\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "b.md"), []byte("# B\n\n内容乙。\n\n## B2\n\n乙二。\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "c.md"), []byte("# C\n\n内容丙。\n"), 0o600))
+
+	full := &model.IngestTask{DocumentID: d.ID, Type: model.TaskTypeFull, Status: model.TaskStatusQueued, CreatedAt: time.Now()}
+	require.NoError(t, docs.CreateTask(ctx, full))
+	require.NoError(t, p.Process(ctx, full.ID))
+
+	before := probeChunkCountsByFile(t, db, d.ID)
+	t.Logf("【全量后按文件分块】%+v", before)
+	require.Positive(t, before["a.md"], "a.md 应有分块")
+	require.Positive(t, before["b.md"])
+	require.Positive(t, before["c.md"])
+
+	// 把 a.md 清空（用户删除全部内容）→ 该文件切不出任何块
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.md"), []byte(""), 0o600))
+
+	syncTask := &model.IngestTask{DocumentID: d.ID, Type: model.TaskTypeSync, Status: model.TaskStatusQueued, CreatedAt: time.Now()}
+	require.NoError(t, docs.CreateTask(ctx, syncTask))
+	require.NoError(t, p.Process(ctx, syncTask.ID))
+
+	after := probeChunkCountsByFile(t, db, d.ID)
+	t.Logf("【a.md 清空后按文件分块】before=%v after=%v", before, after)
+
+	var status int16
+	require.NoError(t, db.Raw(`SELECT status FROM documents WHERE id = ?`, d.ID).Scan(&status).Error)
+	require.Equal(t, model.DocStatusReady, status, "同步后文档应仍为已就绪")
+
+	assert.Zero(t, after["a.md"], "a.md 已清空 → 旧分块必须被删除（否则旧内容永久可检索）")
+	assert.Equal(t, before["b.md"], after["b.md"], "b.md 未变更 → 分块数必须不变")
+	assert.Equal(t, before["c.md"], after["c.md"], "c.md 未变更 → 分块数必须不变")
 }

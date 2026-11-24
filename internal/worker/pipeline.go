@@ -402,6 +402,8 @@ func makeChunk(d *model.Document, fileID int64, filePath string, b rag.ChunkBloc
 //   - 全量摄取：整篇替换（ReplaceDocumentChunks，事务内先删后插，重建期间读请求只看旧快照）。
 //   - 增量同步：逐文件「先 embed 成功 → 再删旧块 → 插新块」，未变更文件的分块完全不动（P0-1）；
 //     顺序很关键：embedding 失败时必须保留旧块，否则「同步期间问答使用旧内容不受影响」不成立。
+//   - 增量同步且本轮无任何待向量化块：只要有变更文件（groups 非空）就仍按其路径删旧块
+//     （变更后切不出块的文件必须清空旧块），groups 为空才是「本轮无变更文件」。
 func (p *Pipeline) embedAndStore(ctx context.Context, d *model.Document, groups []chunkGroup, isSync bool) error {
 	// flat 指向各组底层的元素，向量回填无需二次拷贝
 	var flat []*model.Chunk
@@ -412,7 +414,15 @@ func (p *Pipeline) embedAndStore(ctx context.Context, d *model.Document, groups 
 	}
 	if len(flat) == 0 {
 		if isSync {
-			return nil // 本轮无变更文件：既有分块原样保留（旧实现在此整篇清空）
+			// 本轮没有需要向量化的块，但 groups 非空说明有「变更后切不出块」的文件（典型：内容被清空）。
+			// 此时 content_hash 已更新、后续 sync 会跳过该文件，必须在这里删掉它的旧块，
+			// 否则已删除的内容永久可被检索命中（验收回归 8-2）。
+			for _, g := range groups {
+				if err := p.docs.DeleteChunksByFile(ctx, d.ID, g.filePath); err != nil {
+					return err
+				}
+			}
+			return nil // 其余文件无变更：既有分块原样保留（旧实现在此整篇清空）
 		}
 		return p.docs.ReplaceDocumentChunks(ctx, d.ID, nil)
 	}
