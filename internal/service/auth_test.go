@@ -233,3 +233,34 @@ func TestAdminSetAdminLastAdminProtection(t *testing.T) {
 	assert.Equal(t, service.CodeUserLastAdmin, svcErr(t, err).Code)
 	assert.True(t, env.Users.Snapshot("root").IsAdmin)
 }
+
+// P0-3 回归：禁用一名管理员后，撤销另一名（唯一**可用**）管理员必须 USER_003。
+// 旧实现 CountAdmins 不过滤 status，禁用保留 is_admin=true → 系统可用管理员会降到 0（后台永久锁死）。
+func TestAdminRevokeAfterDisableLastAdmin(t *testing.T) {
+	env := testutil.NewTestEnv(t, nil)
+	ctx := context.Background()
+	a := env.SeedUser(t, "rootA", "password8", true)
+	_, b, err := env.AdminSvc.Create(ctx, a.ID, "rootB", "password8", true, "ip")
+	require.NoError(t, err)
+
+	// 禁用 B：B 仍 is_admin=true，但 status=2（不可用）
+	require.NoError(t, env.AdminSvc.SetStatus(ctx, a.ID, b.ID, true, "ip"), "禁用 B")
+	assert.False(t, env.Users.Snapshot("rootB").IsAdmin && env.Users.Snapshot("rootB").Status == model.UserStatusActive,
+		"禁用后 B 不再计入可用管理员")
+
+	// 撤销 A（此时唯一可用管理员）→ USER_003，且 A 仍是管理员
+	err = env.AdminSvc.SetAdmin(ctx, a.ID, a.ID, false, "ip")
+	assert.Equal(t, service.CodeUserLastAdmin, svcErr(t, err).Code, "撤销唯一可用管理员应 USER_003")
+	assert.True(t, env.Users.Snapshot("rootA").IsAdmin, "撤销应被拒绝")
+
+	// 重复禁用已禁用用户是幂等操作，不得被最后管理员保护误拦
+	require.NoError(t, env.AdminSvc.SetStatus(ctx, a.ID, b.ID, true, "ip"), "重复禁用已禁用用户应放行")
+
+	// 新增第二名可用管理员后，撤销 A 才允许
+	_, c, err := env.AdminSvc.Create(ctx, a.ID, "rootC", "password8", true, "ip")
+	require.NoError(t, err)
+	require.NoError(t, env.AdminSvc.SetAdmin(ctx, a.ID, a.ID, false, "ip"), "仍有可用管理员时应允许撤销")
+	assert.False(t, env.Users.Snapshot("rootA").IsAdmin)
+	assert.True(t, env.Users.Snapshot("rootC").IsAdmin)
+	assert.Equal(t, c.ID, env.Users.Snapshot("rootC").ID)
+}

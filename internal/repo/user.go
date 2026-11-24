@@ -27,9 +27,14 @@ func (r *UserRepo) Count(ctx context.Context) (int64, error) {
 	return n, err
 }
 
+// CountAdmins 「可用管理员」计数：只数 is_admin=true 且 status=1（启用）。
+// 禁用会保留 is_admin=true（数据保留），故必须过滤 status，否则「最后一个管理员」保护
+// 会把已禁用管理员也算作有效管理员，导致系统可用管理员降到 0、后台永久锁死（P0-3）。
 func (r *UserRepo) CountAdmins(ctx context.Context) (int64, error) {
 	var n int64
-	err := r.dbx(ctx).Model(&model.User{}).Where("is_admin = ?", true).Count(&n).Error
+	err := r.dbx(ctx).Model(&model.User{}).
+		Where("is_admin = ? AND status = ?", true, model.UserStatusActive).
+		Count(&n).Error
 	return n, err
 }
 

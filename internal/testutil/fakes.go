@@ -45,6 +45,8 @@ func (f *FakeUserRepo) Count(context.Context) (int64, error) {
 	return int64(len(f.byName)), nil
 }
 
+// CountAdmins 「可用管理员」计数，与 repo.UserRepo 同口径（is_admin=true 且 status=1）。
+// 替身必须与真实现一致，否则「禁用 × 撤权」的组合态缺陷在单测里原理上不可测（P0-3 / 审计 §3.4）。
 func (f *FakeUserRepo) CountAdmins(context.Context) (int64, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -53,7 +55,7 @@ func (f *FakeUserRepo) CountAdmins(context.Context) (int64, error) {
 	}
 	var n int64
 	for _, u := range f.byName {
-		if u.IsAdmin {
+		if u.IsAdmin && u.Status == model.UserStatusActive {
 			n++
 		}
 	}

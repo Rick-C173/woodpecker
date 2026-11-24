@@ -124,8 +124,9 @@ func (s *UserAdminService) SetStatus(ctx context.Context, actorID, targetID int6
 		if targetID == actorID {
 			return NewServiceError(CodeUserSelfDisable, "不能禁用自己")
 		}
-		if target.IsAdmin {
-			admins, err := s.users.CountAdmins(ctx)
+		// 只对「当前可用」的管理员做最后一名保护；重复禁用已禁用用户是幂等操作。
+		if target.IsAdmin && target.Status == model.UserStatusActive {
+			admins, err := s.users.CountAdmins(ctx) // 已过滤 status=1（P0-3）
 			if err != nil {
 				return err
 			}
@@ -156,13 +157,15 @@ func (s *UserAdminService) SetStatus(ctx context.Context, actorID, targetID int6
 }
 
 // SetAdmin 设/撤管理员（FR-13）：最后一个管理员不可被降级。
+// 判断依据为「可用管理员」（is_admin=true 且 status=1）：已禁用管理员不构成可用管理员，
+// 撤销唯一可用管理员必须返回 USER_003，否则系统会变成 0 个可用管理员（P0-3）。
 func (s *UserAdminService) SetAdmin(ctx context.Context, actorID, targetID int64, makeAdmin bool, ip string) error {
 	target, err := s.users.GetByID(ctx, targetID)
 	if err != nil {
 		return NewServiceError(CodeNotFound, "用户不存在")
 	}
 	if !makeAdmin && target.IsAdmin {
-		admins, err := s.users.CountAdmins(ctx)
+		admins, err := s.users.CountAdmins(ctx) // 已过滤 status=1（P0-3）
 		if err != nil {
 			return err
 		}
