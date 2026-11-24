@@ -24,6 +24,9 @@ const (
 	chatMaxAttempts   = 2    // 回答生成次数上限（引用编号越界时重试一次）
 )
 
+// persistTimeout 落库超时：客户端断开后 ctx 已取消，落库必须脱离该取消信号（P0-2）。
+const persistTimeout = 5 * time.Second
+
 // ChatEvent SSE 事件（handler 序列化为 event/data 帧）。
 type ChatEvent struct {
 	Type             string         `json:"type"` // delta | citations | done | error
@@ -415,12 +418,17 @@ func (s *ChatService) askCore(ctx context.Context, c *model.Conversation, questi
 		promptTokens := utf8.RuneCountInString(buildChatPrompt(hist.String(), question)) + utf8.RuneCountInString(buildChatSystem(hits))
 		completionTokens := utf8.RuneCountInString(answer)
 
-		// done 时才写库（API设计.md §4）；中断标记 interrupted
+		// done 时才写库（API设计.md §4）；中断标记 interrupted。
+		// 客户端断开后入参 ctx 已被取消，若沿用同一个 ctx 落库，database/sql 会立即返回
+		// context canceled，「已生成部分保留 + interrupted=true」就永远不成立（P0-2）。
+		// 故落库走脱离取消信号的 persistCtx（保留 ctx 的 value/trace，仅去掉取消与超时）。
 		interrupted := ctx.Err() != nil
+		persistCtx, cancelPersist := context.WithTimeout(context.WithoutCancel(ctx), persistTimeout)
+		defer cancelPersist()
 		now := s.now()
 		var savedMsgID int64
 		if replaceMsgID > 0 {
-			m, gerr := s.store.GetMessageByID(ctx, replaceMsgID)
+			m, gerr := s.store.GetMessageByID(persistCtx, replaceMsgID)
 			if gerr != nil {
 				emit(ChatEvent{Type: "error", Code: "INTERNAL", Message: gerr.Error()})
 				return
@@ -430,11 +438,11 @@ func (s *ChatService) askCore(ctx context.Context, c *model.Conversation, questi
 			m.PromptTokens = &promptTokens
 			m.CompletionTokens = &completionTokens
 			m.ModelEntryID = modelEntryID(cfg)
-			if gerr := s.store.SaveMessage(ctx, m); gerr != nil {
+			if gerr := s.store.SaveMessage(persistCtx, m); gerr != nil {
 				emit(ChatEvent{Type: "error", Code: "INTERNAL", Message: gerr.Error()})
 				return
 			}
-			if gerr := s.store.ReplaceCitations(ctx, replaceMsgID, citationModels(replaceMsgID, cites)); gerr != nil {
+			if gerr := s.store.ReplaceCitations(persistCtx, replaceMsgID, citationModels(replaceMsgID, cites)); gerr != nil {
 				emit(ChatEvent{Type: "error", Code: "INTERNAL", Message: gerr.Error()})
 				return
 			}
@@ -445,11 +453,11 @@ func (s *ChatService) askCore(ctx context.Context, c *model.Conversation, questi
 				Interrupted: interrupted, PromptTokens: &promptTokens, CompletionTokens: &completionTokens,
 				ModelEntryID: modelEntryID(cfg), CreatedAt: now,
 			}
-			if gerr := s.store.CreateMessage(ctx, m); gerr != nil {
+			if gerr := s.store.CreateMessage(persistCtx, m); gerr != nil {
 				emit(ChatEvent{Type: "error", Code: "INTERNAL", Message: gerr.Error()})
 				return
 			}
-			if gerr := s.store.ReplaceCitations(ctx, m.ID, citationModels(m.ID, cites)); gerr != nil {
+			if gerr := s.store.ReplaceCitations(persistCtx, m.ID, citationModels(m.ID, cites)); gerr != nil {
 				emit(ChatEvent{Type: "error", Code: "INTERNAL", Message: gerr.Error()})
 				return
 			}

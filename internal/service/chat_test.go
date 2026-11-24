@@ -107,7 +107,12 @@ func (f *fakeConvStore) DeleteConversation(_ context.Context, id int64) error {
 	return nil
 }
 
-func (f *fakeConvStore) CreateMessage(_ context.Context, m *model.Message) error {
+// CreateMessage 尊重 ctx：已取消/已超时立即返回错误，与真库 database/sql 行为一致
+// （否则「断连后落库」的缺陷在单测里永远不可见，见审计 §3.4）。
+func (f *fakeConvStore) CreateMessage(ctx context.Context, m *model.Message) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	m.ID = f.nextMsg + 1
@@ -117,7 +122,10 @@ func (f *fakeConvStore) CreateMessage(_ context.Context, m *model.Message) error
 	return nil
 }
 
-func (f *fakeConvStore) SaveMessage(_ context.Context, m *model.Message) error {
+func (f *fakeConvStore) SaveMessage(ctx context.Context, m *model.Message) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.ErrOnSaveMsg != nil {
@@ -187,7 +195,10 @@ func (f *fakeConvStore) LastMessages(_ context.Context, conversationID int64, n 
 	return out, nil
 }
 
-func (f *fakeConvStore) ReplaceCitations(_ context.Context, messageID int64, cs []model.MessageCitation) error {
+func (f *fakeConvStore) ReplaceCitations(ctx context.Context, messageID int64, cs []model.MessageCitation) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.cites[messageID] = cs
