@@ -392,7 +392,7 @@ func TestAskEventSequenceWithCitations(t *testing.T) {
 		{ChunkID: 11, DocumentID: 5, FilePath: strPtr6("internal/handler/auth.go"), LineStart: intptr6(45), LineEnd: intptr6(62), Content: "func Login"},
 		{ChunkID: 12, DocumentID: 5, HeadingPath: strPtr6("指南/限流"), Content: "限流实现"},
 	}}
-	stream := &fakeChatStream{deltas: []string{"该接口在 ", "internal/handler 中实现"}}
+	stream := &fakeChatStream{deltas: []string{"该接口在 ", "internal/handler 中实现 [1]"}}
 	svc := newChatSvc(store, &fakeChatMembers{role: 1}, stream, &fakeChatResolver{}, search)
 
 	events, err := svc.Ask(context.Background(), c.ID, 100, false, "登录怎么实现的")
@@ -406,25 +406,26 @@ func TestAskEventSequenceWithCitations(t *testing.T) {
 	assert.Equal(t, "citations", got[2].Type)
 	assert.Equal(t, "done", got[3].Type)
 	assert.Equal(t, "该接口在 ", got[0].Content)
-	require.Len(t, got[2].Items, 2)
+	// 回答只引用了 [1] → 只发 1 条（审计 P1-16：不再无条件发全部命中）
+	require.Len(t, got[2].Items, 1)
 	assert.Equal(t, 1, got[2].Items[0].Seq)
 	assert.Equal(t, "internal/handler/auth.go", *got[2].Items[0].FilePath)
 	assert.Positive(t, got[3].MessageID)
 	assert.Positive(t, got[3].PromptTokens)
 	assert.Positive(t, got[3].CompletionTokens)
 
-	// 落库：user + assistant 消息、引用 2 条、溯源 entry_id
+	// 落库：user + assistant 消息、引用 1 条（与 SSE 同一份 cites）、溯源 entry_id
 	msgs, _ := store.ListMessages(context.Background(), c.ID)
 	require.Len(t, msgs, 2)
 	assert.Equal(t, model.MsgRoleUser, msgs[0].Role)
 	ans := msgs[1]
 	assert.Equal(t, model.MsgRoleAssistant, ans.Role)
-	assert.Equal(t, "该接口在 internal/handler 中实现", ans.Content)
+	assert.Equal(t, "该接口在 internal/handler 中实现 [1]", ans.Content)
 	assert.False(t, ans.Interrupted)
 	require.NotNil(t, ans.ModelEntryID)
 	assert.Equal(t, int64(7), *ans.ModelEntryID)
 	cites := store.cites[ans.ID]
-	require.Len(t, cites, 2)
+	require.Len(t, cites, 1)
 	assert.Equal(t, int64(11), cites[0].ChunkID)
 
 	// 标题缺省取首条提问摘要（FR-09）
@@ -544,7 +545,7 @@ func TestRegenerateReplacesAnswer(t *testing.T) {
 		{MessageID: old.ID, DocumentID: 99, Seq: 1, ChunkID: 1},
 	})
 
-	stream := &fakeChatStream{deltas: []string{"新回答"}}
+	stream := &fakeChatStream{deltas: []string{"新回答 [1]"}}
 	search := &fakeChatSearch{hits: []service.SearchItem{{ChunkID: 20, DocumentID: 3, Content: "限流资料"}}}
 	svc := newChatSvc(store, &fakeChatMembers{role: 1}, stream, &fakeChatResolver{}, search)
 
@@ -562,7 +563,7 @@ func TestRegenerateReplacesAnswer(t *testing.T) {
 	assert.Equal(t, q.ID, msgs[0].ID)
 	assert.Equal(t, "什么是限流", msgs[0].Content)
 	assert.Equal(t, old.ID, msgs[1].ID)
-	assert.Equal(t, "新回答", msgs[1].Content)
+	assert.Equal(t, "新回答 [1]", msgs[1].Content)
 	assert.False(t, msgs[1].Interrupted)
 
 	// 引用被替换
@@ -682,6 +683,97 @@ func TestFeedbackRules(t *testing.T) {
 	require.NoError(t, svc.DeleteFeedback(ctx, a.ID, 100))
 	fb, _ = store.GetFeedbackByUser(ctx, a.ID, 100)
 	assert.Nil(t, fb)
+}
+
+// ---- 引用与回答脱钩（审计 P1-16）：只发回答里真正标注过的命中 ----
+
+// 回答只引用 [2] → 只落 1 条引用、seq=1、内容对应 hits[1]。
+func TestAskCitationsOnlyReferencedHits(t *testing.T) {
+	store := newFakeConvStore()
+	c := store.conv(100)
+	search := &fakeChatSearch{hits: []service.SearchItem{
+		{ChunkID: 11, DocumentID: 5, FilePath: strPtr6("a.go"), Content: "资料一"},
+		{ChunkID: 12, DocumentID: 5, FilePath: strPtr6("b.go"), Content: "资料二"},
+		{ChunkID: 13, DocumentID: 5, FilePath: strPtr6("c.go"), Content: "资料三"},
+	}}
+	stream := &fakeChatStream{deltas: []string{"依据见第 ", "[2] 段"}}
+	svc := newChatSvc(store, &fakeChatMembers{role: 1}, stream, &fakeChatResolver{}, search)
+
+	events, err := svc.Ask(context.Background(), c.ID, 100, false, "问题")
+	require.NoError(t, err)
+	got := drainEvents(t, events)
+
+	var cites []service.CitationItem
+	for _, e := range got {
+		if e.Type == "citations" {
+			cites = e.Items
+		}
+	}
+	require.Len(t, cites, 1, "只发被引用的命中")
+	assert.Equal(t, 1, cites[0].Seq, "按回答出现顺序从 1 重新编号")
+	assert.Equal(t, int64(12), cites[0].ChunkID, "内容对应 hits[1]")
+	assert.Equal(t, "资料二", cites[0].Snippet)
+
+	// 落库与 SSE 同一份 cites
+	msgs, _ := store.ListMessages(context.Background(), c.ID)
+	require.Len(t, msgs, 2)
+	saved := store.cites[msgs[1].ID]
+	require.Len(t, saved, 1)
+	assert.Equal(t, int64(12), saved[0].ChunkID)
+	assert.Equal(t, 1, saved[0].Seq)
+}
+
+// 检索有命中但回答一个 [n] 都没用 → citations 为空、不发 citations 帧、库里无引用行。
+func TestAskNoCitationsWhenAnswerHasNoRefs(t *testing.T) {
+	store := newFakeConvStore()
+	c := store.conv(100)
+	search := &fakeChatSearch{hits: []service.SearchItem{
+		{ChunkID: 11, DocumentID: 5, FilePath: strPtr6("a.go"), Content: "资料一"},
+		{ChunkID: 12, DocumentID: 5, FilePath: strPtr6("b.go"), Content: "资料二"},
+	}}
+	stream := &fakeChatStream{deltas: []string{"这段回答没有标注任何编号"}}
+	svc := newChatSvc(store, &fakeChatMembers{role: 1}, stream, &fakeChatResolver{}, search)
+
+	events, err := svc.Ask(context.Background(), c.ID, 100, false, "问题")
+	require.NoError(t, err)
+	got := drainEvents(t, events)
+
+	require.Len(t, got, 2, "delta + done，不发 citations 帧")
+	assert.Equal(t, "delta", got[0].Type)
+	assert.Equal(t, "done", got[1].Type)
+
+	msgs, _ := store.ListMessages(context.Background(), c.ID)
+	require.Len(t, msgs, 2)
+	assert.Empty(t, store.cites[msgs[1].ID], "未引用的命中不落库")
+}
+
+// 回答引用 [1][1][3]（含重复）→ 2 条引用、seq 1/2、顺序为 1 再 3。
+func TestAskCitationsDedupAndReorder(t *testing.T) {
+	store := newFakeConvStore()
+	c := store.conv(100)
+	search := &fakeChatSearch{hits: []service.SearchItem{
+		{ChunkID: 11, DocumentID: 5, FilePath: strPtr6("a.go"), Content: "资料一"},
+		{ChunkID: 12, DocumentID: 5, FilePath: strPtr6("b.go"), Content: "资料二"},
+		{ChunkID: 13, DocumentID: 5, FilePath: strPtr6("c.go"), Content: "资料三"},
+	}}
+	stream := &fakeChatStream{deltas: []string{"先看 [1]，再看 [1]，最后 [3]"}}
+	svc := newChatSvc(store, &fakeChatMembers{role: 1}, stream, &fakeChatResolver{}, search)
+
+	events, err := svc.Ask(context.Background(), c.ID, 100, false, "问题")
+	require.NoError(t, err)
+	got := drainEvents(t, events)
+
+	var cites []service.CitationItem
+	for _, e := range got {
+		if e.Type == "citations" {
+			cites = e.Items
+		}
+	}
+	require.Len(t, cites, 2, "重复编号去重")
+	assert.Equal(t, 1, cites[0].Seq)
+	assert.Equal(t, int64(11), cites[0].ChunkID)
+	assert.Equal(t, 2, cites[1].Seq)
+	assert.Equal(t, int64(13), cites[1].ChunkID)
 }
 
 // ---- 多轮上下文 ----

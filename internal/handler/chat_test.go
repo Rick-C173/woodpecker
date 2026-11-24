@@ -347,7 +347,7 @@ func TestChatSSEFlow(t *testing.T) {
 	require.Len(t, msgs, 2)
 	ans, _ := msgs[1].(map[string]any)
 	assert.Equal(t, "assistant", ans["role"])
-	assert.Equal(t, "回答内容", ans["content"])
+	assert.Equal(t, "回答内容 [1]", ans["content"])
 	cites, _ := ans["citations"].([]any)
 	require.Len(t, cites, 1)
 	c0, _ := cites[0].(map[string]any)

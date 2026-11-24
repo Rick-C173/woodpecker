@@ -53,7 +53,7 @@ func setup(t *testing.T) *hEnv {
 	searchSvc := service.NewSearchService(searchStore, &fakeSearchResolverHandler{}, &fakeSearchEmbedderHandler{}, nil)
 	// M6：会话问答 handler（fake 存储与流式器）
 	chatStore := newFakeChatStore()
-	chatStream := &fakeChatStreamH{deltas: []string{"回答内容"}}
+	chatStream := &fakeChatStreamH{deltas: []string{"回答内容 [1]"}} // 带 [1] 才会产生引用（审计 P1-16）
 	chatSearch := &fakeChatSearchH{}
 	chatSvc := service.NewChatService(chatStore, env.KBs, &fakeChatResolverH{}, chatStream, chatSearch)
 	// M7：系统设置与审计/反馈查询 handler（fake 查询仓储）

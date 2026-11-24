@@ -413,8 +413,10 @@ func (s *ChatService) askCore(ctx context.Context, c *model.Conversation, questi
 			// 回答引用了超出资料范围的编号 → 重新生成一次
 		}
 
-		// 引用事件（检索有结果才发；依据不足时模型自述且不发引用——引用以检索命中为准）
-		cites := citationsOf(hits)
+		// 引用事件：只发回答里真正标注过的 [n]（审计 P1-16）。
+		// 回答未引用任何命中（含「未找到足够依据」自述）→ cites 为空 → 不发明细帧；
+		// 落库与 SSE 使用同一份 cites，避免「库里 5 条、前端 1 条」的不一致。
+		cites := citationsOf(answer, hits)
 		promptTokens := utf8.RuneCountInString(buildChatPrompt(hist.String(), question)) + utf8.RuneCountInString(buildChatSystem(hits))
 		completionTokens := utf8.RuneCountInString(answer)
 
@@ -561,10 +563,17 @@ func citationLoc(h SearchItem) string {
 	return "未知来源"
 }
 
-// citationsOf 检索命中 → 引用条目（含片段快照）。
-func citationsOf(hits []SearchItem) []CitationItem {
-	items := make([]CitationItem, 0, len(hits))
-	for i, h := range hits {
+// citationsOf 回答中被引用的检索命中 → 引用条目（审计 P1-16）。
+//
+// 旧实现无条件把全部命中（≤5 条）当作引用发送、Seq 按检索排名编号，
+// 与回答正文里的 [n] 完全脱钩：回答只用 [2] 时前端仍展示 5 条、且编号对不上。
+// 新语义：只取回答中标注过且未越界的编号，Seq 按「回答中首次出现顺序」从 1 重新编号，
+// 未被引用的命中一律不发（Seq 与正文 [n] 的对应关系由前端按 seq 展示，故必须重排）。
+func citationsOf(answer string, hits []SearchItem) []CitationItem {
+	refs := parseCitationRefs(answer, len(hits))
+	items := make([]CitationItem, 0, len(refs))
+	for i, ref := range refs {
+		h := hits[ref-1] // ref 是资料编号（1 基），转成 hits 下标
 		items = append(items, CitationItem{
 			Seq: i + 1, DocumentID: h.DocumentID, ChunkID: h.ChunkID,
 			FilePath: h.FilePath, LineStart: h.LineStart, LineEnd: h.LineEnd,
@@ -604,22 +613,62 @@ func citationItem(r repo.CitationRow) CitationItem {
 // citationRefRe 回答中的引用标注 [编号]。
 var citationRefRe = regexp.MustCompile(`\[(\d+)\]`)
 
-// hasOutOfBoundsCitation 回答中的 [编号] 是否超出资料范围（输出校验，FR-07）。
-func hasOutOfBoundsCitation(answer string, n int) bool {
+// citationRefNumbers 回答中所有 [n] 标记的编号序列（去重前，按出现顺序；非法数字丢弃）。
+func citationRefNumbers(answer string) []int {
 	matches := citationRefRe.FindAllStringSubmatch(answer, -1)
-	if len(matches) == 0 {
+	nums := make([]int, 0, len(matches))
+	for _, m := range matches {
+		num, err := strconv.Atoi(m[1])
+		if err != nil {
+			continue
+		}
+		nums = append(nums, num)
+	}
+	return nums
+}
+
+// parseCitationRefs 从回答正文提取 [n] 引用标记，按首次出现顺序去重，
+// 过滤越界编号（n < 1 || n > max），返回编号序列（n 本身，不是 hits 下标）。
+// max 为资料条数；max <= 0 表示本次没有资料，任何编号都视为越界（返回空）。
+func parseCitationRefs(answer string, max int) []int {
+	if max <= 0 {
+		return nil
+	}
+	nums := citationRefNumbers(answer)
+	if len(nums) == 0 {
+		return nil
+	}
+	seen := make(map[int]struct{}, len(nums))
+	refs := make([]int, 0, len(nums))
+	for _, num := range nums {
+		if num < 1 || num > max {
+			continue // 越界编号不产生引用（由输出校验触发重新生成）
+		}
+		if _, dup := seen[num]; dup {
+			continue
+		}
+		seen[num] = struct{}{}
+		refs = append(refs, num)
+	}
+	return refs
+}
+
+// hasOutOfBoundsCitation 回答中的 [编号] 是否超出资料范围（输出校验，FR-07）。
+// 复用 parseCitationRefs 的过滤规则：正文里出现过的不同编号数与过滤后的有效编号数
+// 不一致，说明模型引用了不存在的资料 → 需要重新生成一次。
+func hasOutOfBoundsCitation(answer string, n int) bool {
+	nums := citationRefNumbers(answer)
+	if len(nums) == 0 {
 		return false
 	}
 	if n == 0 {
 		return true // 无资料时不应出现任何编号引用
 	}
-	for _, m := range matches {
-		num, err := strconv.Atoi(m[1])
-		if err != nil || num < 1 || num > n {
-			return true
-		}
+	distinct := make(map[int]struct{}, len(nums))
+	for _, num := range nums {
+		distinct[num] = struct{}{}
 	}
-	return false
+	return len(distinct) != len(parseCitationRefs(answer, n))
 }
 
 // codeOfModel 模型配置错误码映射（MODEL_001 等透传，其余 LLM_001）。
