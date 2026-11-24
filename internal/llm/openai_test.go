@@ -102,8 +102,8 @@ func TestEmbed(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, vecs, 2)
 	require.Len(t, vecs[0], dims)
-	assert.Equal(t, float32(1), vecs[0][0])
-	assert.Equal(t, float32(3), vecs[1][0])
+	assert.InDelta(t, float32(1), vecs[0][0], 1e-6)
+	assert.InDelta(t, float32(3), vecs[1][0], 1e-6)
 
 	// 数量不符 → ErrBadResponse
 	ts2 := mockOpenAI(t, func(w http.ResponseWriter, _ *http.Request) {
@@ -123,7 +123,7 @@ func TestEmbed(t *testing.T) {
 func TestEmbedSendsDimensions(t *testing.T) {
 	var body map[string]any
 	ts := mockOpenAI(t, func(w http.ResponseWriter, r *http.Request) {
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		assert.NoError(t, json.NewDecoder(r.Body).Decode(&body))
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintf(w, `{"data":[{"index":0,"embedding":%s}]}`, vecJSON(1536, 1))
 	})
@@ -168,7 +168,7 @@ func TestEmbedDimensionMismatch(t *testing.T) {
 func TestEmbedNoDimensionsInParams(t *testing.T) {
 	var body map[string]any
 	ts := mockOpenAI(t, func(w http.ResponseWriter, r *http.Request) {
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		assert.NoError(t, json.NewDecoder(r.Body).Decode(&body))
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintf(w, `{"data":[{"index":0,"embedding":%s}]}`, vecJSON(1024, 1))
 	})
@@ -215,7 +215,7 @@ func TestRerank(t *testing.T) {
 func TestRerankTopNFromParams(t *testing.T) {
 	var body map[string]any
 	ts := mockOpenAI(t, func(w http.ResponseWriter, r *http.Request) {
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		assert.NoError(t, json.NewDecoder(r.Body).Decode(&body))
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprint(w, `{"results":[{"index":0,"relevance_score":0.9}]}`)
 	})

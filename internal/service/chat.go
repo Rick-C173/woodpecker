@@ -628,10 +628,10 @@ func citationRefNumbers(answer string) []int {
 }
 
 // parseCitationRefs 从回答正文提取 [n] 引用标记，按首次出现顺序去重，
-// 过滤越界编号（n < 1 || n > max），返回编号序列（n 本身，不是 hits 下标）。
-// max 为资料条数；max <= 0 表示本次没有资料，任何编号都视为越界（返回空）。
-func parseCitationRefs(answer string, max int) []int {
-	if max <= 0 {
+// 过滤越界编号（n < 1 || n > maxRef），返回编号序列（n 本身，不是 hits 下标）。
+// maxRef 为资料条数；maxRef <= 0 表示本次没有资料，任何编号都视为越界（返回空）。
+func parseCitationRefs(answer string, maxRef int) []int {
+	if maxRef <= 0 {
 		return nil
 	}
 	nums := citationRefNumbers(answer)
@@ -641,7 +641,7 @@ func parseCitationRefs(answer string, max int) []int {
 	seen := make(map[int]struct{}, len(nums))
 	refs := make([]int, 0, len(nums))
 	for _, num := range nums {
-		if num < 1 || num > max {
+		if num < 1 || num > maxRef {
 			continue // 越界编号不产生引用（由输出校验触发重新生成）
 		}
 		if _, dup := seen[num]; dup {
