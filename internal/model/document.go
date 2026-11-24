@@ -87,6 +87,9 @@ type DocumentFile struct {
 func (DocumentFile) TableName() string { return "document_files" }
 
 // IngestTask 摄取任务（全量/增量），支持重试计数。
+//
+// WorkerID 为任务归属实例（配置 WORKER_ID，迁移 000005）：入队时为 NULL，worker 开始处理时
+// 写入自己的标识；重启恢复只清理「本实例」的残留，避免多实例互杀（审计 P1-8）。
 type IngestTask struct {
 	ID         int64      `gorm:"primaryKey;column:id"`
 	DocumentID int64      `gorm:"column:document_id"`
@@ -95,6 +98,7 @@ type IngestTask struct {
 	Retries    int        `gorm:"column:retries"`
 	Error      *string    `gorm:"column:error"`
 	Payload    []byte     `gorm:"column:payload;type:jsonb"`
+	WorkerID   *string    `gorm:"column:worker_id;size:100"`
 	CreatedAt  time.Time  `gorm:"column:created_at"`
 	StartedAt  *time.Time `gorm:"column:started_at"`
 	FinishedAt *time.Time `gorm:"column:finished_at"`

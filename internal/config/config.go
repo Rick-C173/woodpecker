@@ -69,6 +69,11 @@ type Config struct {
 
 	// 摄取（M4）：上传文件落地目录
 	UploadDir string
+
+	// WorkerID 摄取 worker 标识（审计 P1-8）。任务开始处理时写入 ingest_tasks.worker_id，
+	// 重启恢复只清理「本标识」的残留任务。多实例部署（含同主机多容器）**必须各自配置唯一值**，
+	// 缺省取主机名：同主机多容器会得到相同的值，退化为互相清理对方任务。
+	WorkerID string
 }
 
 // Load 读取配置：.env 文件（存在则加载，不覆盖已有环境变量）→ 环境变量 → 默认值。
@@ -103,6 +108,8 @@ func Load() *Config {
 		DBConnMaxLifetimeMinutes: envInt("DB_CONN_MAX_LIFETIME_MINUTES", 30),
 
 		UploadDir: envStr("UPLOAD_DIR", "data/uploads"),
+
+		WorkerID: envStr("WORKER_ID", DefaultWorkerID()),
 	}
 	if cfg.JWTSecret == "" {
 		if cfg.IsProduction() {
@@ -162,6 +169,20 @@ func envStr(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// DefaultWorkerID 缺省 worker 标识：主机名（审计 P1-8）。worker 包组装 Pipeline 时复用本函数，
+// 保证「缺省值」只有一处定义。
+// 取不到主机名时回落固定值并告警——不可留空，否则重启恢复会退化为清理 worker_id IS NULL 的分支，
+// 把所有「刚入队尚未被消费」的任务一并置失败。
+func DefaultWorkerID() string {
+	if h, err := os.Hostname(); err == nil {
+		if h = strings.TrimSpace(h); h != "" {
+			return h
+		}
+	}
+	slog.Warn("无法获取主机名，WORKER_ID 回落为 worker-unknown；多实例部署必须显式配置 WORKER_ID")
+	return "worker-unknown"
 }
 
 func envInt(key string, def int) int {
