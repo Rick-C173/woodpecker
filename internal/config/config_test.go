@@ -4,11 +4,12 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func clearEnv(t *testing.T) {
 	t.Helper()
-	for _, k := range []string{"APP_PORT", "DATABASE_URL", "REDIS_ADDR", "JWT_SECRET", "ENCRYPTION_KEY", "LOG_LEVEL", "CORS_ORIGINS",
+	for _, k := range []string{"APP_ENV", "APP_PORT", "DATABASE_URL", "REDIS_ADDR", "JWT_SECRET", "ENCRYPTION_KEY", "LOG_LEVEL", "CORS_ORIGINS",
 		"RATE_LIMIT_PER_MIN", "PASSWORD_MIN_LEN", "PASSWORD_LOCK_THRESHOLD", "PASSWORD_LOCK_MINUTES", "INITIAL_PASSWORD_LEN",
 		"DB_MAX_OPEN_CONNS", "DB_MAX_IDLE_CONNS", "DB_CONN_MAX_LIFETIME_MINUTES",
 		"BANNER_ENABLED", "LOG_TO_FILE", "LOG_FILE_PATH", "UPLOAD_DIR"} {
@@ -110,4 +111,79 @@ func TestLoadBannerAndLogSwitches(t *testing.T) {
 	cfg = Load()
 	assert.True(t, cfg.BannerEnabled, "非法布尔应回退默认（开）")
 	assert.False(t, cfg.LogToFile, "非法布尔应回退默认（关）")
+}
+
+// TestEnvDefaultsAndIsProduction 运行环境读取与判定（审计 P1-5）。
+func TestEnvDefaultsAndIsProduction(t *testing.T) {
+	clearEnv(t)
+	cfg := Load()
+	assert.Equal(t, EnvDevelopment, cfg.Env, "APP_ENV 缺省 development")
+	assert.False(t, cfg.IsProduction())
+	require.NoError(t, cfg.Validate(), "开发环境不做密钥强校验")
+
+	for _, env := range []string{"production", "PROD", " production "} {
+		clearEnv(t)
+		t.Setenv("APP_ENV", env)
+		cfg = Load()
+		assert.True(t, cfg.IsProduction(), "APP_ENV=%q 应判定为生产", env)
+	}
+
+	clearEnv(t)
+	t.Setenv("APP_ENV", "staging")
+	assert.False(t, Load().IsProduction(), "非 production/prod 不算生产")
+}
+
+// TestValidateProductionRequiresSecrets 生产缺密钥必须拒绝启动（修复前仅 Warn 后继续跑）。
+func TestValidateProductionRequiresSecrets(t *testing.T) {
+	cases := []struct {
+		name string
+		jwt  string
+		enc  string
+		want string
+	}{
+		{name: "两者皆空", jwt: "", enc: "", want: "JWT_SECRET"},
+		{name: "缺加密密钥", jwt: "a-strong-jwt-secret-value-32bytes!", enc: "", want: "ENCRYPTION_KEY"},
+		{name: "缺签名密钥", jwt: "", enc: "0123456789abcdef0123456789abcdef", want: "JWT_SECRET"},
+		{name: "加密密钥过弱", jwt: "a-strong-jwt-secret-value-32bytes!", enc: "short-key", want: "不得短于"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			clearEnv(t)
+			t.Setenv("APP_ENV", "production")
+			cfg := Load()
+			// Load 生产环境不回落占位密钥
+			cfg.JWTSecret, cfg.EncryptionKey = tc.jwt, tc.enc
+			err := cfg.Validate()
+			if tc.want == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.want)
+		})
+	}
+
+	// 合规配置：通过
+	clearEnv(t)
+	t.Setenv("APP_ENV", "production")
+	cfg := Load()
+	cfg.JWTSecret = "a-strong-jwt-secret-value-32bytes!"
+	cfg.EncryptionKey = "0123456789abcdef0123456789abcdef"
+	require.NoError(t, cfg.Validate())
+}
+
+// TestLoadProductionDoesNotFallbackSecrets 生产环境不得回落硬编码占位密钥。
+func TestLoadProductionDoesNotFallbackSecrets(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("APP_ENV", "production")
+	cfg := Load()
+	assert.Empty(t, cfg.JWTSecret, "生产缺失 JWT_SECRET 不得回落占位值")
+	assert.Empty(t, cfg.EncryptionKey, "生产缺失 ENCRYPTION_KEY 不得回落占位值")
+	require.Error(t, cfg.Validate(), "生产缺密钥必须在启动校验阶段失败")
+
+	// 开发环境保留占位密钥（便于本地起服务）
+	clearEnv(t)
+	dev := Load()
+	assert.Equal(t, devJWTSecret, dev.JWTSecret)
+	assert.Equal(t, devEncryptionKey, dev.EncryptionKey)
 }

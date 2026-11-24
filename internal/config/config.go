@@ -1,16 +1,42 @@
 // Package config 从环境变量加载配置，内部工具不引配置库。
-// 密钥类配置在开发环境给出占位默认值并打警告，生产必须显式注入。
+// 密钥类配置仅在**非生产**环境给出占位默认值并打警告；生产（APP_ENV=production）
+// 缺失或过弱时由 Validate 返回错误，由 cmd/server/main.go 拒绝启动（审计 P1-5）。
 package config
 
 import (
+	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
 
+// 环境名（APP_ENV）取值。
+const (
+	EnvDevelopment = "development"
+	EnvProduction  = "production"
+	EnvProdAlias   = "prod"
+)
+
+// MinEncryptionKeyLen ENCRYPTION_KEY 最小长度（字节）：
+// AES-256-GCM 密钥派生不允许弱密钥，过短等同可穷举（审计 P1-5）。
+const MinEncryptionKeyLen = 16
+
+// RecommendedJWTSecretLen 生产 JWT_SECRET 推荐长度（字节）；不足时告警但不拒绝启动。
+const RecommendedJWTSecretLen = 32
+
+// 开发环境占位密钥（仅非生产可回落，生产缺失直接拒绝启动）。
+const (
+	devJWTSecret     = "dev-only-jwt-secret"
+	devEncryptionKey = "dev-only-encryption-key-32bytes!!"
+)
+
 type Config struct {
+	// Env 运行环境（APP_ENV）：development（默认）/ production（别名 prod）
+	Env           string
 	Port          int
 	DatabaseURL   string
 	RedisAddr     string
@@ -51,6 +77,7 @@ func Load() *Config {
 		slog.Debug("未加载 .env", "err", err)
 	}
 	cfg := &Config{
+		Env:           envStr("APP_ENV", EnvDevelopment),
 		Port:          envInt("APP_PORT", 8080),
 		DatabaseURL:   envStr("DATABASE_URL", "postgres://woodpecker:woodpecker@127.0.0.1:5432/woodpecker?sslmode=disable"),
 		RedisAddr:     envStr("REDIS_ADDR", "127.0.0.1:6379"),
@@ -78,14 +105,56 @@ func Load() *Config {
 		UploadDir: envStr("UPLOAD_DIR", "data/uploads"),
 	}
 	if cfg.JWTSecret == "" {
-		cfg.JWTSecret = "dev-only-jwt-secret"
-		slog.Warn("JWT_SECRET 未设置，使用开发占位密钥；生产环境必须显式注入")
+		if cfg.IsProduction() {
+			// 生产缺失：不回落占位密钥，留空交由 Validate 拒绝启动（审计 P1-5）。
+			slog.Error("生产环境未设置 JWT_SECRET，启动将被拒绝")
+		} else {
+			cfg.JWTSecret = devJWTSecret
+			slog.Warn("JWT_SECRET 未设置，使用开发占位密钥；生产环境必须显式注入")
+		}
+	} else if cfg.IsProduction() && len(cfg.JWTSecret) < RecommendedJWTSecretLen {
+		slog.Warn("JWT_SECRET 长度偏短，建议至少 32 字节", "len", len(cfg.JWTSecret))
 	}
 	if cfg.EncryptionKey == "" {
-		cfg.EncryptionKey = "dev-only-encryption-key-32bytes!!"
-		slog.Warn("ENCRYPTION_KEY 未设置，使用开发占位密钥；生产环境必须显式注入（M3 起 AES-256-GCM 依赖）")
+		if cfg.IsProduction() {
+			// 同上：生产缺失不回落占位密钥（否则库泄露即等同明文，审计 P1-5）。
+			slog.Error("生产环境未设置 ENCRYPTION_KEY，启动将被拒绝")
+		} else {
+			cfg.EncryptionKey = devEncryptionKey
+			slog.Warn("ENCRYPTION_KEY 未设置，使用开发占位密钥；生产环境必须显式注入（M3 起 AES-256-GCM 依赖）")
+		}
 	}
 	return cfg
+}
+
+// IsProduction 生产环境判定（APP_ENV=production，别名 prod；大小写不敏感）。
+func (c *Config) IsProduction() bool {
+	switch strings.ToLower(strings.TrimSpace(c.Env)) {
+	case EnvProduction, EnvProdAlias:
+		return true
+	}
+	return false
+}
+
+// Validate 启动前安全校验（审计 P1-5）：生产缺密钥或密钥过弱必须拒绝启动，
+// 不做「打条 Warn 继续跑」。开发环境不做任何限制（保留占位密钥，便于本地起服务）。
+//
+// 由 cmd/server/main.go 调用后 os.Exit(1)，保持本函数可测（不在此处退出进程）。
+func (c *Config) Validate() error {
+	if !c.IsProduction() {
+		return nil
+	}
+	if strings.TrimSpace(c.JWTSecret) == "" {
+		return errors.New("APP_ENV=production 时必须显式注入 JWT_SECRET")
+	}
+	if strings.TrimSpace(c.EncryptionKey) == "" {
+		return errors.New("APP_ENV=production 时必须显式注入 ENCRYPTION_KEY")
+	}
+	if len(c.EncryptionKey) < MinEncryptionKeyLen {
+		return fmt.Errorf("ENCRYPTION_KEY 长度为 %d 字节，生产环境不得短于 %d 字节（弱密钥）",
+			len(c.EncryptionKey), MinEncryptionKeyLen)
+	}
+	return nil
 }
 
 func envStr(key, def string) string {

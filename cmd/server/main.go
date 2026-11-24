@@ -39,6 +39,11 @@ func main() {
 	flag.Parse()
 
 	cfg := config.Load()
+	// 生产环境缺密钥/弱密钥直接拒绝启动（审计 P1-5），不做「Warn 后继续」。
+	if err := cfg.Validate(); err != nil {
+		fmt.Fprintf(os.Stderr, "配置校验失败，拒绝启动: %v\n", err)
+		os.Exit(1)
+	}
 
 	logLevel := slog.LevelInfo
 	switch cfg.LogLevel {
@@ -114,7 +119,7 @@ func run(mode string, cfg *config.Config) int {
 	if closer != nil {
 		defer func() { _ = closer.Close() }()
 	}
-	slog.Info("服务启动", "mode", mode, "port", cfg.Port)
+	slog.Info("服务启动", "mode", mode, "port", cfg.Port, "env", cfg.Env)
 	slog.Info("配置摘要",
 		"db", maskDSN(cfg.DatabaseURL),
 		"redis", cfg.RedisAddr,
