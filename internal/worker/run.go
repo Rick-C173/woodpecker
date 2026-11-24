@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"woodpecker/internal/cache"
 	"woodpecker/internal/config"
@@ -44,6 +45,17 @@ func Run(ctx context.Context, cfg *config.Config) error {
 	// 验收回归 8-1：心跳超时阈值，覆盖「WORKER_ID 跨重启变化后按归属匹配不到」的僵尸任务。
 	pipeline.SetZombieTimeoutMinutes(cfg.WorkerZombieTimeoutMinutes)
 	pipeline.RecoverStartup(ctx, docs)
+
+	// 周期性僵尸回收（验收回归 8-1 补强）：覆盖「Pod 秒级重建」——崩溃后新 Pod 立刻起来时
+	// 心跳还没过期，启动恢复看不到陈旧任务；由后台循环在心跳过期后的第一个周期内回收。
+	// 跟随 worker 的 ctx 退出（Run 返回即停），不会泄漏。<=0 关闭并在日志中说明。
+	if cfg.WorkerZombieSweepMinutes <= 0 {
+		slog.Warn("WORKER_ZOMBIE_SWEEP_MINUTES<=0：周期性僵尸回收已关闭，" +
+			"心跳超时的僵尸任务只能靠 worker 重启回收")
+	} else {
+		pipeline.SetZombieSweepMinutes(cfg.WorkerZombieSweepMinutes)
+		go pipeline.RunSweeper(ctx)
+	}
 
 	return NewServer(cfg, pipeline).Run(ctx)
 }

@@ -225,3 +225,68 @@ func TestHeartbeatTaskPersistsIT(t *testing.T) {
 	assert.NotNil(t, after.HeartbeatAt, "SaveTask 不得把 heartbeat_at 覆盖回 NULL")
 	assert.Equal(t, model.TaskStatusFailed, after.Status, "状态等其他字段仍要落库")
 }
+
+// TestFailStaleTasksSparesLiveTaskIT 周期性 sweeper（FailStaleTasks）不得清理有心跳的活任务——
+// 即便它属于「正在执行 sweeper 的实例」：本方法条件里**没有 worker_id 段**，
+// 否则周期跑会把自己正在处理的任务杀掉（真库验证）。
+func TestFailStaleTasksSparesLiveTaskIT(t *testing.T) {
+	itTruncate(t)
+	ctx := context.Background()
+	r, _, docs := itSeedDocKB(t, "live-own.md")
+	doc := docs[0]
+
+	now := time.Now()
+	task := &model.IngestTask{DocumentID: doc.ID, Type: model.TaskTypeFull,
+		Status: model.TaskStatusRunning, WorkerID: itStr("pod-live"),
+		StartedAt: &now, HeartbeatAt: &now}
+	require.NoError(t, r.CreateTask(ctx, task))
+
+	n, docIDs, err := r.FailStaleTasks(ctx, 5)
+	require.NoError(t, err)
+	got, err := r.GetTaskByID(ctx, task.ID)
+	require.NoError(t, err)
+	gotDoc, err := r.GetDocumentByID(ctx, doc.ID)
+	require.NoError(t, err)
+	t.Logf("sweeper 扫描后：回收任务数=%d docIDs=%v；活任务 status=%d（running=2）文档 status=%d（processing=2）",
+		n, docIDs, got.Status, gotDoc.Status)
+	assert.Zero(t, n, "有心跳的活任务不得被周期性 sweeper 清理")
+	assert.Empty(t, docIDs)
+	assert.Equal(t, model.TaskStatusRunning, got.Status)
+	assert.Equal(t, model.DocStatusProcessing, gotDoc.Status)
+}
+
+// TestFailStaleTasksReclaimsStaleTaskIT 心跳超时的运行中任务被 sweeper 回收，文档转失败。
+// 覆盖「Pod 秒级重建」：崩溃后新 Pod 起来时心跳没过期（启动恢复看不到），过期后由 sweeper 回收。
+func TestFailStaleTasksReclaimsStaleTaskIT(t *testing.T) {
+	itTruncate(t)
+	ctx := context.Background()
+	r, _, docs := itSeedDocKB(t, "stale-sweep.md")
+	doc := docs[0]
+
+	stale := time.Now().Add(-10 * time.Minute)
+	task := &model.IngestTask{DocumentID: doc.ID, Type: model.TaskTypeFull,
+		Status: model.TaskStatusRunning, WorkerID: itStr("pod-aaa"),
+		StartedAt: &stale, HeartbeatAt: &stale}
+	require.NoError(t, r.CreateTask(ctx, task))
+
+	n, docIDs, err := r.FailStaleTasks(ctx, 5)
+	require.NoError(t, err)
+	t.Logf("sweeper 扫描后：回收任务数=%d docIDs=%v（期望 1 个任务、文档 %d）", n, docIDs, doc.ID)
+	assert.Equal(t, int64(1), n, "心跳超时的运行中任务必须被回收")
+	assert.Equal(t, []int64{doc.ID}, docIDs)
+
+	docsFailed, err := r.FailProcessingDocs(ctx, docIDs)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), docsFailed)
+
+	got, err := r.GetTaskByID(ctx, task.ID)
+	require.NoError(t, err)
+	assert.Equal(t, model.TaskStatusFailed, got.Status)
+	gotDoc, err := r.GetDocumentByID(ctx, doc.ID)
+	require.NoError(t, err)
+	assert.Equal(t, model.DocStatusFailed, gotDoc.Status, "文档必须从处理中转为失败")
+
+	running, err := r.HasRunningTask(ctx, doc.ID)
+	require.NoError(t, err)
+	assert.False(t, running, "回收后不应再有运行中任务挡住 retry")
+}

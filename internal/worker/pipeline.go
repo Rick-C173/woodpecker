@@ -78,6 +78,11 @@ type DocStore interface {
 	ReplaceDocumentChunks(ctx context.Context, documentID int64, chunks []model.Chunk) error
 	// HeartbeatTask 刷新运行中任务的心跳时刻（验收回归 8-1：跨实例僵尸任务的时间兜底依据）。
 	HeartbeatTask(ctx context.Context, taskID int64) error
+	// FailStaleTasks 周期性僵尸回收：只按心跳时间判定，**不带归属条件**（否则会杀掉本实例
+	// 正在处理的任务）。返回任务数与被波及文档 ID。
+	FailStaleTasks(ctx context.Context, timeoutMinutes int) (int64, []int64, error)
+	// FailProcessingDocs 只把给定文档中仍是处理中的置失败。
+	FailProcessingDocs(ctx context.Context, docIDs []int64) (int64, error)
 }
 
 // FailZombieStore 启动恢复所需操作（repo.DocumentRepo 满足）。
@@ -98,6 +103,10 @@ const heartbeatIntervalDefault = 30 * time.Second
 // heartbeatInterval 心跳实际间隔（包级变量便于测试注入，生产恒为 heartbeatIntervalDefault）。
 var heartbeatInterval = heartbeatIntervalDefault
 
+// sweeperIntervalDefault 周期性僵尸回收间隔缺省值（配置 WORKER_ZOMBIE_SWEEP_MINUTES，单位分钟）。
+// 需大于心跳间隔（30s），否则同一批任务会被反复判定；2 分钟 = 4 个心跳周期，足够稳。
+const sweeperIntervalDefault = 2 * time.Minute
+
 // Pipeline 摄取管道。
 type Pipeline struct {
 	docs      DocStore
@@ -110,7 +119,9 @@ type Pipeline struct {
 	workerID  string
 	// zombieTimeoutMinutes 僵尸任务心跳超时阈值（分钟，验收回归 8-1），来自配置。
 	zombieTimeoutMinutes int
-	now                  func() time.Time
+	// sweepInterval 周期性僵尸回收间隔（验收回归 8-1 补强）；<=0 表示不启动 sweeper。
+	sweepInterval time.Duration
+	now           func() time.Time
 }
 
 // SettingGetter R1b 排除清单读取（repo.SettingRepo 满足）。
@@ -124,6 +135,7 @@ func NewPipeline(docs DocStore, settings SettingGetter, cipher CredentialCipher,
 		embedder: embedder, queue: queue, uploadDir: "data/uploads",
 		workerID: config.DefaultWorkerID(), now: time.Now,
 		zombieTimeoutMinutes: config.DefaultWorkerZombieTimeoutMinutes,
+		sweepInterval:        sweeperIntervalDefault,
 	}
 }
 
@@ -132,6 +144,63 @@ func NewPipeline(docs DocStore, settings SettingGetter, cipher CredentialCipher,
 func (p *Pipeline) SetZombieTimeoutMinutes(minutes int) {
 	if minutes > 0 {
 		p.zombieTimeoutMinutes = minutes
+	}
+}
+
+// SetZombieSweepMinutes 设置周期性僵尸回收间隔（分钟，验收回归 8-1 补强）。
+// 缺省 2 分钟；<=0 关闭 sweeper（RunSweeper 立即返回），此时心跳超时的僵尸任务只能靠
+// worker 重启时的 RecoverStartup 回收——Pod 秒级重建 + 长期不重启的场景会再次卡死，慎用。
+func (p *Pipeline) SetZombieSweepMinutes(minutes int) {
+	if minutes > 0 {
+		p.sweepInterval = time.Duration(minutes) * time.Minute
+	}
+}
+
+// SetZombieSweepInterval 直接设置回收间隔（测试注入用；生产走 SetZombieSweepMinutes）。
+func (p *Pipeline) SetZombieSweepInterval(d time.Duration) { p.sweepInterval = d }
+
+// SweepZombies 回收一次心跳超时的僵尸任务（验收回归 8-1 补强）。
+// 只调 FailStaleTasks（无归属条件），故不会杀掉本实例正在处理的任务；
+// 随后用 docIDs 限定把对应文档置失败（不做全库 UPDATE）。
+func (p *Pipeline) SweepZombies(ctx context.Context) (int64, error) {
+	tasks, docIDs, err := p.docs.FailStaleTasks(ctx, p.zombieTimeoutMinutes)
+	if err != nil {
+		return 0, err
+	}
+	if tasks == 0 {
+		return 0, nil
+	}
+	docs, derr := p.docs.FailProcessingDocs(ctx, docIDs)
+	if derr != nil {
+		// 任务已置失败，文档置失败失败可重试：下次 sweeper 不会再命中（任务已非 running），
+		// 故这里显式补一次日志，便于排障；返回错误交由调用方记录。
+		slog.Warn("回收僵尸任务：文档置失败出错", "tasks", tasks, "docs", docIDs, "err", derr)
+		return tasks, derr
+	}
+	slog.Info("回收僵尸任务", "tasks", tasks, "docs", docs, "timeout_minutes", p.zombieTimeoutMinutes)
+	return tasks, nil
+}
+
+// RunSweeper 周期性回收心跳超时的僵尸任务，直到 ctx 结束（阻塞，调用方用 go 启动）。
+// 覆盖「Pod 秒级重建」场景：崩溃后新 Pod 立刻起来时心跳尚未过期，启动恢复看不到陈旧任务，
+// 由本循环在心跳过期后的第一个周期内回收，无需等到下一次重启。
+func (p *Pipeline) RunSweeper(ctx context.Context) {
+	if p.sweepInterval <= 0 {
+		slog.Warn("周期性僵尸回收未启动（间隔 <=0）：心跳超时的僵尸任务只能靠 worker 重启回收")
+		return
+	}
+	slog.Info("周期性僵尸回收已启动", "interval", p.sweepInterval.String())
+	ticker := time.NewTicker(p.sweepInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if _, err := p.SweepZombies(ctx); err != nil {
+				slog.Warn("周期性僵尸回收失败", "err", err)
+			}
+		}
 	}
 }
 

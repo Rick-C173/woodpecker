@@ -445,6 +445,39 @@ func (f *FakeDocRepo) FailZombieTasks(_ context.Context, workerID string, timeou
 	return n, docIDs, nil
 }
 
+// FailStaleTasks 周期性僵尸回收，与 repo 实现同口径：**只看心跳时间，不带归属条件**
+// （带归属会杀掉本实例正在处理的任务）。
+func (f *FakeDocRepo) FailStaleTasks(_ context.Context, timeoutMinutes int) (int64, []int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if timeoutMinutes <= 0 {
+		timeoutMinutes = 5
+	}
+	cutoff := time.Now().Add(-time.Duration(timeoutMinutes) * time.Minute)
+	var (
+		n      int64
+		docIDs []int64
+	)
+	seen := map[int64]bool{}
+	now := time.Now()
+	msg := zombieErr
+	for id, t := range f.tasks {
+		if t.Status != model.TaskStatusRunning || !taskLeaseTime(t).Before(cutoff) {
+			continue
+		}
+		t.Status = model.TaskStatusFailed
+		t.Error = &msg
+		t.FinishedAt = &now
+		f.tasks[id] = t
+		n++
+		if !seen[t.DocumentID] {
+			seen[t.DocumentID] = true
+			docIDs = append(docIDs, t.DocumentID)
+		}
+	}
+	return n, docIDs, nil
+}
+
 // HeartbeatTask 刷新运行中任务的心跳（真内存写时间），与 repo 实现同口径：
 // 只对 status=2 生效；任务行不存在（已随文档级联删除）时返回 nil，与真库「更新 0 行」一致。
 func (f *FakeDocRepo) HeartbeatTask(_ context.Context, taskID int64) error {

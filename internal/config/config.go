@@ -32,6 +32,11 @@ const RecommendedJWTSecretLen = 32
 // worker 心跳间隔为 30s（worker 包常量），5 分钟 = 心跳间隔的 10 倍，留足两次以上容错。
 const DefaultWorkerZombieTimeoutMinutes = 5
 
+// DefaultWorkerZombieSweepMinutes 周期性僵尸回收间隔缺省值（分钟，验收回归 8-1 补强）。
+// <=0 关闭 sweeper；2 分钟 = 4 个心跳周期（心跳 30s），用于覆盖「Pod 秒级重建」时
+// 启动恢复看不到陈旧心跳的场景。
+const DefaultWorkerZombieSweepMinutes = 2
+
 // 开发环境占位密钥（仅非生产可回落，生产缺失直接拒绝启动）。
 const (
 	devJWTSecret     = "dev-only-jwt-secret"
@@ -84,6 +89,11 @@ type Config struct {
 	// 用于覆盖「WORKER_ID 跨重启变化 → 按归属匹配不到」的场景（k8s 重建 Pod 是常态）。
 	// 必须显著大于 worker 心跳间隔（默认 30s，建议 ≥5 倍），否则正常任务会被误杀。
 	WorkerZombieTimeoutMinutes int
+
+	// WorkerZombieSweepMinutes 周期性僵尸回收间隔（分钟，验收回归 8-1 补强）。
+	// 心跳超时的运行中任务由后台循环定期置失败，覆盖「Pod 秒级重建 → 启动恢复时心跳还没过期」
+	// 的场景（否则文档只能等下一次重启才被回收）。<=0 关闭 sweeper。
+	WorkerZombieSweepMinutes int
 }
 
 // Load 读取配置：.env 文件（存在则加载，不覆盖已有环境变量）→ 环境变量 → 默认值。
@@ -122,6 +132,7 @@ func Load() *Config {
 		WorkerID: envStr("WORKER_ID", DefaultWorkerID()),
 
 		WorkerZombieTimeoutMinutes: envInt("WORKER_ZOMBIE_TIMEOUT_MINUTES", DefaultWorkerZombieTimeoutMinutes),
+		WorkerZombieSweepMinutes:   envInt("WORKER_ZOMBIE_SWEEP_MINUTES", DefaultWorkerZombieSweepMinutes),
 	}
 	if cfg.JWTSecret == "" {
 		if cfg.IsProduction() {

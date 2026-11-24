@@ -360,6 +360,47 @@ func (r *DocumentRepo) FailZombieTasks(ctx context.Context, workerID string, tim
 	return tasks, docIDs, nil
 }
 
+// FailStaleTasks 周期性僵尸回收：只看**心跳时间**，不看归属（验收回归 8-1 补强）。
+//
+// 与 FailZombieTasks 的分工（重要）：
+//   - FailZombieTasks 只在**启动恢复**时跑，含「worker_id = 本实例 AND status = 2」段——启动瞬间
+//     本实例还没有在跑的任务，这段是安全的；
+//   - 本方法会被**周期性**调用（默认每 2 分钟），此时本实例可能正在处理任务，若带上归属段就会
+//     把自己正在跑的任务杀掉，故条件里**绝不含 worker_id**，只按心跳（缺失时回落
+//     started_at / created_at）判定。
+//
+// 覆盖场景：Pod 秒级重建——崩溃后新 Pod 立刻起来时心跳尚未过期，启动恢复看不到陈旧任务；
+// 等心跳真正过期后由本方法回收，不必等到下一次重启。
+//
+// 返回受影响任务数，以及被波及的文档 ID（供 FailProcessingDocs 精确限定）。
+func (r *DocumentRepo) FailStaleTasks(ctx context.Context, timeoutMinutes int) (tasks int64, docIDs []int64, err error) {
+	if timeoutMinutes <= 0 {
+		timeoutMinutes = defaultZombieTimeoutMinutes
+	}
+	cutoff := time.Now().Add(-time.Duration(timeoutMinutes) * time.Minute)
+	err = r.dbx(ctx).Transaction(func(tx *gorm.DB) error {
+		stale := func() *gorm.DB {
+			return tx.Model(&model.IngestTask{}).
+				Where("status = ? AND COALESCE(heartbeat_at, started_at, created_at) < ?",
+					model.TaskStatusRunning, cutoff)
+		}
+		if perr := stale().Distinct("document_id").Pluck("document_id", &docIDs).Error; perr != nil {
+			return perr
+		}
+		res := stale().Updates(map[string]any{
+			"status":      model.TaskStatusFailed,
+			"error":       zombieTaskError,
+			"finished_at": time.Now(),
+		})
+		tasks = res.RowsAffected
+		return res.Error
+	})
+	if err != nil {
+		return 0, nil, err
+	}
+	return tasks, docIDs, nil
+}
+
 // HeartbeatTask 刷新运行中任务的心跳时刻（验收回归 8-1）。
 //
 // 只在 status = 2 时更新：任务已终结（成功/失败/被清理）时心跳不得把状态"续命"，
