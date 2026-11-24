@@ -160,8 +160,8 @@ func chunkCode(content string) []ChunkBlock {
 	var blocks []ChunkBlock
 	for _, s := range secs {
 		text := strings.Join(s.lines, "\n")
-		if utf8.RuneCountInString(text) == 0 {
-			continue
+		if strings.TrimSpace(text) == "" {
+			continue // 纯空白块（含仅换行）无语义
 		}
 		blocks = append(blocks, ChunkBlock{Content: text, LineStart: s.start, LineEnd: s.start + len(s.lines) - 1})
 	}
@@ -195,7 +195,8 @@ func chunkText(content string) []ChunkBlock {
 	start := 1
 	line := 1
 	for _, p := range paras {
-		pLines := strings.Count(p, "\n") + 1
+		// 行数按去尾换行后的实际行计（段尾换行是分隔符，不是新行）
+		pLines := strings.Count(strings.TrimRight(p, "\n"), "\n") + 1
 		if buf.Len() > 0 && utf8.RuneCountInString(buf.String())+utf8.RuneCountInString(p) > maxChunkRunes {
 			blocks = append(blocks, ChunkBlock{Content: strings.TrimSpace(buf.String()), LineStart: start, LineEnd: line - 1})
 			buf.Reset()

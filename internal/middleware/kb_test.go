@@ -55,6 +55,20 @@ func TestKBAccess(t *testing.T) {
 	assert.Equal(t, 404, w.Code)
 	assert.Contains(t, w.Body.String(), "NOT_FOUND")
 
+	// kbID <= 0 边界同样 404（非数字之外的字面量 0 / 负数）
+	for _, bad := range []string{"0", "-1"} {
+		w = httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest("GET", "/kbs/"+bad, nil))
+		assert.Equal(t, 404, w.Code, "kb 参数 %s 应 404", bad)
+		assert.Contains(t, w.Body.String(), "NOT_FOUND")
+	}
+
+	// 管理员 + kbID=0 → 仍 404（边界防线不可被管理员越权穿透）
+	ra := kbRouter(lookup, 99, true, nil)
+	w = httptest.NewRecorder()
+	ra.ServeHTTP(w, httptest.NewRequest("GET", "/kbs/0", nil))
+	assert.Equal(t, 404, w.Code)
+
 	// 非成员 → 404（不可见原则）
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest("GET", "/kbs/2", nil))

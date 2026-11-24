@@ -1,8 +1,10 @@
 package middleware
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -200,15 +202,32 @@ func TestAdminMiddleware(t *testing.T) {
 
 func TestLoggerAddsErrorContext(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+
+	// 捕获 slog 输出，验证 errors 字段的有无（防止条件变异存活）
+	var buf bytes.Buffer
+	oldDefault := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(oldDefault) })
+
 	r := gin.New()
 	r.Use(RequestID(), Logger())
 	r.GET("/boom", func(c *gin.Context) {
-		c.Error(errors.New("handler boom")) // 触发日志的 errors 字段分支
+		_ = c.Error(errors.New("handler boom")) // 触发日志的 errors 字段分支
 		c.Status(500)
 	})
+	r.GET("/ok", func(c *gin.Context) { c.Status(200) })
+
+	buf.Reset()
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest("GET", "/boom", nil))
 	assert.Equal(t, 500, w.Code)
+	assert.Contains(t, buf.String(), "errors=", "请求带 error 时日志应附 errors 字段")
+
+	buf.Reset()
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest("GET", "/ok", nil))
+	assert.Equal(t, 200, w.Code)
+	assert.NotContains(t, buf.String(), "errors=", "无 error 请求日志不应含 errors 字段")
 }
 
 func TestUserIDAbsent(t *testing.T) {
