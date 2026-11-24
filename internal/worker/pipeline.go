@@ -76,6 +76,11 @@ type DocStore interface {
 	DeleteChunksByFile(ctx context.Context, documentID int64, filePath string) error
 	InsertChunks(ctx context.Context, documentID int64, chunks []model.Chunk) error
 	ReplaceDocumentChunks(ctx context.Context, documentID int64, chunks []model.Chunk) error
+	// 带 fencing 的写入（审查 #1 补强）：事务内校验任务仍 running 才写，
+	// 任务被 sweeper 回收后拒绝落库，避免与新任务并发写同一文档。
+	IsTaskRunning(ctx context.Context, taskID int64) (bool, error)
+	ReplaceFileChunksIfTaskRunning(ctx context.Context, taskID, documentID int64, filePath string, file *model.DocumentFile, chunks []model.Chunk) (bool, error)
+	ReplaceDocumentChunksIfTaskRunning(ctx context.Context, taskID, documentID int64, files []*model.DocumentFile, chunks []model.Chunk) (bool, error)
 	// HeartbeatTask 刷新运行中任务的心跳时刻（验收回归 8-1：跨实例僵尸任务的时间兜底依据）。
 	HeartbeatTask(ctx context.Context, taskID int64) error
 	// TransitionTaskIfRunning 带守卫的状态流转：仅当任务仍为 running 时应用 updates
@@ -325,14 +330,20 @@ func (p *Pipeline) Process(ctx context.Context, taskID int64) error {
 	// ---- 切块 + 文件清单（stage 2）----
 	p.setStage(ctx, d, model.DocStageChunk)
 	isSync := t.Type == model.TaskTypeSync
-	groups, fileCount, totalSize, err := p.buildChunks(ctx, d, res, isSync)
+	groups, fileCount, totalSize, err := p.buildChunks(ctx, t.ID, d, res, isSync)
 	if err != nil {
+		if errors.Is(err, ErrTaskFenced) {
+			return p.abandonFenced(t, d)
+		}
 		return p.fail(ctx, t, d, err)
 	}
 
 	// ---- 向量化 + 入库（stage 3）----
 	p.setStage(ctx, d, model.DocStageEmbed)
-	if err := p.embedAndStore(ctx, d, groups, isSync); err != nil {
+	if err := p.embedAndStore(ctx, t.ID, d, groups, isSync); err != nil {
+		if errors.Is(err, ErrTaskFenced) {
+			return p.abandonFenced(t, d)
+		}
 		return p.fail(ctx, t, d, err)
 	}
 
@@ -418,15 +429,30 @@ func (p *Pipeline) uploadPath(d *model.Document) string {
 
 // chunkGroup 本轮产出的「单文件分块」。增量同步按文件替换，故必须保留文件边界；
 // 文件变更后切不出块时仍会返回空组，用于清掉该文件的旧块。
+// ErrTaskFenced 任务已被僵尸回收/终结，本次写入必须放弃（由接管的新任务负责）。
+// 不视为失败：asynq 不应重投——重投只会再次被 fencing 拒绝。
+var ErrTaskFenced = errors.New("任务已被先行终结，放弃写入")
+
 type chunkGroup struct {
 	filePath string
-	chunks   []model.Chunk
+	// meta 文件清单元数据（含 content_hash），必须与 chunks 在同一事务内落库（审查 #1 补强）。
+	// 不能在切块阶段单独 UpsertFile：hash 先落库会让新任务跳过该文件，而它的 chunks 可能没写，
+	// 文档会永久缺块。
+	meta   *model.DocumentFile
+	chunks []model.Chunk
 }
 
 // buildChunks 切块并维护文件清单；返回按文件分组、待向量化的分块。
 // isSync=true 时做文件级增量：hash 未变的文件跳过切块与向量化；远端已删除的清理分块与清单。
 // 注意：本函数**不删除**变更文件的旧分块——旧块要等新块向量化成功后才删（见 embedAndStore）。
-func (p *Pipeline) buildChunks(ctx context.Context, d *model.Document, res *rag.FetchResult, isSync bool) (groups []chunkGroup, fileCount int, totalSize int64, err error) {
+// 受支持文件的清单元数据**不在此处落库**：必须与 chunks 在同一事务内写入（fencing，审查 #1 补强）。
+func (p *Pipeline) buildChunks(ctx context.Context, taskID int64, d *model.Document, res *rag.FetchResult, isSync bool) (groups []chunkGroup, fileCount int, totalSize int64, err error) {
+	// 快速失败：任务已被回收时不必再做切块（严格并发保护由写入事务内的行锁提供）。
+	if ok, err := p.docs.IsTaskRunning(ctx, taskID); err != nil {
+		return nil, 0, 0, err
+	} else if !ok {
+		return nil, 0, 0, ErrTaskFenced
+	}
 	existing := map[string]model.DocumentFile{}
 	if isSync {
 		files, err := p.docs.ListFiles(ctx, d.ID)
@@ -478,7 +504,7 @@ func (p *Pipeline) buildChunks(ctx context.Context, d *model.Document, res *rag.
 		}
 	}
 
-	// 受支持文件：切块
+	// 受支持文件：切块（清单元数据随分块在写入事务内落库，避免 hash 先行导致新任务跳过该文件）
 	for _, sf := range res.Files {
 		totalSize += int64(len(sf.Content))
 		hash := contentHash(sf.Content)
@@ -486,18 +512,18 @@ func (p *Pipeline) buildChunks(ctx context.Context, d *model.Document, res *rag.
 			// 未变更：跳过切块与向量化（同步只处理变更文件；其既有分块保持不动）
 			continue
 		}
-		f := &model.DocumentFile{
-			DocumentID: d.ID, Path: sf.Path, Status: model.FileStatusIndexed,
-			Language: langPtr(sf.Path), Size: sizePtr(int64(len(sf.Content))),
-			ContentHash: &hash, UpdatedAt: p.now(),
+		g := chunkGroup{
+			filePath: sf.Path,
+			meta: &model.DocumentFile{
+				DocumentID: d.ID, Path: sf.Path, Status: model.FileStatusIndexed,
+				Language: langPtr(sf.Path), Size: sizePtr(int64(len(sf.Content))),
+				ContentHash: &hash, UpdatedAt: p.now(),
+			},
 		}
-		if err := p.docs.UpsertFile(ctx, f); err != nil {
-			return nil, 0, 0, err
-		}
-		g := chunkGroup{filePath: sf.Path}
 		for i, b := range rag.Chunk(rag.ContentKind(sf.Path), string(sf.Content)) {
-			// chunk_index 为**文件内序号**（唯一键 UNIQUE(document_id, file_path, chunk_index)）
-			g.chunks = append(g.chunks, makeChunk(d, f.ID, sf.Path, b, i))
+			// chunk_index 为**文件内序号**（唯一键 UNIQUE(document_id, file_path, chunk_index)）；
+			// file_id 由写入事务 upsert 后回填（切块阶段还没有文件 ID）
+			g.chunks = append(g.chunks, makeChunk(d, 0, sf.Path, b, i))
 		}
 		groups = append(groups, g)
 	}
@@ -537,7 +563,7 @@ func makeChunk(d *model.Document, fileID int64, filePath string, b rag.ChunkBloc
 //     顺序很关键：embedding 失败时必须保留旧块，否则「同步期间问答使用旧内容不受影响」不成立。
 //   - 增量同步且本轮无任何待向量化块：只要有变更文件（groups 非空）就仍按其路径删旧块
 //     （变更后切不出块的文件必须清空旧块），groups 为空才是「本轮无变更文件」。
-func (p *Pipeline) embedAndStore(ctx context.Context, d *model.Document, groups []chunkGroup, isSync bool) error {
+func (p *Pipeline) embedAndStore(ctx context.Context, taskID int64, d *model.Document, groups []chunkGroup, isSync bool) error {
 	// flat 指向各组底层的元素，向量回填无需二次拷贝
 	var flat []*model.Chunk
 	for gi := range groups {
@@ -545,19 +571,43 @@ func (p *Pipeline) embedAndStore(ctx context.Context, d *model.Document, groups 
 			flat = append(flat, &groups[gi].chunks[ci])
 		}
 	}
+	// 两条写入路径都带 fencing（审查 #1 补强）：事务内校验任务仍 running，
+	// 文件元数据与分块同事务落库；任务已被回收时 applied=false，立即中止交给接管者。
+	writeSync := func() error {
+		for _, g := range groups {
+			applied, err := p.docs.ReplaceFileChunksIfTaskRunning(ctx, taskID, d.ID, g.filePath, g.meta, g.chunks)
+			if err != nil {
+				return err
+			}
+			if !applied {
+				return ErrTaskFenced
+			}
+		}
+		return nil
+	}
+	writeFull := func(chunks []model.Chunk) error {
+		files := make([]*model.DocumentFile, 0, len(groups))
+		for _, g := range groups {
+			if g.meta != nil {
+				files = append(files, g.meta)
+			}
+		}
+		applied, err := p.docs.ReplaceDocumentChunksIfTaskRunning(ctx, taskID, d.ID, files, chunks)
+		if err != nil {
+			return err
+		}
+		if !applied {
+			return ErrTaskFenced
+		}
+		return nil
+	}
 	if len(flat) == 0 {
 		if isSync {
 			// 本轮没有需要向量化的块，但 groups 非空说明有「变更后切不出块」的文件（典型：内容被清空）。
-			// 此时 content_hash 已更新、后续 sync 会跳过该文件，必须在这里删掉它的旧块，
-			// 否则已删除的内容永久可被检索命中（验收回归 8-2）。
-			for _, g := range groups {
-				if err := p.docs.DeleteChunksByFile(ctx, d.ID, g.filePath); err != nil {
-					return err
-				}
-			}
-			return nil // 其余文件无变更：既有分块原样保留（旧实现在此整篇清空）
+			// 必须在该文件的事务里同步更新 hash 并删旧块，否则已删除的内容永久可被检索命中（8-2）。
+			return writeSync()
 		}
-		return p.docs.ReplaceDocumentChunks(ctx, d.ID, nil)
+		return writeFull(nil)
 	}
 	cfg, err := p.resolver.GetDefault(ctx, model.ModelPurposeEmbedding)
 	if err != nil {
@@ -584,21 +634,13 @@ func (p *Pipeline) embedAndStore(ctx context.Context, d *model.Document, groups 
 		}
 	}
 	if isSync {
-		for _, g := range groups {
-			if err := p.docs.DeleteChunksByFile(ctx, d.ID, g.filePath); err != nil {
-				return err
-			}
-			if err := p.docs.InsertChunks(ctx, d.ID, g.chunks); err != nil {
-				return err
-			}
-		}
-		return nil
+		return writeSync()
 	}
 	all := make([]model.Chunk, 0, len(flat))
 	for _, g := range groups {
 		all = append(all, g.chunks...)
 	}
-	return p.docs.ReplaceDocumentChunks(ctx, d.ID, all)
+	return writeFull(all)
 }
 
 // setStage 更新处理阶段。
@@ -665,6 +707,15 @@ func (p *Pipeline) finishTask(ctx context.Context, t *model.IngestTask, status i
 		slog.Warn("任务已被先行终结（僵尸回收/级联删除），放弃收尾覆写",
 			"task", t.ID, "intended_status", status)
 	}
+	return nil
+}
+
+// abandonFenced 任务已被僵尸回收/终结：放弃本次处理。
+// 不返回错误（asynq 不重投——重投只会再次被 fencing 拒绝），也不覆写文档状态：
+// 文档已由回收方（sweeper/重启恢复）置 failed，用户 Retry 后由新任务重新接管。
+func (p *Pipeline) abandonFenced(t *model.IngestTask, d *model.Document) error {
+	slog.Warn("任务已被先行终结（僵尸回收），放弃本次写入",
+		"task", t.ID, "doc", d.ID, "worker_id", p.workerID)
 	return nil
 }
 

@@ -174,6 +174,11 @@ func (f *FakeDocRepo) DeleteDocument(_ context.Context, id int64) error {
 func (f *FakeDocRepo) UpsertFile(_ context.Context, file *model.DocumentFile) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	return f.upsertFileLocked(file)
+}
+
+// upsertFileLocked 调用方须已持有 f.mu（带 fencing 的写入需要元数据与分块在同一临界区内生效）。
+func (f *FakeDocRepo) upsertFileLocked(file *model.DocumentFile) error {
 	if f.ErrOnUpsertFile != nil {
 		return f.ErrOnUpsertFile
 	}
@@ -244,6 +249,11 @@ func (f *FakeDocRepo) ReplaceDocumentChunks(_ context.Context, documentID int64,
 func (f *FakeDocRepo) InsertChunks(_ context.Context, documentID int64, chunks []model.Chunk) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	return f.insertChunksLocked(documentID, chunks)
+}
+
+// insertChunksLocked 调用方须已持有 f.mu。
+func (f *FakeDocRepo) insertChunksLocked(documentID int64, chunks []model.Chunk) error {
 	if f.ErrOnInsert != nil {
 		return f.ErrOnInsert
 	}
@@ -272,6 +282,12 @@ func (f *FakeDocRepo) InsertChunks(_ context.Context, documentID int64, chunks [
 func (f *FakeDocRepo) DeleteChunksByFile(_ context.Context, documentID int64, filePath string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.deleteChunksByFileLocked(documentID, filePath)
+	return nil
+}
+
+// deleteChunksByFileLocked 调用方须已持有 f.mu。
+func (f *FakeDocRepo) deleteChunksByFileLocked(documentID int64, filePath string) {
 	var kept []model.Chunk
 	for _, c := range f.chunks[documentID] {
 		if c.FilePath != nil && *c.FilePath == filePath {
@@ -280,7 +296,79 @@ func (f *FakeDocRepo) DeleteChunksByFile(_ context.Context, documentID int64, fi
 		kept = append(kept, c)
 	}
 	f.chunks[documentID] = kept
-	return nil
+}
+
+// IsTaskRunning 与 repo 同口径（fencing 的快速失败检查）。
+func (f *FakeDocRepo) IsTaskRunning(_ context.Context, taskID int64) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	t, ok := f.tasks[taskID]
+	return ok && t.Status == model.TaskStatusRunning, nil
+}
+
+// ReplaceFileChunksIfTaskRunning 与 repo 同口径（审查 #1 补强）：
+// 任务不在 running 时返回 (false, nil) 且**不产生任何写入**——元数据与分块要么一起生效、要么都不生效。
+func (f *FakeDocRepo) ReplaceFileChunksIfTaskRunning(_ context.Context, taskID, documentID int64, filePath string, file *model.DocumentFile, chunks []model.Chunk) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if t, ok := f.tasks[taskID]; !ok || t.Status != model.TaskStatusRunning {
+		return false, nil
+	}
+	if f.ErrOnReplace != nil {
+		return false, f.ErrOnReplace
+	}
+	if file != nil {
+		if err := f.upsertFileLocked(file); err != nil {
+			return false, err
+		}
+		for i := range chunks {
+			id := file.ID
+			chunks[i].FileID = &id
+		}
+	}
+	old := f.chunks[documentID]
+	f.deleteChunksByFileLocked(documentID, filePath)
+	if err := f.insertChunksLocked(documentID, chunks); err != nil {
+		f.chunks[documentID] = old // 与真库事务语义一致：插入失败整笔回滚，旧块不得被删掉
+		return false, err
+	}
+	return true, nil
+}
+
+// ReplaceDocumentChunksIfTaskRunning 与 repo 同口径（整篇替换带 fencing）。
+func (f *FakeDocRepo) ReplaceDocumentChunksIfTaskRunning(_ context.Context, taskID, documentID int64, files []*model.DocumentFile, chunks []model.Chunk) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if t, ok := f.tasks[taskID]; !ok || t.Status != model.TaskStatusRunning {
+		return false, nil
+	}
+	if f.ErrOnReplace != nil {
+		return false, f.ErrOnReplace
+	}
+	idByPath := make(map[string]int64, len(files))
+	for _, file := range files {
+		if err := f.upsertFileLocked(file); err != nil {
+			return false, err
+		}
+		idByPath[file.Path] = file.ID
+	}
+	for i := range chunks {
+		if chunks[i].FilePath == nil {
+			continue
+		}
+		if id, ok := idByPath[*chunks[i].FilePath]; ok {
+			chunks[i].FileID = &id
+		}
+	}
+	stored := make([]model.Chunk, 0, len(chunks))
+	for _, c := range chunks {
+		if c.DocumentID == 0 {
+			c.DocumentID = documentID
+		}
+		stored = append(stored, c)
+	}
+	f.chunks[documentID] = stored
+	return true, nil
 }
 
 // GetChunks 读取某文档的内存分块（断言用）。

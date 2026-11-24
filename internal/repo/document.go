@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/pgvector/pgvector-go"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"woodpecker/internal/model"
 )
@@ -425,6 +426,132 @@ func (r *DocumentRepo) TransitionTaskIfRunning(ctx context.Context, taskID int64
 		return false, res.Error
 	}
 	return res.RowsAffected > 0, nil
+}
+
+// ---- 带 fencing 的写入（审查 #1 补强）----
+//
+// 背景：sweeper 可能把心跳超时的 running 任务置 failed，但原 worker 未必已死（心跳写失败、
+// 长 GC、DB 抖动）。只守卫「任务状态收尾」不够——content_hash 若先落库，新任务会因 hash
+// 相同而跳过该文件，而它的 chunks 可能没写，文档会永久缺块。
+// 因此「文件元数据 + 分块」必须在同一事务内写入，且事务开头对任务行加 FOR UPDATE 锁校验
+// 仍为 running：任务一旦被回收，后续所有写入立即拒绝（fencing），由新任务接管。
+
+// IsTaskRunning 写入前的快速失败检查（非严格 fencing：检查与写入之间仍有窗口）。
+// 严格的并发保护由 ReplaceFileChunksIfTaskRunning / ReplaceDocumentChunksIfTaskRunning
+// 的事务内行锁提供，本方法只用于尽早停止无意义的远程抓取后续工作。
+func (r *DocumentRepo) IsTaskRunning(ctx context.Context, taskID int64) (bool, error) {
+	var t model.IngestTask
+	err := r.dbx(ctx).Select("id", "status").Where("id = ?", taskID).Take(&t).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return t.Status == model.TaskStatusRunning, nil
+}
+
+// lockTaskRunning 事务内对任务行加行锁并校验仍为 running。
+// 返回 (false, nil) 表示任务不存在（已随文档级联删除）或已被回收——调用方必须放弃写入。
+func lockTaskRunning(tx *gorm.DB, taskID int64) (bool, error) {
+	var t model.IngestTask
+	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Select("id", "status").
+		Where("id = ?", taskID).
+		Take(&t).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return t.Status == model.TaskStatusRunning, nil
+}
+
+// upsertFileTx 事务内 upsert 文件清单（与 UpsertFile 同口径，复用调用方事务）。
+func upsertFileTx(tx *gorm.DB, f *model.DocumentFile) error {
+	return tx.Where("document_id = ? AND path = ?", f.DocumentID, f.Path).
+		Assign(model.DocumentFile{
+			Status: f.Status, Language: f.Language, Size: f.Size,
+			ContentHash: f.ContentHash, Error: f.Error, UpdatedAt: time.Now(),
+		}).
+		FirstOrCreate(f).Error
+}
+
+// ReplaceFileChunksIfTaskRunning 带 fencing 的文件级替换（增量同步）：
+// 事务内锁任务行校验 running → upsert 文件元数据 → 删该文件旧块 → 插新块。
+// 四步同一事务，保证「hash 已更新但 blocks 未写」的中间态不会落库。
+// 返回 applied=false 表示任务已被回收/终结，调用方必须中止且不得继续写其它文件。
+func (r *DocumentRepo) ReplaceFileChunksIfTaskRunning(ctx context.Context, taskID, documentID int64, filePath string, file *model.DocumentFile, chunks []model.Chunk) (bool, error) {
+	applied := false
+	err := r.dbx(ctx).Transaction(func(tx *gorm.DB) error {
+		ok, err := lockTaskRunning(tx, taskID)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return nil
+		}
+		if file != nil {
+			if err := upsertFileTx(tx, file); err != nil {
+				return err
+			}
+			// chunks 的 file_id 由本事务 upsert 结果回填（buildChunks 阶段还没有文件 ID）
+			for i := range chunks {
+				id := file.ID
+				chunks[i].FileID = &id
+			}
+		}
+		if err := tx.Where("document_id = ? AND file_path = ?", documentID, filePath).
+			Delete(&model.Chunk{}).Error; err != nil {
+			return err
+		}
+		if err := insertChunks(tx, documentID, chunks); err != nil {
+			return err
+		}
+		applied = true
+		return nil
+	})
+	return applied, err
+}
+
+// ReplaceDocumentChunksIfTaskRunning 带 fencing 的整篇替换（全量摄取 / 重建索引）：
+// 事务内锁任务行校验 running → upsert 全部文件元数据 → 整篇删块 → 批量插块。
+func (r *DocumentRepo) ReplaceDocumentChunksIfTaskRunning(ctx context.Context, taskID, documentID int64, files []*model.DocumentFile, chunks []model.Chunk) (bool, error) {
+	applied := false
+	err := r.dbx(ctx).Transaction(func(tx *gorm.DB) error {
+		ok, err := lockTaskRunning(tx, taskID)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return nil
+		}
+		idByPath := make(map[string]int64, len(files))
+		for _, f := range files {
+			if err := upsertFileTx(tx, f); err != nil {
+				return err
+			}
+			idByPath[f.Path] = f.ID
+		}
+		for i := range chunks {
+			if chunks[i].FilePath == nil {
+				continue
+			}
+			if id, ok := idByPath[*chunks[i].FilePath]; ok {
+				chunks[i].FileID = &id
+			}
+		}
+		if err := tx.Where("document_id = ?", documentID).Delete(&model.Chunk{}).Error; err != nil {
+			return err
+		}
+		if err := insertChunks(tx, documentID, chunks); err != nil {
+			return err
+		}
+		applied = true
+		return nil
+	})
+	return applied, err
 }
 
 // FailProcessingDocs 重启恢复：只把「本 worker 刚置失败的任务」对应的处理中文档置失败
