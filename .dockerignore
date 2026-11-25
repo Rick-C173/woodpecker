@@ -1,0 +1,15 @@
+# 后端构建上下文：只保留 Go 源码与迁移文件
+web
+data
+bin
+logs
+docs
+md
+.git
+.env
+*.md
+coverage*
+coverage.html
+coverage_integration.out
+Dockerfile
+docker-compose*.yml

@@ -5,6 +5,11 @@
 # go-enry 无 oniguruma 时自动降级纯 Go 语言检测。
 FROM golang:1.27-bookworm AS builder
 
+# 模块代理与校验库：goproxy.cn（阿里云镜像曾出现缓存损坏的 zip 包，实测 goproxy.cn 可靠）
+ARG GOPROXY=https://goproxy.cn,direct
+ARG GOSUMDB=sum.golang.org
+ENV GOPROXY=${GOPROXY} GOSUMDB=${GOSUMDB}
+
 WORKDIR /src
 # 依赖层缓存：先拷贝 go.mod/go.sum 下载依赖，再拷贝源码
 COPY go.mod go.sum ./

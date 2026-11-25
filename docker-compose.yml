@@ -63,6 +63,8 @@ services:
       APP_ENV: production
       DATABASE_URL: postgres://${POSTGRES_USER:-woodpecker}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-woodpecker}?sslmode=disable
       REDIS_ADDR: redis:6379
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # 容器内访问宿主机模型服务（Ollama 等）
     volumes:
       - uploads_data:/data/uploads
     depends_on:
@@ -83,6 +85,8 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-woodpecker}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-woodpecker}?sslmode=disable
       REDIS_ADDR: redis:6379
       WORKER_ID: ${WORKER_ID:-worker-1}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - uploads_data:/data/uploads
     depends_on:
