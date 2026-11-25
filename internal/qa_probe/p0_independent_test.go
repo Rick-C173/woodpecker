@@ -31,7 +31,7 @@ func openDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	dsn := os.Getenv("TEST_DSN")
 	if dsn == "" {
-		dsn = "postgres://woodpecker:woodpecker@127.0.0.1:5432/woodpecker?sslmode=disable"
+		dsn = "postgres://woodpecker:woodpecker@127.0.0.1:5432/woodpecker_test?sslmode=disable"
 	}
 	db, err := database.Open(dsn, 10, 5, 30)
 	require.NoError(t, err)

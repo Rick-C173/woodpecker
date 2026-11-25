@@ -23,7 +23,7 @@ var itDB *gorm.DB
 func TestMain(m *testing.M) {
 	dsn := os.Getenv("TEST_DSN")
 	if dsn == "" {
-		dsn = "postgres://woodpecker:woodpecker@127.0.0.1:5432/woodpecker?sslmode=disable"
+		dsn = "postgres://woodpecker:woodpecker@127.0.0.1:5432/woodpecker_test?sslmode=disable"
 	}
 	db, err := database.Open(dsn, 20, 5, 30)
 	if err == nil {

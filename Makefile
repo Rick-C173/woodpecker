@@ -69,6 +69,8 @@ cover-html:
 	go tool cover -html=$(COVER_OUT) -o $(COVER_HTML)
 	@echo 已生成 $(COVER_HTML)
 
+# 集成测试默认连独立测试库 woodpecker_test（与开发库隔离，可用 TEST_DSN 覆盖）；
+# 测试库需预先以超级用户安装 vector 扩展：CREATE EXTENSION vector;
 integration:
 	go test -count=1 -tags=integration ./internal/integration
 

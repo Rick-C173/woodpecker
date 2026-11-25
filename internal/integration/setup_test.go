@@ -29,7 +29,7 @@ var testDSN = func() string {
 	}
 	// 默认连本机原生 PostgreSQL 5432；CI 或容器环境用 TEST_DSN 覆盖
 	// （docker-compose.dev.yml 备用栈映射 5433：TEST_DSN=postgres://woodpecker:woodpecker@127.0.0.1:5433/woodpecker?sslmode=disable）
-	return "postgres://woodpecker:woodpecker@127.0.0.1:5432/woodpecker?sslmode=disable"
+	return "postgres://woodpecker:woodpecker@127.0.0.1:5432/woodpecker_test?sslmode=disable"
 }()
 
 func openTestDB(t *testing.T) *gorm.DB {
