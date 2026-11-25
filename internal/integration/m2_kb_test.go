@@ -82,13 +82,17 @@ func TestM2KnowledgeBaseAndMembers(t *testing.T) {
 	sc, _ = e.call(t, "GET", "/api/v1/kbs/"+i64(kbID)+"/members", devToken, nil)
 	assert.Equal(t, 403, sc)
 
-	// 成员列表（含用户名）+ 角色变更
+	// 成员列表（含用户名）+ 角色变更：创建者 owner 行在前（role ASC）
 	sc, body = e.call(t, "GET", "/api/v1/kbs/"+i64(kbID)+"/members", rootToken, nil)
 	require.Equal(t, 200, sc)
 	members, _ := body["items"].([]any)
-	require.Len(t, members, 1)
+	require.Len(t, members, 2)
 	m0, _ := members[0].(map[string]any)
-	assert.Equal(t, "dev", m0["username"])
+	assert.Equal(t, "root", m0["username"])
+	assert.Equal(t, "owner", m0["role"])
+	m1, _ := members[1].(map[string]any)
+	assert.Equal(t, "dev", m1["username"])
+	assert.Equal(t, "editor", m1["role"])
 
 	sc, body = e.call(t, "PATCH", "/api/v1/kbs/"+i64(kbID)+"/members/"+i64(devID), rootToken, map[string]any{"role": "owner"})
 	require.Equal(t, 200, sc, body)
@@ -98,8 +102,11 @@ func TestM2KnowledgeBaseAndMembers(t *testing.T) {
 	assert.Equal(t, int64(1), auditCount(t, e, "member.grant"))
 	assert.Equal(t, int64(1), auditCount(t, e, "member.role_change"))
 
-	// 管理员非成员访问 → 审计
-	sc, _ = e.call(t, "GET", "/api/v1/kbs/"+i64(kbID), rootToken, nil)
+	// 管理员非成员访问 → 审计（创建者 root 已是 owner 成员，用另一管理员触发 bypass）
+	sc, body = e.call(t, "POST", "/api/v1/admin/users", rootToken, map[string]any{"username": "boss", "password": "boss-pass-12", "is_admin": true})
+	require.Equal(t, 201, sc, body)
+	bossToken := e.loginReady(t, "boss", "boss-pass-12", "boss-pass-34")
+	sc, _ = e.call(t, "GET", "/api/v1/kbs/"+i64(kbID), bossToken, nil)
 	require.Equal(t, 200, sc)
 	assert.GreaterOrEqual(t, auditCount(t, e, "kb.admin_access"), int64(1))
 
