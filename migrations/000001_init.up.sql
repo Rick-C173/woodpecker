@@ -1,4 +1,4 @@
--- Woodpecker 初始表结构，来源：md/数据库设计.md §3
+-- Woodpecker 初始表结构（合并版，最终形态），来源：md/数据库设计.md §3
 -- 注意：chunks 引用 document_files，messages 引用 model_entries，故建表顺序不可调换。
 
 CREATE EXTENSION IF NOT EXISTS vector;
@@ -86,18 +86,21 @@ CREATE TABLE documents (
 CREATE INDEX idx_documents_kb_status ON documents(kb_id, status);
 
 CREATE TABLE document_files (
-    id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    document_id BIGINT   NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
-    path        VARCHAR(1000) NOT NULL,
-    status      SMALLINT NOT NULL DEFAULT 1, -- 1=已索引 2=已排除 3=失败
-    language    VARCHAR(50),
-    size        BIGINT,
-    error       TEXT,
-    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    id           BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    document_id  BIGINT   NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    path         VARCHAR(1000) NOT NULL,
+    status       SMALLINT NOT NULL DEFAULT 1, -- 1=已索引 2=已排除 3=失败
+    language     VARCHAR(50),
+    size         BIGINT,
+    error        TEXT,
+    content_hash VARCHAR(64), -- 内容指纹（增量同步 diff 用）
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (document_id, path)
 );
 CREATE INDEX idx_document_files_doc_status ON document_files(document_id, status);
 
+-- chunk_index 语义为「文件内序号」：增量同步按文件替换分块后各文件从 0 重新编号，
+-- 故唯一键含 file_path（原 (document_id, chunk_index) 全局唯一键会冲突）。
 CREATE TABLE chunks (
     id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     document_id BIGINT   NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
@@ -113,7 +116,8 @@ CREATE TABLE chunks (
     embedding   vector(1024) NOT NULL,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (document_id, chunk_index)
+    CONSTRAINT chunks_document_id_file_path_chunk_index_key
+        UNIQUE (document_id, file_path, chunk_index)
 );
 CREATE INDEX idx_chunks_hnsw ON chunks
     USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);
@@ -138,7 +142,9 @@ CREATE TABLE messages (
     interrupted     BOOLEAN  NOT NULL DEFAULT FALSE,
     prompt_tokens     INT,
     completion_tokens INT,
-    model_entry_id  BIGINT REFERENCES model_entries(id),
+    -- 「本次回答所用模型」快照引用；条目下线置空，溯源由 message_citations 承担。
+    -- ON DELETE SET NULL：否则删除被引用过的模型条目会外键冲突 500。
+    model_entry_id  BIGINT REFERENCES model_entries(id) ON DELETE SET NULL,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_messages_conv ON messages(conversation_id, created_at);
@@ -168,19 +174,31 @@ CREATE TABLE feedbacks (
     UNIQUE (message_id, user_id)
 );
 
+-- 摄取任务（FR-06）：重启恢复依赖 worker_id 归属 + heartbeat_at 时间兜底，缺一不可——
+-- 仅按 worker_id 判定时跨重启标识变化（k8s 主机名必变）会留下永久 running 的僵尸任务；
+-- 仅按时间判定时无法区分「正常长任务」与「重启残留」，归属列仍是启动恢复的第一依据。
 CREATE TABLE ingest_tasks (
-    id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    document_id BIGINT   NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
-    type        SMALLINT NOT NULL, -- 1=全量摄取 2=增量同步
-    status      SMALLINT NOT NULL DEFAULT 1, -- 1=排队 2=运行 3=成功 4=失败
-    retries     INT      NOT NULL DEFAULT 0,
-    error       TEXT,
-    payload     JSONB,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    started_at  TIMESTAMPTZ,
-    finished_at TIMESTAMPTZ
+    id           BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    document_id  BIGINT   NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    type         SMALLINT NOT NULL, -- 1=全量摄取 2=增量同步
+    status       SMALLINT NOT NULL DEFAULT 1, -- 1=排队 2=运行 3=成功 4=失败
+    retries      INT      NOT NULL DEFAULT 0,
+    error        TEXT,
+    payload      JSONB,
+    worker_id    VARCHAR(100), -- 处理实例标识（WORKER_ID，缺省主机名）
+    heartbeat_at TIMESTAMPTZ,  -- 运行中心跳（默认 30s 刷新），超时视为僵尸
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    started_at   TIMESTAMPTZ,
+    finished_at  TIMESTAMPTZ
 );
 CREATE INDEX idx_ingest_tasks_doc ON ingest_tasks(document_id, created_at DESC);
+CREATE INDEX idx_ingest_tasks_worker_status ON ingest_tasks (worker_id, status);
+CREATE INDEX idx_ingest_tasks_heartbeat ON ingest_tasks (status, heartbeat_at);
+-- 同一文档最多一个排队/运行中任务（并发重试/同步双写防护）；
+-- 应用层捕获 23505 → DOC_TASK_RUNNING（409）。
+CREATE UNIQUE INDEX uq_ingest_tasks_running
+    ON ingest_tasks (document_id)
+    WHERE status IN (1, 2);
 
 CREATE TABLE audit_logs (
     id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
