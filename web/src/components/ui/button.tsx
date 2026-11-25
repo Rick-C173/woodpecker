@@ -21,6 +21,13 @@ const buttonVariants = cva(
         icon: 'h-[var(--row)] w-[var(--row)]',
       },
     },
+    compoundVariants: [
+      {
+        variant: 'ghost',
+        size: 'icon',
+        class: 'btn-icon border-transparent hover:border-transparent',
+      },
+    ],
     defaultVariants: {
       variant: 'default',
       size: 'default',
