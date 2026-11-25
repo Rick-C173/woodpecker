@@ -71,8 +71,9 @@ cover-html:
 
 # 集成测试默认连独立测试库 woodpecker_test（与开发库隔离，可用 TEST_DSN 覆盖）；
 # 测试库需预先以超级用户安装 vector 扩展：CREATE EXTENSION vector;
+# -p 1：多个 IT 包（integration/repo/qa_probe）串行跑，避免并行 itTruncate 互相清表。
 integration:
-	go test -count=1 -tags=integration ./internal/integration
+	go test -count=1 -p 1 -tags=integration ./internal/integration ./internal/repo ./internal/qa_probe
 
 ## ---- 代码质量 ----
 fmt:
