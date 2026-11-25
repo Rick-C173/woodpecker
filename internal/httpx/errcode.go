@@ -1,41 +1,20 @@
-// Package httpx 中性 HTTP 基础件：业务错误码与统一响应（API 设计 §1/§2）。
-// handler 与 middleware 共同引用，避免相互依赖。
-package httpx
+﻿// Package httpx 涓€?HTTP 鍩虹浠讹細涓氬姟閿欒鐮佷笌缁熶竴鍝嶅簲锛圓PI 璁捐 搂1/搂2锛夈€?// handler 涓?middleware 鍏卞悓寮曠敤锛岄伩鍏嶇浉浜掍緷璧栥€?package httpx
 
 import "net/http"
 
-// 业务错误码，与 md/API设计.md §2 保持一一对应，新增码先改文档再改这里。
-const (
-	CodeAuthInvalid    = "AUTH_001" // 401 用户名或密码错误
-	CodeAuthLocked     = "AUTH_002" // 401 账号已锁定
-	CodeAuthDisabled   = "AUTH_003" // 401 账号被禁用
-	CodeAuthStaleToken = "AUTH_004" // 401 token 失效（版本号不符）
-	CodeRegisterClosed = "AUTH_005" // 403 自助注册未开放
-	CodePasswordWeak   = "AUTH_006" // 422 密码不符合规则（≥ 8 位）
-	// CodeAuthMustChangePassword 首登强制改密未完成：除改密白名单外一律 403（审计 P1-4）。
-	CodeAuthMustChangePassword = "AUTH_007"          // 403 需先修改初始密码
-	CodeNotFound               = "NOT_FOUND"         // 404 资源不存在
-	CodeValidation             = "VALIDATION_FAILED" // 422 参数校验失败
-	CodeUserExists             = "USER_001"          // 409 用户名已存在
-	CodeUserSelfDisable        = "USER_002"          // 422 不能禁用自己
-	CodeUserLastAdmin          = "USER_003"          // 422 最后一个管理员保护
-	CodeKBNameExists           = "KB_001"            // 409 知识库名称重复
-	CodeDocRepoTooLarge        = "DOC_001"           // 422 仓库超过大小/文件数限制
-	CodeDocFormatNoSupport     = "DOC_002"           // 422 文件格式不支持
-	CodeDocCredInvalid         = "DOC_003"           // 422 仓库凭证无效或地址不可达
-	CodeDocSyncFailed          = "DOC_004"           // 422 同步失败（远端不可达）
-	CodeDocTaskRunning         = "DOC_TASK_RUNNING"  // 409 已有运行中任务
-	CodeModelNoDefault         = "MODEL_001"         // 422 该用途缺少默认条目
-	CodeModelDefaultLocked     = "MODEL_002"         // 422 默认条目不可删除
-	CodeModelHasEntries        = "MODEL_003"         // 409 模型服务下存在条目，不可删除
-	// CodeModelHasDefaultEntry 停用持有默认条目的服务（审计 P1-6）。
-	CodeModelHasDefaultEntry = "MODEL_004"    // 422 服务下存在默认条目，不可停用
-	CodeLLMUnavailable       = "LLM_001"      // 502 模型服务不可用
-	CodeLLMBadResponse       = "LLM_002"      // 502 模型服务无有效响应
-	CodeRateLimited          = "RATE_LIMITED" // 429 请求过于频繁
-	CodeDBUnreachable        = "SYS_001"      // 503 数据库不可用
-	CodeRedisUnreachable     = "SYS_002"      // 503 Redis 不可用
-	CodeForbidden            = "FORBIDDEN"    // 403 通用越权
+// 涓氬姟閿欒鐮侊紝涓?md/API璁捐.md 搂2 淇濇寔涓€涓€瀵瑰簲锛屾柊澧炵爜鍏堟敼鏂囨。鍐嶆敼杩欓噷銆?const (
+	CodeAuthInvalid    = "AUTH_001" // 401 鐢ㄦ埛鍚嶆垨瀵嗙爜閿欒
+	CodeAuthLocked     = "AUTH_002" // 401 璐﹀彿宸查攣瀹?	CodeAuthDisabled   = "AUTH_003" // 401 璐﹀彿琚鐢?	CodeAuthStaleToken = "AUTH_004" // 401 token 澶辨晥锛堢増鏈彿涓嶇锛?	CodeRegisterClosed = "AUTH_005" // 403 鑷姪娉ㄥ唽鏈紑鏀?	CodePasswordWeak   = "AUTH_006" // 422 瀵嗙爜涓嶇鍚堣鍒欙紙鈮?8 浣嶏級
+	// CodeAuthMustChangePassword 棣栫櫥寮哄埗鏀瑰瘑鏈畬鎴愶細闄ゆ敼瀵嗙櫧鍚嶅崟澶栦竴寰?403锛堝璁?P1-4锛夈€?	CodeAuthMustChangePassword = "AUTH_007" // 403 闇€鍏堜慨鏀瑰垵濮嬪瘑鐮?	CodeNotFound               = "NOT_FOUND"         // 404 璧勬簮涓嶅瓨鍦?	CodeValidation             = "VALIDATION_FAILED" // 422 鍙傛暟鏍￠獙澶辫触
+	CodeUserExists             = "USER_001"          // 409 鐢ㄦ埛鍚嶅凡瀛樺湪
+	CodeUserSelfDisable        = "USER_002"          // 422 涓嶈兘绂佺敤鑷繁
+	CodeUserLastAdmin          = "USER_003"          // 422 鏈€鍚庝竴涓鐞嗗憳淇濇姢
+	CodeKBNameExists           = "KB_001"            // 409 鐭ヨ瘑搴撳悕绉伴噸澶?	CodeDocRepoTooLarge        = "DOC_001"           // 422 浠撳簱瓒呰繃澶у皬/鏂囦欢鏁伴檺鍒?	CodeDocFormatNoSupport     = "DOC_002"           // 422 鏂囦欢鏍煎紡涓嶆敮鎸?	CodeDocCredInvalid         = "DOC_003"           // 422 浠撳簱鍑瘉鏃犳晥鎴栧湴鍧€涓嶅彲杈?	CodeDocSyncFailed          = "DOC_004"           // 422 鍚屾澶辫触锛堣繙绔笉鍙揪锛?	CodeDocTaskRunning         = "DOC_TASK_RUNNING"  // 409 宸叉湁杩愯涓换鍔?	CodeModelNoDefault         = "MODEL_001"         // 422 璇ョ敤閫旂己灏戦粯璁ゆ潯鐩?	CodeModelDefaultLocked     = "MODEL_002"         // 422 榛樿鏉＄洰涓嶅彲鍒犻櫎
+	CodeModelHasEntries        = "MODEL_003"         // 409 妯″瀷鏈嶅姟涓嬪瓨鍦ㄦ潯鐩紝涓嶅彲鍒犻櫎
+	// CodeModelHasDefaultEntry 鍋滅敤鎸佹湁榛樿鏉＄洰鐨勬湇鍔★紙瀹¤ P1-6锛夈€?	CodeModelHasDefaultEntry = "MODEL_004"    // 422 鏈嶅姟涓嬪瓨鍦ㄩ粯璁ゆ潯鐩紝涓嶅彲鍋滅敤
+	CodeLLMUnavailable       = "LLM_001"      // 502 妯″瀷鏈嶅姟涓嶅彲鐢?	CodeLLMBadResponse       = "LLM_002"      // 502 妯″瀷鏈嶅姟鏃犳湁鏁堝搷搴?	CodeRateLimited          = "RATE_LIMITED" // 429 璇锋眰杩囦簬棰戠箒
+	CodeDBUnreachable        = "SYS_001"      // 503 鏁版嵁搴撲笉鍙敤
+	CodeRedisUnreachable     = "SYS_002"      // 503 Redis 涓嶅彲鐢?	CodeForbidden            = "FORBIDDEN"    // 403 閫氱敤瓒婃潈
 )
 
 var httpStatusByCode = map[string]int{
@@ -69,8 +48,7 @@ var httpStatusByCode = map[string]int{
 	CodeForbidden:              http.StatusForbidden,
 }
 
-// StatusOf 业务码对应 HTTP 状态码；未知码按 500。
-func StatusOf(code string) int {
+// StatusOf 涓氬姟鐮佸搴?HTTP 鐘舵€佺爜锛涙湭鐭ョ爜鎸?500銆?func StatusOf(code string) int {
 	if s, ok := httpStatusByCode[code]; ok {
 		return s
 	}
