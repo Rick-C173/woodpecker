@@ -31,7 +31,7 @@ func probeDSN() string {
 	if dsn := os.Getenv("TEST_DSN"); dsn != "" {
 		return dsn
 	}
-	return "postgres://woodpecker:woodpecker@127.0.0.1:5432/woodpecker?sslmode=disable"
+	return "postgres://woodpecker:woodpecker@127.0.0.1:5432/woodpecker_test?sslmode=disable"
 }
 
 // openDB 连接测试库；PG 不可达时跳过（不硬编码、不 os.Exit）。
