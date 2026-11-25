@@ -11,17 +11,19 @@ interface UiState {
   toggleSidebar: () => void;
   /** 引用抽屉开关（聊天窗内） */
   citationsDrawerOpen: boolean;
-  openCitationsDrawer: () => void;
+  /** 抽屉当前聚焦的引用 seq（点击行内 [n] / 引用 chip 联动滚动） */
+  citationsSeq: number | null;
+  /** 打开抽屉并聚焦某条引用 */
+  openCitation: (seq: number) => void;
   closeCitationsDrawer: () => void;
-  toggleCitationsDrawer: () => void;
 }
 
-export const useUiStore = create<UiState>((set, get) => ({
+export const useUiStore = create<UiState>((set) => ({
   sidebarCollapsed: false,
   toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
 
   citationsDrawerOpen: false,
-  openCitationsDrawer: () => set({ citationsDrawerOpen: true }),
-  closeCitationsDrawer: () => set({ citationsDrawerOpen: false }),
-  toggleCitationsDrawer: () => set({ citationsDrawerOpen: !get().citationsDrawerOpen }),
+  citationsSeq: null,
+  openCitation: (seq) => set({ citationsDrawerOpen: true, citationsSeq: seq }),
+  closeCitationsDrawer: () => set({ citationsDrawerOpen: false, citationsSeq: null }),
 }));

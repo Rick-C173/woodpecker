@@ -33,6 +33,83 @@ export interface UrlIngestReq {
   url: string;
 }
 
+/** POST /admin/users 请求体（swagger 注解缺 requestBody）。 */
+export interface CreateUserReq {
+  username: string;
+  /** 初始密码，缺省由后端随机生成（≥8 位，AUTH_006） */
+  password?: string;
+  is_admin?: boolean;
+}
+
+/** PATCH /admin/users/{id} 请求体（swagger 注解缺 requestBody）。 */
+export interface PatchUserReq {
+  /** 1=启用 2=禁用（禁用自己 → USER_002） */
+  status?: number;
+  /** 撤最后一个管理员 → USER_003 */
+  is_admin?: boolean;
+}
+
+/** PATCH /admin/settings 请求体（swagger 注解缺 requestBody）。 */
+export interface PatchSettingsReq {
+  /** glob 数组覆盖自定义清单；空数组=清空自定义（回到内置默认清单） */
+  exclusion_rules?: string[];
+  /** 自助注册开关（FR-01） */
+  self_register?: boolean;
+}
+
+/** PATCH /conversations/{c} 请求体（重命名，swagger 注解缺 requestBody）。 */
+export interface RenameConversationReq {
+  title: string;
+}
+
+/** POST /messages/{m}/feedback 请求体（点踩，swagger 注解缺 requestBody）。 */
+export interface MessageFeedbackReq {
+  /** 1=答案不相关 2=引用错误 3=内容过时 4=其他 */
+  reason: number;
+  /** 补充说明（reason=4 必填） */
+  comment?: string;
+}
+
+/** POST /admin/model-entries 请求体（codegen 把 params 误生成为 Record<string,never>）。 */
+export interface CreateModelEntryReq {
+  service_id: number;
+  /** chat|embedding|rerank */
+  purpose: string;
+  model_name: string;
+  /** 模型参数对象（temperature/top_p/dimensions/top_n 等） */
+  params?: Record<string, unknown>;
+  /** true 直接设为该用途默认 */
+  is_default?: boolean;
+}
+
+/** PATCH /admin/model-entries/{id} 请求体（同上 params codegen 误生成）。 */
+export interface PatchModelEntryReq {
+  is_default?: boolean;
+  model_name?: string;
+  params?: Record<string, unknown>;
+  purpose?: string;
+}
+
+/** POST /admin/model-entries：创建条目。 */
+export async function postModelEntry(
+  body: CreateModelEntryReq,
+): Promise<RawResult<Schemas['service.ModelEntryItem']>> {
+  const res = await api.POST('/admin/model-entries', { body } as unknown as PostInit);
+  return toTyped(res);
+}
+
+/** PATCH /admin/model-entries/{id}：修改条目 / 设默认（is_default:true）。 */
+export async function patchModelEntry(
+  id: number,
+  body: PatchModelEntryReq,
+): Promise<RawResult<Schemas['service.ModelEntryItem']>> {
+  const res = await api.PATCH('/admin/model-entries/{id}', {
+    params: { path: { id } },
+    body,
+  } as unknown as PostInit);
+  return toTyped(res);
+}
+
 /** 上传接口 rejected 条目（后端 gin.H{code,message}）。 */
 export interface UploadRejected {
   code: string;
@@ -103,4 +180,70 @@ export async function postUploadFiles(
     // FormData 让浏览器自动带 multipart boundary，禁止手工设置 Content-Type
   } as unknown as PostInit);
   return toTyped<UploadResult>(res);
+}
+
+/* ================= 管理端（F6） ================= */
+
+/** POST /admin/users：创建用户，响应含一次性初始密码（仅此一次）。 */
+export async function postCreateUser(
+  body: CreateUserReq,
+): Promise<RawResult<Schemas['handler.createUserResp']>> {
+  const res = await api.POST('/admin/users', { body } as unknown as PostInit);
+  return toTyped(res);
+}
+
+/** PATCH /admin/users/{id}：禁用/启用、设/撤管理员（USER_002/003 保护）。 */
+export async function patchAdminUser(
+  id: number,
+  body: PatchUserReq,
+): Promise<RawResult<Schemas['handler.patchUserResp']>> {
+  const res = await api.PATCH('/admin/users/{id}', {
+    params: { path: { id } },
+    body,
+  } as unknown as PostInit);
+  return toTyped(res);
+}
+
+/** POST /admin/users/{id}/reset-password：重置密码，响应含一次性初始密码。 */
+export async function postResetPassword(
+  id: number,
+): Promise<RawResult<Schemas['handler.resetPasswordResp']>> {
+  const res = await api.POST('/admin/users/{id}/reset-password', {
+    params: { path: { id } },
+  });
+  return toTyped(res);
+}
+
+/** PATCH /admin/settings：更新设置（记审计 setting.update）。 */
+export async function patchAdminSettings(
+  body: PatchSettingsReq,
+): Promise<RawResult<{ message?: string }>> {
+  const res = await api.PATCH('/admin/settings', { body } as unknown as PostInit);
+  return toTyped<{ message?: string }>(res);
+}
+
+/* ================= 会话与反馈（F5） ================= */
+
+/** PATCH /conversations/{c}：重命名会话。 */
+export async function patchConversation(
+  cId: number,
+  body: RenameConversationReq,
+): Promise<RawResult<{ message?: string }>> {
+  const res = await api.PATCH('/conversations/{c}', {
+    params: { path: { c: cId } },
+    body,
+  } as unknown as PostInit);
+  return toTyped<{ message?: string }>(res);
+}
+
+/** POST /messages/{m}/feedback：点踩（重复提交覆盖）。 */
+export async function postMessageFeedback(
+  mId: number,
+  body: MessageFeedbackReq,
+): Promise<RawResult<{ message?: string }>> {
+  const res = await api.POST('/messages/{m}/feedback', {
+    params: { path: { m: mId } },
+    body,
+  } as unknown as PostInit);
+  return toTyped<{ message?: string }>(res);
 }
