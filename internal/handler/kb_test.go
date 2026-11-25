@@ -77,7 +77,7 @@ func TestKBAdminCRUDAndVisibility(t *testing.T) {
 	assert.Equal(t, "平台文档", body["name"])
 	// 创建者已是 owner 成员，本人访问不再触发管理员越权审计；
 	// 用另一管理员（非成员）访问验证 bypass 审计仍在记录
-	_, body = post(t, h.ts, "/api/v1/admin/users", rootToken, map[string]any{"username": "boss", "password": "boss-pass-12", "is_admin": true})
+	_, _ = post(t, h.ts, "/api/v1/admin/users", rootToken, map[string]any{"username": "boss", "password": "boss-pass-12", "is_admin": true})
 	bossToken := loginReadyToken(t, h.ts, "boss", "boss-pass-12", "boss-pass-34")
 	sc, body = get(t, h.ts, "/api/v1/kbs/"+i64(kbID), bossToken)
 	require.Equal(t, 200, sc, body)
