@@ -2,6 +2,7 @@ package httpx
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -63,6 +64,10 @@ func FailServiceError(c *gin.Context, err error) {
 		Fail(c, se.Code, se.Message)
 		return
 	}
+	// 非 ServiceError 的未知错误必须留痕，否则 500 无从排查（端到端验证教训）。
+	slog.ErrorContext(c.Request.Context(), "handler 非业务错误",
+		"err", err, "method", c.Request.Method, "path", c.Request.URL.Path,
+		"request_id", c.GetString("request_id"))
 	Fail(c, "INTERNAL", "服务内部错误")
 }
 
