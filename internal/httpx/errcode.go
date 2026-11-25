@@ -15,6 +15,10 @@ const (
 	// CodeAuthMustChangePassword 首登强制改密未完成：除改密白名单外一律 403（审计 P1-4）。
 	// 值为 AUTH_07（码表序位）；拆写绕开工具链对完整码串的改写。
 	CodeAuthMustChangePassword = "AUTH_0" + "7"      // 403 需先修改初始密码
+	// CodeInviteInvalid 邀请无效或已过期（FR-16；token 不存在/过期/已撤销）。
+	CodeInviteInvalid  = "AUTH_008"                  // 410 邀请无效或已过期
+	CodeInviteUsed     = "AUTH_009"                  // 409 邀请已被使用
+	CodeEmailSendFail  = "EMAIL_001"                 // 422 邮件发送失败（邀请已创建，可配置后重发）
 	CodeNotFound               = "NOT_FOUND"         // 404 资源不存在
 	CodeValidation             = "VALIDATION_FAILED" // 422 参数校验失败
 	CodeUserExists             = "USER_001"          // 409 用户名已存在
@@ -47,6 +51,9 @@ var httpStatusByCode = map[string]int{
 	CodeRegisterClosed:         http.StatusForbidden,
 	CodePasswordWeak:           http.StatusUnprocessableEntity,
 	CodeAuthMustChangePassword: http.StatusForbidden,
+	CodeInviteInvalid:          http.StatusGone,
+	CodeInviteUsed:             http.StatusConflict,
+	CodeEmailSendFail:          http.StatusUnprocessableEntity,
 	CodeNotFound:               http.StatusNotFound,
 	CodeValidation:             http.StatusUnprocessableEntity,
 	CodeUserExists:             http.StatusConflict,

@@ -49,6 +49,26 @@ func (r *UserRepo) GetByUsername(ctx context.Context, username string) (*model.U
 	return &u, nil
 }
 
+// GetByEmail 按邮箱取用户（FR-16 登录支持邮箱）；不存在返回 ErrNotFound。
+func (r *UserRepo) GetByEmail(ctx context.Context, email string) (*model.User, error) {
+	var u model.User
+	if err := r.dbx(ctx).Where("email = ?", email).First(&u).Error; err != nil {
+		if isNoRows(err) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return &u, nil
+}
+
+// CountByEmail 邮箱是否已被占用（FR-16 邀请查重）。
+func (r *UserRepo) CountByEmail(ctx context.Context, email string) (int64, error) {
+	var n int64
+	err := r.dbx(ctx).Model(&model.User{}).Where("email = ?", email).
+		Count(&n).Error
+	return n, err
+}
+
 func (r *UserRepo) GetByID(ctx context.Context, id int64) (*model.User, error) {
 	var u model.User
 	if err := r.dbx(ctx).First(&u, id).Error; err != nil {
