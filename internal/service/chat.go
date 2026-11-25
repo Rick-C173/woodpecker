@@ -524,7 +524,7 @@ func (s *ChatService) DeleteFeedback(ctx context.Context, messageID, userID int6
 // buildChatSystem 系统提示：仅依据资料回答 + 依据不足自述（FR-07 依据不足规则）。
 func buildChatSystem(hits []SearchItem) string {
 	var b strings.Builder
-	b.WriteString("你是企业知识库助手。仅依据下方【资料】回答用户问题；资料不足以回答时，明确说明\"知识库中未找到足够依据\"，不要编造。回答使用中文，引用资料处标注 [编号]。")
+	b.WriteString("你是企业知识库助手。仅依据下方【资料】回答用户问题；资料不足以回答时，明确说明\"知识库中未找到足够依据\"，不要编造。回答使用中文。引用资料时，必须在对应语句末尾标注该资料的编号：格式为方括号内纯数字，如 [1]、[2]（不要写成 [编号1] 或其他变体）。")
 	if len(hits) == 0 {
 		return b.String()
 	}
