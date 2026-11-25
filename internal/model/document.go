@@ -48,25 +48,25 @@ const (
 
 // Document 文档（知识源实例）。
 type Document struct {
-	ID            int64      `gorm:"primaryKey;column:id"`
-	KBID          int64      `gorm:"column:kb_id"`
-	Type          int16      `gorm:"column:type"`
-	Name          string     `gorm:"column:name;size:500"`
-	Status        int16      `gorm:"column:status;default:1"`
-	Stage         *int16     `gorm:"column:stage"`
-	Error         *string    `gorm:"column:error"`
-	RepoURL       *string    `gorm:"column:repo_url;size:1000"`
-	GitRef        *string    `gorm:"column:git_ref;size:200"`
-	CredentialEnc []byte     `gorm:"column:credential_enc"`
-	IgnoreRules   []string   `gorm:"column:ignore_rules;type:text[]"`
-	LastCommit    *string    `gorm:"column:last_commit;size:40"`
-	LastSyncedAt  *time.Time `gorm:"column:last_synced_at"`
-	SourceURL     *string    `gorm:"column:source_url;size:2000"`
-	FileCount     *int       `gorm:"column:file_count"`
-	TotalSize     *int64     `gorm:"column:total_size"`
-	CreatedBy     int64      `gorm:"column:created_by"`
-	CreatedAt     time.Time  `gorm:"column:created_at"`
-	UpdatedAt     time.Time  `gorm:"column:updated_at"`
+	ID            int64       `gorm:"primaryKey;column:id"`
+	KBID          int64       `gorm:"column:kb_id"`
+	Type          int16       `gorm:"column:type"`
+	Name          string      `gorm:"column:name;size:500"`
+	Status        int16       `gorm:"column:status;default:1"`
+	Stage         *int16      `gorm:"column:stage"`
+	Error         *string     `gorm:"column:error"`
+	RepoURL       *string     `gorm:"column:repo_url;size:1000"`
+	GitRef        *string     `gorm:"column:git_ref;size:200"`
+	CredentialEnc []byte      `gorm:"column:credential_enc"`
+	IgnoreRules   StringArray `gorm:"column:ignore_rules;type:text[]"`
+	LastCommit    *string     `gorm:"column:last_commit;size:40"`
+	LastSyncedAt  *time.Time  `gorm:"column:last_synced_at"`
+	SourceURL     *string     `gorm:"column:source_url;size:2000"`
+	FileCount     *int        `gorm:"column:file_count"`
+	TotalSize     *int64      `gorm:"column:total_size"`
+	CreatedBy     int64       `gorm:"column:created_by"`
+	CreatedAt     time.Time   `gorm:"column:created_at"`
+	UpdatedAt     time.Time   `gorm:"column:updated_at"`
 }
 
 func (Document) TableName() string { return "documents" }

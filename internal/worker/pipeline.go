@@ -384,7 +384,7 @@ func (p *Pipeline) fetch(ctx context.Context, d *model.Document, _ *model.Ingest
 		raw, _ = p.settings.GetString(ctx, "exclusion_rules", "")
 	}
 	excl := rag.ParseExclusionRules(raw)
-	ignore := d.IgnoreRules
+	ignore := []string(d.IgnoreRules)
 
 	switch d.Type {
 	case model.DocTypeGit:

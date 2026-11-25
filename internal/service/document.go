@@ -283,7 +283,7 @@ func (s *DocumentService) CreateGit(ctx context.Context, actorID, kbID int64, re
 	}
 	d := &model.Document{
 		KBID: kbID, Type: model.DocTypeGit, Name: repoURL,
-		RepoURL: &repoURL, IgnoreRules: ignoreRules, CreatedBy: actorID,
+		RepoURL: &repoURL, IgnoreRules: model.StringArray(ignoreRules), CreatedBy: actorID,
 	}
 	if gitRef != "" {
 		d.GitRef = &gitRef

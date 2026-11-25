@@ -52,7 +52,7 @@ func TestDocCreateGit(t *testing.T) {
 	require.NotNil(t, stored)
 	// 凭证按契约 {kind,secret} 序列化后加密落库（审计 P1-12：kind 不再丢失）
 	assert.Equal(t, `enc:{"kind":"token","secret":"gh-token"}`, string(stored.CredentialEnc), "凭证加密落库且保留 kind")
-	assert.Equal(t, []string{"*.tmp"}, stored.IgnoreRules)
+	assert.Equal(t, model.StringArray{"*.tmp"}, stored.IgnoreRules)
 
 	// 校验分支
 	_, err = e.svc.CreateGit(ctx, 1, 10, "", "", service.GitCredential{}, nil, "")
