@@ -81,11 +81,11 @@ export function LoginPage() {
 
         <form className="space-y-4" onSubmit={onSubmit} noValidate>
           <div className="space-y-1.5">
-            <Label htmlFor="login-username">用户名</Label>
+            <Label htmlFor="login-username">用户名或邮箱</Label>
             <Input
               id="login-username"
               autoComplete="username"
-              placeholder="用户名"
+              placeholder="用户名或邮箱"
               {...form.register('username')}
             />
             {form.formState.errors.username ? (

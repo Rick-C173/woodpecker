@@ -222,6 +222,123 @@ export async function patchAdminSettings(
   return toTyped<{ message?: string }>(res);
 }
 
+/* ================= 邮箱邀请制（FR-16 / M10） ================= */
+
+/** 邀请状态。 */
+export type InviteStatus = 'pending' | 'accepted' | 'revoked';
+/** 发送状态。 */
+export type InviteSendStatus = 'sent' | 'failed' | 'not_sent';
+
+export interface InviteItem {
+  id: number;
+  email: string;
+  status: InviteStatus;
+  send_status: InviteSendStatus;
+  send_error?: string;
+  expires_at: string;
+  created_by: number;
+  created_at: string;
+  /** 仅创建/重发响应携带（邮件丢失时手动转发） */
+  link?: string;
+}
+
+export interface InviteResult {
+  email: string;
+  ok: boolean;
+  sent: boolean;
+  invite?: InviteItem;
+  link?: string;
+  error?: string;
+}
+
+export interface EmailSettings {
+  host: string;
+  port: number;
+  username: string;
+  from: string;
+  configured?: boolean;
+}
+
+/** POST /admin/invitations：单个/批量发起邀请（去重/小写化/已注册拒绝）。 */
+export async function postInvitations(
+  emails: string[],
+): Promise<RawResult<{ results: InviteResult[] }>> {
+  const res = await api.POST('/admin/invitations', { body: { emails } } as unknown as PostInit);
+  return toTyped<{ results: InviteResult[] }>(res);
+}
+
+/** GET /admin/invitations：邀请列表（状态筛选 + 分页）。 */
+export async function getInvitations(
+  status: string,
+  page: number,
+  pageSize: number,
+): Promise<RawResult<{ items?: InviteItem[]; total: number; page: number; page_size: number }>> {
+  const q = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
+  if (status) q.set('status', status);
+  const res = await api.GET('/admin/invitations', {
+    params: { query: Object.fromEntries(q) },
+  } as unknown as Parameters<typeof api.GET>[1]);
+  return toTyped(res);
+}
+
+/** POST /admin/invitations/{id}/resend：重发（覆盖 token/重置有效期）。 */
+export async function postResendInvitation(
+  id: number,
+): Promise<RawResult<InviteItem>> {
+  const res = await api.POST('/admin/invitations/{id}/resend', {
+    params: { path: { id } },
+  });
+  return toTyped<InviteItem>(res);
+}
+
+/** DELETE /admin/invitations/{id}：撤销未接受邀请。 */
+export async function deleteInvitation(
+  id: number,
+): Promise<RawResult<{ message?: string }>> {
+  const res = await api.DELETE('/admin/invitations/{id}', { params: { path: { id } } });
+  return toTyped<{ message?: string }>(res);
+}
+
+/** GET /admin/email-settings：SMTP 配置（密码不回显）。 */
+export async function getEmailSettings(): Promise<RawResult<EmailSettings>> {
+  const res = await api.GET('/admin/email-settings');
+  return toTyped<EmailSettings>(res);
+}
+
+/** PATCH /admin/email-settings：保存 SMTP 配置（password 空=不修改）。 */
+export async function patchEmailSettings(
+  body: EmailSettings & { password?: string },
+): Promise<RawResult<{ message?: string }>> {
+  const res = await api.PATCH('/admin/email-settings', { body } as unknown as PostInit);
+  return toTyped<{ message?: string }>(res);
+}
+
+/** POST /admin/email-settings/test：发送测试邮件。 */
+export async function postEmailTest(
+  to: string,
+): Promise<RawResult<{ message?: string }>> {
+  const res = await api.POST('/admin/email-settings/test', { body: { to } } as unknown as PostInit);
+  return toTyped<{ message?: string }>(res);
+}
+
+/** GET /auth/invitations/{token}：公开邀请校验（注册页加载时）。 */
+export async function getInvitation(
+  token: string,
+): Promise<RawResult<{ email: string; expires_at: string }>> {
+  const res = await api.GET('/auth/invitations/{token}', { params: { path: { token } } });
+  return toTyped(res);
+}
+
+/** POST /auth/register/invited：持邀注册（公开）。 */
+export async function postRegisterInvited(body: {
+  token: string;
+  username: string;
+  password: string;
+}): Promise<RawResult<Schemas['service.AuthResult']>> {
+  const res = await api.POST('/auth/register/invited', { body } as unknown as PostInit);
+  return toTyped<Schemas['service.AuthResult']>(res);
+}
+
 /* ================= 会话与反馈（F5） ================= */
 
 /** PATCH /conversations/{c}：重命名会话。 */
