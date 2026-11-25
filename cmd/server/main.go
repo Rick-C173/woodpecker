@@ -34,6 +34,7 @@ import (
 	"woodpecker/internal/handler"
 	"woodpecker/internal/jwt"
 	"woodpecker/internal/llm"
+	"woodpecker/internal/mail"
 	"woodpecker/internal/repo"
 	"woodpecker/internal/service"
 	"woodpecker/internal/worker"
@@ -214,6 +215,17 @@ func runAPI(ctx context.Context, cfg *config.Config) error {
 	settingsSvc := service.NewSettingsService(repo.NewSettingRepo(db), auditSvc)
 	adminQuerySvc := service.NewAdminQueryService(repo.NewAuditRepo(db), repo.NewConversationRepo(db))
 
+	// M10：邮箱邀请制注册（FR-16）—— SMTP 配置（密码加密落 settings）+ 邀请生命周期
+	inviteRepo := repo.NewInviteRepo(db)
+	smtpStore := &mail.SMTPSettingStore{
+		Store:   repo.NewSettingRepo(db),
+		Encrypt: cipher.Encrypt,
+		Decrypt: cipher.Decrypt,
+	}
+	smtpSender := mail.NewSMTPSender(smtpStore)
+	inviteSvc := service.NewInviteService(inviteRepo, users, smtpSender, smtpStore, cfg.InviteBaseURL, auditSvc)
+	authSvc.SetInvites(inviteRepo)
+
 	router := handler.NewRouter(handler.Deps{
 		Cfg:           cfg,
 		DB:            db,
@@ -225,6 +237,7 @@ func runAPI(ctx context.Context, cfg *config.Config) error {
 		Search:        handler.NewSearchHandler(searchSvc),
 		Chat:          handler.NewChatHandler(chatSvc),
 		AdminSettings: handler.NewAdminSettingsHandler(settingsSvc, adminQuerySvc),
+		Invite:        handler.NewInviteHandler(inviteSvc, authSvc, smtpStore, smtpSender),
 		UserRepo:      users,
 		Issuer:        issuer,
 		KBLookup:      kbs,

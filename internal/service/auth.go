@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"woodpecker/internal/crypto"
 	"woodpecker/internal/jwt"
+	"woodpecker/internal/mail"
 	"woodpecker/internal/model"
 	"woodpecker/internal/repo"
 )
@@ -36,6 +38,8 @@ const (
 	CodeUserExists         = "USER_001"
 	CodeUserSelfDisable    = "USER_002"
 	CodeUserLastAdmin      = "USER_003"
+	CodeInviteInvalid      = "AUTH_008" // 410 邀请无效或已过期（FR-16）
+	CodeInviteUsed         = "AUTH_009" // 409 邀请已被使用（FR-16）
 	CodeKBNameExists       = "KB_001"
 	CodeNotFound           = "NOT_FOUND"
 	CodeValidation         = "VALIDATION_FAILED"
@@ -59,10 +63,17 @@ type UserRepo interface {
 	Count(ctx context.Context) (int64, error)
 	CountAdmins(ctx context.Context) (int64, error)
 	GetByUsername(ctx context.Context, username string) (*model.User, error)
+	GetByEmail(ctx context.Context, email string) (*model.User, error)
 	GetByID(ctx context.Context, id int64) (*model.User, error)
 	List(ctx context.Context, q repo.UserListQuery) ([]model.User, int64, error)
 	Create(ctx context.Context, u *model.User) error
 	Save(ctx context.Context, u *model.User) error
+}
+
+// InviteLookup 持邀注册所需（repo.InviteRepo 满足，FR-16）。
+type InviteLookup interface {
+	GetByTokenHash(ctx context.Context, tokenHash string) (*model.Invite, error)
+	MarkAccepted(ctx context.Context, id, userID int64) error
 }
 
 type AuthService struct {
@@ -71,12 +82,16 @@ type AuthService struct {
 	audit    *AuditService
 	issuer   *jwt.Issuer
 	policy   PasswordPolicy
+	invites  InviteLookup // FR-16 持邀注册（nil=未启用邀请功能）
 	now      func() time.Time
 }
 
 func NewAuthService(users UserRepo, settings SettingRepo, audit *AuditService, issuer *jwt.Issuer) *AuthService {
 	return &AuthService{users: users, settings: settings, audit: audit, issuer: issuer, policy: DefaultPasswordPolicy(), now: time.Now}
 }
+
+// SetInvites 注入邀请存储（FR-16 持邀注册）。
+func (s *AuthService) SetInvites(invites InviteLookup) { s.invites = invites }
 
 // SetClock 注入时钟（测试用）。
 func (s *AuthService) SetClock(now func() time.Time) { s.now = now }
@@ -108,6 +123,10 @@ func (s *AuthService) result(u *model.User) (*AuthResult, error) {
 
 func (s *AuthService) Login(ctx context.Context, username, password, ip string) (*AuthResult, error) {
 	u, err := s.users.GetByUsername(ctx, username)
+	if err != nil && strings.Contains(username, "@") {
+		// FR-16：登录支持用户名或邮箱（邮箱统一小写）
+		u, err = s.users.GetByEmail(ctx, strings.ToLower(username))
+	}
 	if err != nil {
 		s.audit.Record(ctx, nil, "auth.login_failed", "user", nil,
 			map[string]any{"username": username, "reason": "unknown_user"}, ip)
@@ -189,6 +208,55 @@ func (s *AuthService) Register(ctx context.Context, username, password, ip strin
 	}
 	s.audit.Record(ctx, &u.ID, "user.register", "user", &u.ID,
 		map[string]any{"username": username, "bootstrap_admin": isBootstrap}, ip)
+	return s.result(u)
+}
+
+// RegisterInvited 持邀注册（FR-16）：校验邀请 token（一次性、未过期）→ 创建用户
+// （email 绑定邀请邮箱，非管理员）→ 标记邀请已接受。首管理员引导不走此路径
+// （创建邀请需要管理员登录，系统零用户时必然无邀请，走 /auth/register）。
+func (s *AuthService) RegisterInvited(ctx context.Context, token, username, password, ip string) (*AuthResult, error) {
+	if s.invites == nil {
+		return nil, NewServiceError(CodeNotFound, "邀请功能未启用")
+	}
+	if err := validateCredentials(username, password, s.policy.MinLen); err != nil {
+		return nil, err
+	}
+	m, err := s.invites.GetByTokenHash(ctx, mail.HashToken(token))
+	if err != nil {
+		return nil, NewServiceError(CodeInviteInvalid, "邀请无效或已过期")
+	}
+	if m.Status == model.InviteStatusAccepted {
+		return nil, NewServiceError(CodeInviteUsed, "该邀请已被使用")
+	}
+	if m.Status == model.InviteStatusRevoked || s.now().After(m.ExpiresAt) {
+		return nil, NewServiceError(CodeInviteInvalid, "邀请无效或已过期")
+	}
+	if _, err := s.users.GetByUsername(ctx, username); err == nil {
+		return nil, NewServiceError(CodeUserExists, "用户名已存在")
+	} else if !errors.Is(err, repo.ErrNotFound) {
+		return nil, err
+	}
+
+	hash, err := crypto.HashPassword(password)
+	if err != nil {
+		return nil, err
+	}
+	email := m.Email
+	u := &model.User{
+		Username:     username,
+		PasswordHash: hash,
+		IsAdmin:      false, // 邀请注册一律普通用户，管理员由管理员提升
+		Status:       model.UserStatusActive,
+		Email:        &email,
+	}
+	if err := s.users.Create(ctx, u); err != nil {
+		return nil, err
+	}
+	if err := s.invites.MarkAccepted(ctx, m.ID, u.ID); err != nil {
+		return nil, err
+	}
+	s.audit.Record(ctx, &u.ID, "user.register", "user", &u.ID,
+		map[string]any{"username": username, "email": email, "via_invite": true}, ip)
 	return s.result(u)
 }
 
