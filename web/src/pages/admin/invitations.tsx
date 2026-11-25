@@ -213,11 +213,17 @@ export function AdminInvitationsPage() {
                     <span className="text-xs text-[var(--faint)]">
                       {r.sent ? '邮件已发送' : '未发送（降级）'}
                     </span>
-                    {r.link && (
+                    {r.link ? (
                       <Button variant="outline" size="sm" onClick={() => copyLink(r.link!)}>
                         <Copy className="size-3.5" aria-hidden="true" />
                         复制链接
                       </Button>
+                    ) : (
+                      !r.sent && (
+                        <span className="text-xs text-[var(--muted)]">
+                          邀请已创建，但未配置 APP_BASE_URL，无法生成注册链接（请配置后重发）
+                        </span>
+                      )
                     )}
                   </>
                 ) : (
