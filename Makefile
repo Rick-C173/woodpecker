@@ -39,6 +39,9 @@ help:
 	@echo   make api-sync                  生成 spec 并同步 Apifox（ignore：只新增，不动已有接口）
 	@echo   make api-sync-overwrite        生成 spec 并全量覆盖 Apifox（接口定义变更后用）
 	@echo   make api-backup                导出 Apifox 项目完整快照到 $(BACKUP_DIR)/
+	@echo   make docker-build             构建生产镜像（server + web）
+	@echo   make docker-up               生产编排启动（需先配置 .env，见 deploy/.env.production.example）
+	@echo   make docker-down             停止生产编排
 	@echo   make clean                     清理所有编译与运行生成的文件（bin/覆盖率/data/日志等）
 
 ## ---- 运行 ----
@@ -90,6 +93,20 @@ lint-fix:
 
 tidy:
 	go mod tidy
+
+## ---- 生产部署（M9）----
+
+docker-build:
+	docker build -t woodpecker-server:latest .
+	docker build -t woodpecker-web:latest ./web
+	@echo 已构建 woodpecker-server / woodpecker-web 镜像
+
+docker-up:
+	docker compose up -d --build
+	@echo 已启动；首次部署打开 http://localhost:8080? 见 docker-compose.yml 头部说明
+
+docker-down:
+	docker compose down
 
 ## ---- 清理 ----
 # 删除所有编译与运行生成的文件。显式白名单，**不基于 gitignore 做全量清理**

@@ -1,0 +1,109 @@
+# Woodpecker 生产编排：postgres(pgvector) + redis + migrate(一次性) + api + worker + nginx
+# 用法：
+#   cp deploy/.env.production.example .env && vim .env   # 必改全部 CHANGE_ME
+#   docker compose up -d
+#   浏览器打开 http://<host>/ → 注册首个账号（自动成为管理员）
+#
+# 依赖说明：
+#   - migrate 一次性任务先行，api/worker 以 service_completed_successfully 等待其完成
+#   - api 与 worker 挂同一 uploads 卷（上传暂存 + 摄取读取必须共享）
+#   - WORKER_ID 多 worker 必须唯一（缺省主机名，k8s 重建 Pod 场景见运行手册）
+
+name: woodpecker
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-woodpecker}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请在 .env 设置 POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-woodpecker}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-woodpecker}"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    # 不映射宿主机端口：仅 compose 网络内可达（备份走 docker exec）
+
+  redis:
+    image: redis:7.2-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  # 一次性迁移任务（golang-migrate CLI + 仓库内 migrations 目录）
+  migrate:
+    image: migrate/migrate:v4.18.1
+    volumes:
+      - ./migrations:/migrations
+    command:
+      - "-path=/migrations/"
+      - "-database=postgres://${POSTGRES_USER:-woodpecker}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-woodpecker}?sslmode=disable"
+      - "up"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build: .
+    image: woodpecker-server:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      APP_ENV: production
+      DATABASE_URL: postgres://${POSTGRES_USER:-woodpecker}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-woodpecker}?sslmode=disable
+      REDIS_ADDR: redis:6379
+    volumes:
+      - uploads_data:/data/uploads
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    # api 不直接暴露宿主机端口：统一经 nginx（/api 反代 + 健康检查直通）
+
+  worker:
+    build: .
+    image: woodpecker-server:latest
+    restart: unless-stopped
+    command: ["--mode=worker"]
+    env_file: .env
+    environment:
+      APP_ENV: production
+      DATABASE_URL: postgres://${POSTGRES_USER:-woodpecker}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-woodpecker}?sslmode=disable
+      REDIS_ADDR: redis:6379
+      WORKER_ID: ${WORKER_ID:-worker-1}
+    volumes:
+      - uploads_data:/data/uploads
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    deploy:
+      replicas: ${WORKER_REPLICAS:-1}   # 多副本必须各自设置唯一 WORKER_ID（见运行手册）
+
+  nginx:
+    build: ./web
+    image: woodpecker-web:latest
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-80}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  pg_data:
+  redis_data:
+  uploads_data:
