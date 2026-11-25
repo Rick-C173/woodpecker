@@ -1,0 +1,663 @@
+/* ============================================================
+   应用组件装饰样式（自 demo-g-final / demo-h-palettes 迁移）。
+   变量来源见 styles/tokens.css；本文件只做组件级样式，不定义新颜色。
+   性能硬规则落实：
+     · 光斑 ≤3：低半径 radial-gradient 直绘（无 filter:blur），仅 transform 漂移
+     · backdrop-filter 白名单三容器（topbar/sidebar/cite-drawer）+ @supports 降级
+     · 扫光为伪元素 transform，仅 hover 触发；常驻动画封闭清单见下
+     · will-change 仅加在 3 个光斑上
+   ============================================================ */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font);
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 14px;
+  line-height: 1.6;
+  overflow-x: hidden;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+input,
+textarea {
+  font-family: inherit;
+  outline: none;
+}
+
+h1,
+h2,
+h3 {
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+/* ---------- 背景光斑：3 个，无 blur，仅 transform:translate3d 动画 ---------- */
+.glow-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.blob {
+  position: absolute;
+  border-radius: 50%;
+  opacity: var(--blob-opacity);
+  will-change: transform; /* will-change 仅加在 3 个持续动画光斑上 */
+}
+
+.blob-1 {
+  width: 640px;
+  height: 640px;
+  left: -180px;
+  top: -200px;
+  background: radial-gradient(circle, var(--blob-1) 0%, var(--blob-1) 12%, transparent 62%);
+  animation: drift1 26s var(--ease-in-out) infinite alternate;
+}
+
+.blob-2 {
+  width: 680px;
+  height: 680px;
+  right: -220px;
+  top: 22%;
+  background: radial-gradient(circle, var(--blob-2) 0%, var(--blob-2) 12%, transparent 62%);
+  animation: drift2 30s var(--ease-in-out) infinite alternate;
+}
+
+.blob-3 {
+  width: 560px;
+  height: 560px;
+  left: 32%;
+  bottom: -220px;
+  background: radial-gradient(circle, var(--blob-3) 0%, var(--blob-3) 10%, transparent 58%);
+  opacity: calc(var(--blob-opacity) * 0.7);
+  animation: drift3 28s var(--ease-in-out) infinite alternate;
+}
+
+@keyframes drift1 {
+  from {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  to {
+    transform: translate3d(110px, 70px, 0) scale(1.1);
+  }
+}
+@keyframes drift2 {
+  from {
+    transform: translate3d(0, 0, 0) scale(1.06);
+  }
+  to {
+    transform: translate3d(-90px, -60px, 0) scale(0.96);
+  }
+}
+@keyframes drift3 {
+  from {
+    transform: translate3d(0, 0, 0) scale(0.96);
+  }
+  to {
+    transform: translate3d(-70px, -80px, 0) scale(1.08);
+  }
+}
+
+/* ---------- 玻璃拟态容器白名单：仅 顶栏 / 侧栏（含会话侧栏）/ 引用抽屉 三处 ---------- */
+.topbar {
+  height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 20px;
+  background: var(--topbar-bg);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 50;
+}
+
+.sidebar,
+.conv-list {
+  background: var(--glass-bg);
+  border-right: 1px solid var(--border);
+}
+
+.cite-drawer {
+  background: var(--drawer-bg);
+  box-shadow: -12px 0 32px rgba(0, 0, 0, 0.12);
+}
+
+/* @supports 降级：支持 blur 才启用 backdrop-filter，否则保持上面的成对实底变量 */
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  .topbar {
+    background: var(--topbar-bg-af);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+  }
+  .sidebar,
+  .conv-list {
+    background: var(--glass-bg-af);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+  }
+  .cite-drawer {
+    background: var(--drawer-bg-af);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+  }
+}
+
+/* ---------- 通用按钮：渐变主按钮 + 伪元素扫光（hover 触发，仅 transform） ---------- */
+.btn-primary {
+  position: relative;
+  overflow: hidden;
+  background: var(--grad);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  padding: 0 18px;
+  height: var(--row);
+  font-size: 14px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: var(--btn-shadow);
+  transition: box-shadow var(--motion-normal) var(--ease-out),
+    transform var(--motion-fast) var(--ease-out);
+}
+
+.btn-primary::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 45%;
+  height: 100%;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.38), transparent);
+  transform: translateX(-130%) skewX(-18deg);
+  transition: transform var(--motion-slow) var(--ease-out);
+  pointer-events: none;
+}
+
+.btn-primary:hover {
+  box-shadow: 0 6px 24px var(--btn-shadow);
+  transform: translateY(-1px);
+}
+
+.btn-primary:hover::after {
+  transform: translateX(260%) skewX(-18deg);
+}
+
+.btn-primary svg {
+  width: 15px;
+  height: 15px;
+}
+
+.btn-ghost {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--muted);
+  height: var(--row);
+  padding: 0 14px;
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: border-color var(--motion-fast), color var(--motion-fast);
+}
+
+.btn-ghost:hover {
+  border-color: var(--border-strong);
+  color: var(--primary);
+}
+
+/* ---------- 输入框：focus 渐变 ring ---------- */
+.input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  height: var(--row);
+  padding: 0 12px;
+  transition: border-color var(--motion-normal), box-shadow var(--motion-normal);
+}
+
+.input:focus-within {
+  border-color: var(--border-strong);
+  box-shadow: var(--ring);
+}
+
+.input input {
+  border: none;
+  background: transparent;
+  width: 100%;
+  font-size: 14px;
+  color: var(--foreground);
+}
+
+.input input::placeholder {
+  color: var(--faint);
+}
+
+/* ---------- 登录卡片：实色底 + 发光细边框（mask 镂空，静态零动画成本） ---------- */
+.login-card {
+  width: 360px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 4px);
+  box-shadow: var(--shadow);
+  padding: 32px 28px;
+  position: relative;
+}
+
+.login-card::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  pointer-events: none;
+  background: linear-gradient(
+    135deg,
+    var(--border-strong),
+    transparent 40%,
+    transparent 60%,
+    var(--border-strong)
+  );
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+
+.login-logo {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius);
+  background: var(--grad);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 16px;
+  box-shadow: 0 6px 18px var(--btn-shadow);
+}
+
+.login-logo svg {
+  width: 26px;
+  height: 26px;
+}
+
+/* ---------- 知识库卡片：hover 抬升 3px + 渐变彩影 + 一次扫光 ---------- */
+.kb-card {
+  position: relative;
+  overflow: hidden;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--pad);
+  box-shadow: var(--shadow);
+  transition: transform var(--motion-normal) var(--ease-out),
+    box-shadow var(--motion-normal) var(--ease-out),
+    border-color var(--motion-normal) var(--ease-out);
+}
+
+.kb-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 45%;
+  height: 100%;
+  background: linear-gradient(100deg, transparent, var(--sheen), transparent);
+  transform: translateX(-130%) skewX(-18deg);
+  pointer-events: none;
+}
+
+.kb-card:hover {
+  transform: translateY(-3px); /* 克制抬升 3px */
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-hover);
+}
+
+.kb-card:hover::before {
+  animation: cardSweep var(--motion-slow) var(--ease-out);
+}
+
+@keyframes cardSweep {
+  from {
+    transform: translateX(-130%) skewX(-18deg);
+  }
+  to {
+    transform: translateX(260%) skewX(-18deg);
+  }
+}
+
+/* ---------- 角色徽标体系 ---------- */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 2px 10px;
+  line-height: 1.5;
+}
+
+.badge.role-admin {
+  position: relative;
+  background: var(--grad);
+  color: #fff;
+  box-shadow: 0 3px 10px var(--btn-shadow);
+}
+
+/* 暗色主题限定：管理者徽标辉光呼吸（伪元素 opacity，颜色走 --badge-glow 随配色联动） */
+html[data-theme='dark'] .badge.role-admin::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: 0 0 12px var(--badge-glow);
+  animation: glowPulse 3.2s var(--ease-in-out) infinite;
+  pointer-events: none;
+}
+
+@keyframes glowPulse {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 0.85;
+  }
+}
+
+.badge.role-editor {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid var(--border-strong);
+}
+
+.badge.role-member {
+  background: var(--primary-soft);
+  color: var(--muted);
+  border: 1px solid var(--border);
+}
+
+/* ---------- 侧栏导航 ---------- */
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: var(--row);
+  padding: 0 12px;
+  border-radius: var(--radius);
+  color: var(--muted);
+  font-size: 13.5px;
+  transition: background var(--motion-fast), color var(--motion-fast);
+  border: 1px solid transparent;
+  text-decoration: none;
+}
+
+.nav-item svg {
+  width: 16px;
+  height: 16px;
+}
+
+.nav-item:hover {
+  background: var(--primary-soft);
+  color: var(--foreground);
+}
+
+.nav-item.active {
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-weight: 600;
+  border-color: var(--border-strong);
+}
+
+.avatar-sm {
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  background: var(--grad);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  box-shadow: 0 4px 12px var(--btn-shadow);
+}
+
+/* ---------- 配色切换圆点（各方案渐变填充，hover/focus 显示名称 tooltip） ---------- */
+.palette-dots {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.p-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: none;
+  padding: 0;
+  position: relative;
+  flex: none;
+  outline: none;
+  transition: transform var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast);
+}
+
+.p-dot:hover {
+  transform: scale(1.18);
+}
+
+.p-dot.active {
+  box-shadow: 0 0 0 2px var(--background), 0 0 0 4px var(--primary);
+}
+
+.p-dot:focus-visible {
+  box-shadow: 0 0 0 2px var(--background), 0 0 0 4px var(--border-strong);
+}
+
+.p-dot::after {
+  content: attr(data-name);
+  position: absolute;
+  top: calc(100% + 10px);
+  right: -6px;
+  background: var(--card);
+  color: var(--foreground);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 9px;
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: nowrap;
+  box-shadow: var(--shadow);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate3d(0, 4px, 0);
+  transition: opacity var(--motion-fast) var(--ease-out),
+    transform var(--motion-fast) var(--ease-out);
+  z-index: 60;
+}
+
+.p-dot:hover::after,
+.p-dot:focus-visible::after {
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+}
+
+.p-dot.p1 {
+  background: linear-gradient(135deg, #6366f1, #a855f7, #ec4899);
+}
+.p-dot.p2 {
+  background: linear-gradient(135deg, #2563eb, #3b82f6, #06b6d4);
+}
+.p-dot.p3 {
+  background: linear-gradient(135deg, #0d9488, #14b8a6, #4ade80);
+}
+.p-dot.p4 {
+  background: linear-gradient(135deg, #ea580c, #f97316, #f59e0b);
+}
+.p-dot.p5 {
+  background: linear-gradient(135deg, #db2777, #e11d48, #8b5cf6);
+}
+
+/* ---------- 主题切换按钮 ---------- */
+.theme-toggle {
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--primary-soft);
+  color: var(--primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  transition: border-color var(--motion-fast), color var(--motion-fast);
+}
+
+.theme-toggle:hover {
+  border-color: var(--border-strong);
+}
+
+.theme-toggle svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* ---------- 消息入场（一次性 fadeUp：opacity + translate3d） ---------- */
+.msg {
+  animation: fadeUp var(--motion-normal) var(--ease-out) both;
+}
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 10px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+/* 流式光标（常驻 blink，opacity） */
+.cursor {
+  display: inline-block;
+  width: 7px;
+  height: 15px;
+  background: var(--grad-b);
+  vertical-align: -2px;
+  margin-left: 2px;
+  border-radius: 1px;
+  animation: blink 1s step-end infinite;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* 代码块顶部渐变描边（静态，随 --grad 配色联动） */
+.codeblock {
+  position: relative;
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-top: none;
+  border-radius: var(--radius);
+  margin: 0 0 10px;
+  overflow: hidden;
+}
+
+.codeblock::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--grad);
+}
+
+/* ---------- shiki 双主题（github-light/dark，defaultColor=false 输出 CSS 变量） ----------
+   只随 html[data-theme] 切换，不随 5 套配色联动（架构 §5.4 第 6 条）。 */
+html[data-theme='dark'] .shiki,
+html[data-theme='dark'] .shiki span {
+  color: var(--shiki-dark) !important;
+  font-style: var(--shiki-dark-font-style) !important;
+  font-weight: var(--shiki-dark-font-weight) !important;
+  text-decoration: var(--shiki-dark-text-decoration) !important;
+}
+
+html[data-theme='dark'] .shiki {
+  background-color: var(--shiki-dark-bg) !important;
+}
+
+/* ---------- 引用抽屉：transform 滑入滑出 + visibility 延迟切换 ---------- */
+.cite-drawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 320px;
+  border-left: 1px solid var(--border);
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  transform: translate3d(105%, 0, 0);
+  visibility: hidden;
+  transition: transform var(--motion-normal) var(--ease-out), visibility 0s linear 0.3s;
+}
+
+.cite-drawer.open {
+  transform: translate3d(0, 0, 0);
+  visibility: visible;
+  transition: transform var(--motion-normal) var(--ease-out);
+}
+
+/* ---------- 组件级 reduced-motion 补充（全局降级见 tokens.css） ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .blob,
+  .cursor,
+  html[data-theme='dark'] .badge.role-admin::after {
+    animation: none !important;
+  }
+  .msg {
+    animation: none;
+  }
+  .kb-card,
+  .btn-primary,
+  .btn-primary::after,
+  .cite-drawer,
+  .p-dot,
+  .p-dot::after {
+    transition: none !important;
+  }
+  .kb-card:hover,
+  .btn-primary:hover {
+    transform: none;
+  }
+  .kb-card:hover::before {
+    animation: none !important;
+  }
+}

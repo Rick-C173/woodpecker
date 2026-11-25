@@ -21,15 +21,24 @@ type AuditQuery struct {
 
 // AuditRow 审计日志行（含操作人用户名）。
 type AuditRow struct {
-	ID         int64          `json:"id"`
-	UserID     *int64         `json:"user_id"`
-	Username   *string        `json:"username"`
-	Action     string         `json:"action"`
-	ObjectType string         `json:"object_type"`
-	ObjectID   *int64         `json:"object_id"`
-	Detail     map[string]any `json:"detail"`
-	IP         string         `json:"ip"`
-	CreatedAt  time.Time      `json:"created_at"`
+	// 日志 ID
+	ID int64 `json:"id"`
+	// 操作人 ID（匿名/系统动作为 null）
+	UserID *int64 `json:"user_id"`
+	// 操作人用户名（已删除用户为 null）
+	Username *string `json:"username"`
+	// 动作（枚举见数据库设计 §5，如 user.create、kb.delete、document.git_add、setting.update、kb.access.denied_admin_bypass 等）
+	Action string `json:"action"`
+	// 对象类型
+	ObjectType string `json:"object_type"`
+	// 对象 ID（无对象为 null）
+	ObjectID *int64 `json:"object_id"`
+	// 动作附加信息（JSON 对象，如 repo_url、变更字段）
+	Detail map[string]any `json:"detail"`
+	// 操作来源 IP
+	IP string `json:"ip"`
+	// 发生时间 RFC3339 UTC
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // List 审计日志查询（新→旧，筛选分页）。
@@ -126,15 +135,24 @@ type FeedbackQuery struct {
 
 // FeedbackAdminRow 管理端反馈行（含反馈人与所属库）。
 type FeedbackAdminRow struct {
-	ID          int64     `json:"id"`
-	MessageID   int64     `json:"message_id"`
-	ConvID      int64     `json:"conversation_id"`
-	KBID        int64     `json:"kb_id"`
-	Reason      int16     `json:"reason"`
-	Comment     *string   `json:"comment"`
-	Username    string    `json:"username"`
-	MessageText string    `json:"message_text"`
-	CreatedAt   time.Time `json:"created_at"`
+	// 反馈 ID
+	ID int64 `json:"id"`
+	// 被点踩的回答消息 ID
+	MessageID int64 `json:"message_id"`
+	// 所属会话 ID
+	ConvID int64 `json:"conversation_id"`
+	// 所属知识库 ID
+	KBID int64 `json:"kb_id"`
+	// 原因 1-4：1 答案不相关 / 2 引用错误 / 3 内容过时 / 4 其他
+	Reason int16 `json:"reason"`
+	// 补充说明
+	Comment *string `json:"comment"`
+	// 反馈人用户名
+	Username string `json:"username"`
+	// 被点踩回答内容（截断摘要）
+	MessageText string `json:"message_text"`
+	// 反馈时间 RFC3339 UTC
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // ListFeedbacks 反馈列表（联 messages/conversations/users；新→旧）。

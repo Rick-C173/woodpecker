@@ -29,13 +29,13 @@ func (s *UserAdminService) SetClock(now func() time.Time) { s.now = now }
 func (s *UserAdminService) SetPolicy(p PasswordPolicy) { s.policy = p }
 
 type AdminUserItem struct {
-	ID                 int64  `json:"id"`
-	Username           string `json:"username"`
-	IsAdmin            bool   `json:"is_admin"`
-	Status             int16  `json:"status"`
-	MustChangePassword bool   `json:"must_change_password"`
-	KBCount            int64  `json:"kb_count"`
-	CreatedAt          string `json:"created_at"`
+	ID                 int64  `json:"id"`                   // 用户 ID
+	Username           string `json:"username"`             // 用户名（唯一）
+	IsAdmin            bool   `json:"is_admin"`             // 是否管理员
+	Status             int16  `json:"status"`               // 1=启用 2=禁用
+	MustChangePassword bool   `json:"must_change_password"` // 首登强制改密标记
+	KBCount            int64  `json:"kb_count"`             // 所属知识库数量
+	CreatedAt          string `json:"created_at"`           // 创建时间 RFC3339 UTC
 }
 
 func (s *UserAdminService) toItem(ctx context.Context, u *model.User) (*AdminUserItem, error) {

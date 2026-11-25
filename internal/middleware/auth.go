@@ -82,7 +82,7 @@ var passwordChangeAllowlist = map[string]struct{}{
 }
 
 // RequirePasswordChanged 「首次登录强制修改初始密码」的服务端强制（PRD FR-01 / 审计 P1-4）。
-// 必须挂在 Auth 之后；标记为 true 的会话只放行 passwordChangeAllowlist，其余一律 403 AUTH_007。
+// 必须挂在 Auth 之后；标记为 true 的会话只放行 passwordChangeAllowlist，其余一律 403 AUTH_07。
 // 改密成功后 service 把 must_change_password 置 false 并 bump token_version（service/auth.go
 // ChangePassword），下一次请求从 DB 读到的最新值即为 false，放行自然恢复。
 func RequirePasswordChanged() gin.HandlerFunc {

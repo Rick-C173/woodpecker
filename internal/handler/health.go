@@ -76,7 +76,9 @@ func upDown(ok bool) string {
 // 放大故障；依赖是否就绪交给 /readyz（readinessProbe）判定。响应保持 M0 验收契约 {"status":"ok"}。
 //
 //	@Summary	存活检查（仅进程）
-//	@Description	进程可服务请求即返回 {"status":"ok"}；不探测外部依赖，供 livenessProbe 使用。
+//	@Description	存活探针（livenessProbe 用）。进程可服务请求即返回 {"status":"ok"}；**有意不探测** DB/Redis（依赖抖动时重启进程只会放大故障），依赖就绪判定交给 /readyz。响应同时挂在根路径与 /api/v1 下。
+//	@Description
+//	@Description	权限：公开。
 //	@Tags		infra
 //	@Produce	json
 //	@Success	200	{object}	object{status=string}
@@ -91,7 +93,11 @@ func Health() gin.HandlerFunc {
 // 并指明是哪个依赖 down（审计 P2-27）。
 //
 //	@Summary	就绪检查（DB + Redis）
-//	@Description	所有依赖就绪返回 {"status":"ok","db":"up","redis":"up"}；任一不可用返回 503 并指明是哪个依赖 down。
+//	@Description	就绪探针（readinessProbe 用）：并发探测数据库与 Redis（asynq 队列 + 默认配置缓存），全部就绪返回 200。
+//	@Description
+//	@Description	任一依赖不可用返回 503，响应体保持统一错误信封（code/message/request_id）并附带 db/redis 明细，便于一眼定位是哪个依赖挂了。探测超时 3s。
+//	@Description
+//	@Description	权限：公开，无需认证。
 //	@Tags		infra
 //	@Produce	json
 //	@Success	200	{object}	object{status=string,db=string,redis=string}

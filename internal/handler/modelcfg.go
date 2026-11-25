@@ -25,7 +25,9 @@ func NewModelCfgHandler(svc *service.ModelConfigService) *ModelCfgHandler {
 // ListServices GET /admin/model-services：API Key 不回显，仅 has_key。
 //
 //	@Summary	模型服务列表（管理员）
-//	@Description	API Key 永不回显，仅返回 has_key 标记。
+//	@Description	模型服务列表。**API Key 永不回显**，仅返回 has_key 标记；entry_count 为服务下条目数。
+//	@Description
+//	@Description	权限：管理员。
 //	@Tags		model-config
 //	@Produce	json
 //	@Success	200	{object}	object{items=[]service.ModelServiceItem}
@@ -50,13 +52,16 @@ type createModelServiceReq struct {
 // CreateService POST /admin/model-services。
 //
 //	@Summary	新建模型服务（管理员）
-//	@Description	base_url 为 OpenAI 兼容端点前缀；api_key 以 AES-GCM 加密落库。
+//	@Description	新建模型服务。base_url 为 OpenAI 兼容端点前缀；api_key 以 AES-GCM 加密落库、永不回显。
+//	@Description
+//	@Description	权限：管理员。
 //	@Tags		model-config
 //	@Accept		json
 //	@Produce	json
 //	@Param		body	body		object{name=string,base_url=string,api_key=string}	true	"服务名称、端点与密钥"
 //	@Success	201		{object}	service.ModelServiceItem
 //	@Failure	422		{object}	object{code=string,message=string,request_id=string}
+//	@Failure	403	{object}	httpx.ErrorBody	"FORBIDDEN：非管理员"
 //	@Router		/admin/model-services [post]
 //	@Security	BearerAuth
 func (h *ModelCfgHandler) CreateService(c *gin.Context) {
@@ -83,7 +88,11 @@ type patchModelServiceReq struct {
 // UpdateService PATCH /admin/model-services/{id}。
 //
 //	@Summary	修改模型服务（管理员）
-//	@Description	api_key 缺省表示不修改；停用仍持有默认条目的服务 → 422 MODEL_004（审计 P1-6）。
+//	@Description	修改模型服务，字段缺省不修改；api_key 缺省=不修改。
+//	@Description
+//	@Description	保护规则：停用（enabled=false）仍持有默认条目的服务 → 422 MODEL_004（须先把该用途默认条目切到其他服务）。
+//	@Description
+//	@Description	权限：管理员。
 //	@Tags		model-config
 //	@Accept		json
 //	@Produce	json
@@ -116,7 +125,11 @@ func (h *ModelCfgHandler) UpdateService(c *gin.Context) {
 // DeleteService DELETE /admin/model-services/{id}：存在条目 → 409 MODEL_003。
 //
 //	@Summary	删除模型服务（管理员）
-//	@Description	服务下仍有条目 → 409 MODEL_003（先删条目）。
+//	@Description	删除模型服务。
+//	@Description
+//	@Description	保护规则：服务下仍有条目 → 409 MODEL_003（须先删除全部条目）。
+//	@Description
+//	@Description	权限：管理员。
 //	@Tags		model-config
 //	@Produce	json
 //	@Param		id	path		int	true	"服务 ID"
@@ -142,7 +155,9 @@ func (h *ModelCfgHandler) DeleteService(c *gin.Context) {
 // 响应 {chat: ok/err…, embedding: …, rerank: …}，仅含该服务已配置的用途。
 //
 //	@Summary	模型服务连通性测试（管理员）
-//	@Description	逐个用途发一次最小请求；响应仅包含该服务已配置用途，值为 "ok" 或 "err: <原因>"。
+//	@Description	连通性测试：逐个用途（chat/embedding/rerank）发一次最小请求，响应仅包含该服务已配置的用途，值为 "ok" 或 "err: <原因>"。
+//	@Description
+//	@Description	权限：管理员。
 //	@Tags		model-config
 //	@Produce	json
 //	@Param		id	path		int	true	"服务 ID"
@@ -167,7 +182,9 @@ func (h *ModelCfgHandler) TestConnection(c *gin.Context) {
 // ListEntries GET /admin/model-entries?service_id=&purpose=
 //
 //	@Summary	模型条目列表（管理员）
-//	@Description	purpose 取值 chat|embedding|rerank，缺省表示全部。
+//	@Description	模型条目列表。purpose 取值 chat|embedding|rerank，缺省=全部；service_id 按服务筛选。is_default 表示该用途唯一默认条目。
+//	@Description
+//	@Description	权限：管理员。
 //	@Tags		model-config
 //	@Produce	json
 //	@Param		service_id	query		int		false	"按服务筛选"
@@ -204,13 +221,18 @@ type createModelEntryReq struct {
 // CreateEntry POST /admin/model-entries。
 //
 //	@Summary	新建模型条目（管理员）
-//	@Description	params 为模型参数（temperature/top_p/dimensions/top_n 等），向量化维度需与 vector(1024) 一致或显式声明 dimensions。
+//	@Description	新建模型条目。purpose: chat|embedding|rerank；params 为模型参数 JSON（temperature/top_p/dimensions/top_n 等）；is_default=true 直接设为该用途默认。
+//	@Description
+//	@Description	向量化条目的维度须与库内 vector(1024) 一致或显式声明 dimensions。
+//	@Description
+//	@Description	权限：管理员。
 //	@Tags		model-config
 //	@Accept		json
 //	@Produce	json
 //	@Param		body	body		object{service_id=int,purpose=string,model_name=string,params=object,is_default=bool}	true	"条目定义"
 //	@Success	201		{object}	service.ModelEntryItem
 //	@Failure	422		{object}	object{code=string,message=string,request_id=string}
+//	@Failure	404	{object}	httpx.ErrorBody	"NOT_FOUND：服务不存在"
 //	@Router		/admin/model-entries [post]
 //	@Security	BearerAuth
 func (h *ModelCfgHandler) CreateEntry(c *gin.Context) {
@@ -237,7 +259,9 @@ type patchModelEntryReq struct {
 // UpdateEntry PATCH /admin/model-entries/{id}：is_default=true 切换默认。
 //
 //	@Summary	修改模型条目（管理员）
-//	@Description	is_default=true 时切换该用途的默认条目（同用途仅一条默认）。
+//	@Description	修改模型条目，字段缺省不修改；is_default=true 切换该用途默认（同用途仅一条默认，原默认自动让位）。
+//	@Description
+//	@Description	权限：管理员。
 //	@Tags		model-config
 //	@Accept		json
 //	@Produce	json
@@ -275,7 +299,11 @@ func (h *ModelCfgHandler) UpdateEntry(c *gin.Context) {
 // DeleteEntry DELETE /admin/model-entries/{id}：默认条目 → 422 MODEL_002。
 //
 //	@Summary	删除模型条目（管理员）
-//	@Description	默认条目不可删 → 422 MODEL_002（先切换默认）。
+//	@Description	删除模型条目。
+//	@Description
+//	@Description	保护规则：默认条目不可删 → 422 MODEL_002（须先把默认切到其他条目）。
+//	@Description
+//	@Description	权限：管理员。
 //	@Tags		model-config
 //	@Produce	json
 //	@Param		id	path		int	true	"条目 ID"

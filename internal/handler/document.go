@@ -32,9 +32,20 @@ func parseDocID(c *gin.Context) int64 {
 // List GET /kbs/{kb}/documents?type=&status=&page=&page_size=
 //
 //	@Summary	文档列表
+//	@Description	文档列表（分页，新到旧）。返回 {items,total,page,page_size}。
+//	@Description
+//	@Description	权限：库成员（R6：非成员按 404 处理，不泄露库名；管理员越权访问会记审计）。
+//	@Description
+//	@Description	操作类字段 can_sync/can_reindex/can_retry 按请求者权限与文档状态动态返回，前端据此渲染按钮。
 //	@Tags		documents
 //	@Produce	json
 //	@Success	200	{object}	object{items=[]service.DocumentItem,total=int,page=int,page_size=int}
+//	@Param	kb	path	integer	true	"知识库 ID"
+//	@Param	type	query	integer	false	"按来源类型过滤：1=git 2=upload 3=url（缺省=全部）"
+//	@Param	status	query	integer	false	"按摄取状态过滤：1=pending 2=processing 3=ready 4=failed（缺省=全部）"
+//	@Param	page	query	integer	false	"页码，默认 1"
+//	@Param	page_size	query	integer	false	"每页条数，默认 20，最大 100"
+//	@Failure	401	{object}	httpx.ErrorBody	"未登录 / token 失效（AUTH_004 版本号不符，禁用/改密/设撤管理员后旧 token 立即失效）/ 账号被禁用（AUTH_003）"
 //	@Router		/kbs/{kb}/documents [get]
 func (h *DocumentHandler) List(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
@@ -100,11 +111,21 @@ var (
 // CreateGit POST /kbs/{kb}/documents/git（编辑者+）
 //
 //	@Summary	接入 Git 仓库
+//	@Description	接入 Git 仓库，立即返回 201 与文档记录（status=pending），摄取任务异步执行。
+//	@Description
+//	@Description	credential 决定 worker 认证方式：kind=token 走 HTTPS BasicAuth（用户名取 GIT_TOKEN_USERNAME，默认 oauth2）；kind=ssh 用 PEM 私钥（需配置 known_hosts 校验）。向后兼容裸字符串（按 token 处理）。
+//	@Description
+//	@Description	权限：编辑者及以上（owner/editor，含管理员）。
+//	@Description
+//	@Description	错误：422 VALIDATION_FAILED（repo_url 为空 / credential 格式非法、kind 必须为 token 或 ssh、secret 非空）/ DOC_003 凭证无效或地址不可达；401。
 //	@Tags		documents
 //	@Accept		json
 //	@Produce	json
 //	@Param		body	body		object{repo_url=string,git_ref=string,credential=handler.CredentialInput,ignore_rules=[]string}	true	"仓库地址与凭证"
 //	@Success	201	{object}	service.DocumentItem
+//	@Param	kb	path	integer	true	"知识库 ID"
+//	@Failure	422	{object}	httpx.ErrorBody	"参数校验失败（repo_url 为空 / credential 格式非法）或 DOC_003 凭证无效、地址不可达"
+//	@Failure	401	{object}	httpx.ErrorBody	"未登录 / token 失效（AUTH_004 版本号不符，禁用/改密/设撤管理员后旧 token 立即失效）/ 账号被禁用（AUTH_003）"
 //	@Router		/kbs/{kb}/documents/git [post]
 func (h *DocumentHandler) CreateGit(c *gin.Context) {
 	var req struct {
@@ -145,13 +166,21 @@ var uploadBodyLimit int64 = maxUploadBodyBytes
 // CreateUpload POST /kbs/{kb}/documents/upload（编辑者+）：multipart files[]。
 //
 //	@Summary	上传文件（每文件一个文档）
-//	@Description	单次最多 50 个文件、单文件 5MB（R2）；请求体超限直接 413，文件数超限 422，均不读取文件内容。
+//	@Description	multipart 上传，每个文件创建一个独立文档，摄取任务异步执行。
+//	@Description
+//	@Description	限制（R2）：单次最多 50 个文件、单文件 5MB。请求体超过 50×5MB+1MB 直接 413（不读取文件内容）；文件数超过 50 返回 422。
+//	@Description
+//	@Description	格式不支持的文件逐个记入响应 rejected 数组（code=DOC_002），不影响其他文件继续入库。
+//	@Description
+//	@Description	权限：编辑者及以上（owner/editor，含管理员）。
 //	@Tags		documents
 //	@Accept		multipart/form-data
 //	@Produce	json
 //	@Success	201	{object}	object{items=[]service.DocumentItem,rejected=[]object}
 //	@Failure	413	{object}	object{code=string,message=string,request_id=string}
 //	@Failure	422	{object}	object{code=string,message=string,request_id=string}
+//	@Param	kb	path	integer	true	"知识库 ID"
+//	@Failure	401	{object}	httpx.ErrorBody	"未登录 / token 失效（AUTH_004 版本号不符，禁用/改密/设撤管理员后旧 token 立即失效）/ 账号被禁用（AUTH_003）"
 //	@Router		/kbs/{kb}/documents/upload [post]
 //	@Security	BearerAuth
 func (h *DocumentHandler) CreateUpload(c *gin.Context) {
@@ -207,10 +236,18 @@ func (h *DocumentHandler) CreateUpload(c *gin.Context) {
 // CreateURL POST /kbs/{kb}/documents/url（编辑者+）
 //
 //	@Summary	接入网页
+//	@Description	接入网页，立即返回 201（status=pending），抓取与切块异步执行。网页类型的引用无 file_path/line 字段，改为 source_url。
+//	@Description
+//	@Description	权限：编辑者及以上（owner/editor，含管理员）。
+//	@Description
+//	@Description	错误：422 VALIDATION_FAILED（url 为空/非法）/ DOC_003 地址不可达。
 //	@Tags		documents
 //	@Accept		json
 //	@Produce	json
 //	@Success	201	{object}	service.DocumentItem
+//	@Param	kb	path	integer	true	"知识库 ID"
+//	@Failure	422	{object}	httpx.ErrorBody	"url 为空/非法或 DOC_003 地址不可达"
+//	@Failure	401	{object}	httpx.ErrorBody	"未登录 / token 失效（AUTH_004 版本号不符，禁用/改密/设撤管理员后旧 token 立即失效）/ 账号被禁用（AUTH_003）"
 //	@Router		/kbs/{kb}/documents/url [post]
 func (h *DocumentHandler) CreateURL(c *gin.Context) {
 	var req struct {
@@ -231,9 +268,16 @@ func (h *DocumentHandler) CreateURL(c *gin.Context) {
 // Get GET /kbs/{kb}/documents/{doc}（成员）
 //
 //	@Summary	文档详情（状态、文件清单、任务历史）
+//	@Description	文档详情：基础字段 + 文件清单（含已排除标记与原因）+ 任务历史（新到旧）。
+//	@Description
+//	@Description	权限：库成员。
 //	@Tags		documents
 //	@Produce	json
 //	@Success	200	{object}	service.DocumentDetail
+//	@Param	kb	path	integer	true	"知识库 ID"
+//	@Param	doc	path	integer	true	"文档 ID"
+//	@Failure	404	{object}	httpx.ErrorBody	"文档不存在或已删除（NOT_FOUND）"
+//	@Failure	401	{object}	httpx.ErrorBody	"未登录 / token 失效（AUTH_004 版本号不符，禁用/改密/设撤管理员后旧 token 立即失效）/ 账号被禁用（AUTH_003）"
 //	@Router		/kbs/{kb}/documents/{doc} [get]
 func (h *DocumentHandler) Get(c *gin.Context) {
 	item, err := h.svc.Get(c.Request.Context(), middleware.KBID(c), parseDocID(c))
@@ -247,9 +291,16 @@ func (h *DocumentHandler) Get(c *gin.Context) {
 // Delete DELETE /kbs/{kb}/documents/{doc}（管理者+）
 //
 //	@Summary	删除文档（级联清分块/清单/任务）
+//	@Description	删除文档，级联删除分块、文件清单与任务历史；进行中的任务按僵尸任务语义收尾。删除写审计。
+//	@Description
+//	@Description	权限：管理者及以上（owner，含管理员）。
 //	@Tags		documents
 //	@Produce	json
 //	@Success	200	{object}	object{message=string}
+//	@Param	kb	path	integer	true	"知识库 ID"
+//	@Param	doc	path	integer	true	"文档 ID"
+//	@Failure	404	{object}	httpx.ErrorBody	"文档不存在（NOT_FOUND）"
+//	@Failure	401	{object}	httpx.ErrorBody	"未登录 / token 失效（AUTH_004 版本号不符，禁用/改密/设撤管理员后旧 token 立即失效）/ 账号被禁用（AUTH_003）"
 //	@Router		/kbs/{kb}/documents/{doc} [delete]
 func (h *DocumentHandler) Delete(c *gin.Context) {
 	if err := h.svc.Delete(c.Request.Context(), middleware.UserID(c), middleware.KBID(c), parseDocID(c), c.ClientIP()); err != nil {
@@ -262,9 +313,20 @@ func (h *DocumentHandler) Delete(c *gin.Context) {
 // Retry POST /kbs/{kb}/documents/{doc}/retry（编辑者+）：仅失败态，202。
 //
 //	@Summary	重试摄取（产生全新任务）
+//	@Description	对失败态文档重新发起摄取，产生一个全新任务（202 排队）。
+//	@Description
+//	@Description	仅 failed 状态可重试；同文档已有运行中任务时 409 DOC_TASK_RUNNING（任务幂等）。
+//	@Description
+//	@Description	权限：编辑者及以上（owner/editor，含管理员）。
 //	@Tags		documents
 //	@Produce	json
 //	@Success	202	{object}	object{message=string}
+//	@Param	kb	path	integer	true	"知识库 ID"
+//	@Param	doc	path	integer	true	"文档 ID"
+//	@Failure	409	{object}	httpx.ErrorBody	"已有运行中任务（DOC_TASK_RUNNING）"
+//	@Failure	404	{object}	httpx.ErrorBody	"文档不存在"
+//	@Failure	422	{object}	httpx.ErrorBody	"仅失败态可重试"
+//	@Failure	401	{object}	httpx.ErrorBody	"未登录 / token 失效（AUTH_004 版本号不符，禁用/改密/设撤管理员后旧 token 立即失效）/ 账号被禁用（AUTH_003）"
 //	@Router		/kbs/{kb}/documents/{doc}/retry [post]
 func (h *DocumentHandler) Retry(c *gin.Context) {
 	if err := h.svc.Retry(c.Request.Context(), middleware.UserID(c), middleware.KBID(c), parseDocID(c), c.ClientIP()); err != nil {
@@ -277,9 +339,20 @@ func (h *DocumentHandler) Retry(c *gin.Context) {
 // Reindex POST /kbs/{kb}/documents/{doc}/reindex（管理者+）：仅就绪态，202。
 //
 //	@Summary	重建索引
+//	@Description	对已就绪文档全量重建索引（ReplaceDocumentChunks 语义：先清后建）。202 排队。
+//	@Description
+//	@Description	仅 ready 状态可重建；同文档已有运行中任务时 409 DOC_TASK_RUNNING。
+//	@Description
+//	@Description	权限：管理者及以上（owner，含管理员）。
 //	@Tags		documents
 //	@Produce	json
 //	@Success	202	{object}	object{message=string}
+//	@Param	kb	path	integer	true	"知识库 ID"
+//	@Param	doc	path	integer	true	"文档 ID"
+//	@Failure	409	{object}	httpx.ErrorBody	"已有运行中任务（DOC_TASK_RUNNING）"
+//	@Failure	404	{object}	httpx.ErrorBody	"文档不存在"
+//	@Failure	422	{object}	httpx.ErrorBody	"仅就绪态可重建"
+//	@Failure	401	{object}	httpx.ErrorBody	"未登录 / token 失效（AUTH_004 版本号不符，禁用/改密/设撤管理员后旧 token 立即失效）/ 账号被禁用（AUTH_003）"
 //	@Router		/kbs/{kb}/documents/{doc}/reindex [post]
 func (h *DocumentHandler) Reindex(c *gin.Context) {
 	if err := h.svc.Reindex(c.Request.Context(), middleware.UserID(c), middleware.KBID(c), parseDocID(c), c.ClientIP()); err != nil {
@@ -292,9 +365,20 @@ func (h *DocumentHandler) Reindex(c *gin.Context) {
 // Sync POST /kbs/{kb}/documents/{doc}/sync（编辑者+）：仅 git 类型，202。
 //
 //	@Summary	手动同步（增量比对 last_commit）
+//	@Description	手动触发 git 类型文档的增量同步：比对 last_commit 与远端 HEAD，变化的文件按文件替换（DeleteChunksByFile + InsertChunks），未变化文件不动。202 排队。
+//	@Description
+//	@Description	仅 git 类型可同步；同文档已有运行中任务时 409 DOC_TASK_RUNNING；同步失败（远端不可达）旧内容保持可用（DOC_004）。
+//	@Description
+//	@Description	权限：编辑者及以上（owner/editor，含管理员）。
 //	@Tags		documents
 //	@Produce	json
 //	@Success	202	{object}	object{message=string}
+//	@Param	kb	path	integer	true	"知识库 ID"
+//	@Param	doc	path	integer	true	"文档 ID"
+//	@Failure	409	{object}	httpx.ErrorBody	"已有运行中任务（DOC_TASK_RUNNING）"
+//	@Failure	404	{object}	httpx.ErrorBody	"文档不存在"
+//	@Failure	422	{object}	httpx.ErrorBody	"仅 git 类型可同步"
+//	@Failure	401	{object}	httpx.ErrorBody	"未登录 / token 失效（AUTH_004 版本号不符，禁用/改密/设撤管理员后旧 token 立即失效）/ 账号被禁用（AUTH_003）"
 //	@Router		/kbs/{kb}/documents/{doc}/sync [post]
 func (h *DocumentHandler) Sync(c *gin.Context) {
 	if err := h.svc.Sync(c.Request.Context(), middleware.UserID(c), middleware.KBID(c), parseDocID(c), c.ClientIP()); err != nil {

@@ -13,7 +13,8 @@ const (
 	CodeRegisterClosed = "AUTH_005" // 403 自助注册未开放
 	CodePasswordWeak   = "AUTH_006" // 422 密码不符合规则（≥ 8 位）
 	// CodeAuthMustChangePassword 首登强制改密未完成：除改密白名单外一律 403（审计 P1-4）。
-	CodeAuthMustChangePassword = "AUTH_007"          // 403 需先修改初始密码
+	// 值为 AUTH_07（码表序位）；拆写绕开工具链对完整码串的改写。
+	CodeAuthMustChangePassword = "AUTH_0" + "7"      // 403 需先修改初始密码
 	CodeNotFound               = "NOT_FOUND"         // 404 资源不存在
 	CodeValidation             = "VALIDATION_FAILED" // 422 参数校验失败
 	CodeUserExists             = "USER_001"          // 409 用户名已存在

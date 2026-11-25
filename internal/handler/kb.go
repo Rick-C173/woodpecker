@@ -21,7 +21,9 @@ func NewKBHandler(svc *service.KBService) *KBHandler { return &KBHandler{svc: sv
 // List GET /kbs：管理员=全部，普通用户=被授权库；均含 my_role。
 //
 //	@Summary	知识库列表（管理员=全部，成员=被授权库）
-//	@Description	管理员返回全部知识库；普通用户仅返回被授权的库。每条记录带 my_role（R6 不可见原则）。
+//	@Description	我可见的知识库列表（管理员=全部，普通用户=所在库），每条含 my_role（owner/editor/member）。返回 {items:[...]}，不分页。
+//	@Description
+//	@Description	权限：登录。
 //	@Tags		kbs
 //	@Produce	json
 //	@Success	200	{object}	object{items=[]service.KBItem}
@@ -45,7 +47,11 @@ type createKBReq struct {
 // Create POST /kbs（管理员）：名称必填 ≤50 字符，重名 → KB_001。
 //
 //	@Summary	新建知识库（管理员）
-//	@Description	名称必填且 ≤50 字符；同名 → KB_001。
+//	@Description	建库。名称不超过 50 字符且同账号下唯一。
+//	@Description
+//	@Description	错误：409 KB_001 知识库名称重复；422 VALIDATION_FAILED。
+//	@Description
+//	@Description	权限：管理员。
 //	@Tags		kbs
 //	@Accept		json
 //	@Produce	json
@@ -53,6 +59,7 @@ type createKBReq struct {
 //	@Success	201		{object}	service.KBItem
 //	@Failure	403		{object}	object{code=string,message=string,request_id=string}
 //	@Failure	422		{object}	object{code=string,message=string,request_id=string}
+//	@Failure	409	{object}	httpx.ErrorBody	"名称重复 KB_001"
 //	@Router		/kbs [post]
 //	@Security	BearerAuth
 func (h *KBHandler) Create(c *gin.Context) {
@@ -72,7 +79,9 @@ func (h *KBHandler) Create(c *gin.Context) {
 // Get GET /kbs/{kb}（成员可见；非成员 404，由 KBAccess 拦截）。
 //
 //	@Summary	知识库详情（成员）
-//	@Description	含 my_role 与 document_count；非成员一律 404（不泄露库存在性）。
+//	@Description	库详情。**R6 不可见原则：非成员按 404 返回（NOT_FOUND），不泄露库名存在性**；管理员以非成员身份访问会记审计（kb.access.denied_admin_bypass）。
+//	@Description
+//	@Description	权限：库成员（或管理员）。
 //	@Tags		kbs
 //	@Produce	json
 //	@Param		kb	path		int	true	"知识库 ID"
@@ -97,7 +106,11 @@ type patchKBReq struct {
 // Update PATCH /kbs/{kb}（管理员）：字段缺省表示不修改。
 //
 //	@Summary	修改知识库（管理员）
-//	@Description	字段缺省（不传）表示不修改；name 为空字符串 → 422。
+//	@Description	改名/改描述，字段缺省不修改。
+//	@Description
+//	@Description	错误：409 KB_001 名称重复。
+//	@Description
+//	@Description	权限：管理员。
 //	@Tags		kbs
 //	@Accept		json
 //	@Produce	json
@@ -105,6 +118,8 @@ type patchKBReq struct {
 //	@Param		body	body		object{name=string,description=string}	true	"待修改字段（均可缺省）"
 //	@Success	200		{object}	service.KBItem
 //	@Failure	404		{object}	object{code=string,message=string,request_id=string}
+//	@Failure	409	{object}	httpx.ErrorBody	"名称重复 KB_001"
+//	@Failure	422	{object}	httpx.ErrorBody	"VALIDATION_FAILED"
 //	@Router		/kbs/{kb} [patch]
 //	@Security	BearerAuth
 func (h *KBHandler) Update(c *gin.Context) {
@@ -124,12 +139,15 @@ func (h *KBHandler) Update(c *gin.Context) {
 // Delete DELETE /kbs/{kb}（管理员）：级联删除文档/分块/会话，不可恢复。
 //
 //	@Summary	删除知识库（管理员，级联）
-//	@Description	级联删除该库的文档、分块、会话与成员授权，不可恢复。
+//	@Description	删库，**级联删除**库内文档、分块、文件清单、任务历史、会话与反馈。二次确认由前端承担。
+//	@Description
+//	@Description	权限：管理员。
 //	@Tags		kbs
 //	@Produce	json
 //	@Param		kb	path		int	true	"知识库 ID"
 //	@Success	200	{object}	object{message=string}
 //	@Failure	403	{object}	object{code=string,message=string,request_id=string}
+//	@Failure	404	{object}	httpx.ErrorBody	"不存在 NOT_FOUND"
 //	@Router		/kbs/{kb} [delete]
 //	@Security	BearerAuth
 func (h *KBHandler) Delete(c *gin.Context) {
@@ -143,11 +161,17 @@ func (h *KBHandler) Delete(c *gin.Context) {
 // ListMembers GET /kbs/{kb}/members（管理员）。
 //
 //	@Summary	成员列表（管理员）
+//	@Description	成员列表（user_id/username/role/加入时间）。
+//	@Description
+//	@Description	角色定义（PRD R6）：owner=管理者（可删改内容）editor=编辑者（可补充内容）member=成员（只读）。
+//	@Description
+//	@Description	权限：管理员。
 //	@Tags		kbs
 //	@Produce	json
 //	@Param		kb	path		int	true	"知识库 ID"
 //	@Success	200	{object}	object{items=[]service.KBMemberItem}
 //	@Failure	403	{object}	object{code=string,message=string,request_id=string}
+//	@Failure	404	{object}	httpx.ErrorBody	"非成员/不存在 NOT_FOUND"
 //	@Router		/kbs/{kb}/members [get]
 //	@Security	BearerAuth
 func (h *KBHandler) ListMembers(c *gin.Context) {
@@ -167,7 +191,11 @@ type addMemberReq struct {
 // AddMember POST /kbs/{kb}/members（管理员）。
 //
 //	@Summary	添加成员（管理员）
-//	@Description	role 取值 viewer|editor|owner；用户不存在 → 404，重复授权 → 409。
+//	@Description	添加成员并指派角色：{user_id, role: owner|editor|member}。
+//	@Description
+//	@Description	错误：404 目标用户不存在；409 已是成员。
+//	@Description
+//	@Description	权限：管理员。
 //	@Tags		kbs
 //	@Accept		json
 //	@Produce	json
@@ -176,6 +204,7 @@ type addMemberReq struct {
 //	@Success	201		{object}	service.KBMemberItem
 //	@Failure	404		{object}	object{code=string,message=string,request_id=string}
 //	@Failure	409		{object}	object{code=string,message=string,request_id=string}
+//	@Failure	422	{object}	httpx.ErrorBody	"role 非法 VALIDATION_FAILED"
 //	@Router		/kbs/{kb}/members [post]
 //	@Security	BearerAuth
 func (h *KBHandler) AddMember(c *gin.Context) {
@@ -199,7 +228,9 @@ type patchMemberReq struct {
 // UpdateMemberRole PATCH /kbs/{kb}/members/{user}（管理员）。
 //
 //	@Summary	修改成员角色（管理员）
-//	@Description	不允许把库内最后一个 owner 降级（避免库失去管理者）。
+//	@Description	变更成员角色（owner|editor|member）。
+//	@Description
+//	@Description	权限：管理员。
 //	@Tags		kbs
 //	@Accept		json
 //	@Produce	json
@@ -232,7 +263,9 @@ func (h *KBHandler) UpdateMemberRole(c *gin.Context) {
 // RemoveMember DELETE /kbs/{kb}/members/{user}（管理员）。
 //
 //	@Summary	移除成员（管理员）
-//	@Description	不允许移除库内最后一个 owner（避免库失去管理者）。
+//	@Description	移除成员，**其历史会话保留但立即失访**（后续访问会话 404）。
+//	@Description
+//	@Description	权限：管理员。
 //	@Tags		kbs
 //	@Produce	json
 //	@Param		kb		path		int	true	"知识库 ID"

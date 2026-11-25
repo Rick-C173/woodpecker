@@ -18,7 +18,7 @@ func TestRevokeAdminInvalidatesToken(t *testing.T) {
 	_, body := post(t, h.ts, "/api/v1/auth/register", "", map[string]any{"username": "root", "password": "password8"})
 	rootToken, _ := body["token"].(string)
 
-	// 建一个普通用户并改密（清除首登标记，排除 AUTH_007 干扰）
+	// 建一个普通用户并改密（清除首登标记，排除 AUTH_07 干扰）
 	sc, body := post(t, h.ts, "/api/v1/admin/users", rootToken, map[string]any{"username": "ops", "password": "ops-pass-8"})
 	require.Equal(t, 201, sc, body)
 	opsID := int64(body["id"].(float64))

@@ -124,51 +124,84 @@ type UploadFile struct {
 
 // DocumentItem 文档列表/详情条目。
 type DocumentItem struct {
-	ID           int64   `json:"id"`
-	Type         string  `json:"type"`
-	Name         string  `json:"name"`
-	Status       string  `json:"status"`
-	Stage        *string `json:"stage,omitempty"`
-	Error        string  `json:"error,omitempty"`
-	RepoURL      string  `json:"repo_url,omitempty"`
-	GitRef       string  `json:"git_ref,omitempty"`
-	SourceURL    string  `json:"source_url,omitempty"`
-	FileCount    int     `json:"file_count"`
-	TotalSize    int64   `json:"total_size"`
-	LastSyncedAt string  `json:"last_synced_at,omitempty"`
-	CanSync      bool    `json:"can_sync"`    // git 类型且编辑者以上
-	CanReindex   bool    `json:"can_reindex"` // 管理者以上
-	CanRetry     bool    `json:"can_retry"`   // 失败态
-	CreatedBy    int64   `json:"created_by"`
-	CreatedAt    string  `json:"created_at"`
-	UpdatedAt    string  `json:"updated_at"`
+	// 文档 ID
+	ID int64 `json:"id"`
+	// 来源类型
+	Type string `json:"type"`
+	// 名称（仓库名/文件名/网页标题）
+	Name string `json:"name"`
+	// 摄取状态
+	Status string `json:"status"`
+	// processing 阶段：parsing/chunking/embedding（其他状态为 null）
+	Stage *string `json:"stage,omitempty"`
+	// 失败原因（仅 failed）
+	Error string `json:"error,omitempty"`
+	// 仓库地址（仅 git）
+	RepoURL string `json:"repo_url,omitempty"`
+	// 分支/标签（仅 git，空=默认分支）
+	GitRef string `json:"git_ref,omitempty"`
+	// 网页地址（仅 url）
+	SourceURL string `json:"source_url,omitempty"`
+	// 已入库文件数（含已排除）
+	FileCount int `json:"file_count"`
+	// 入库文件总字节数
+	TotalSize int64 `json:"total_size"`
+	// 最近一次同步完成时间 RFC3339（未同步过为空）
+	LastSyncedAt string `json:"last_synced_at,omitempty"`
+	// 当前用户可否手动同步（git 类型且编辑者+）
+	CanSync bool `json:"can_sync"` // git 类型且编辑者以上
+	// 当前用户可否重建索引（管理者+且 ready）
+	CanReindex bool `json:"can_reindex"` // 管理者以上
+	// 当前用户可否重试（失败态且编辑者+）
+	CanRetry bool `json:"can_retry"` // 失败态
+	// 创建人用户 ID
+	CreatedBy int64 `json:"created_by"`
+	// 创建时间 RFC3339 UTC
+	CreatedAt string `json:"created_at"`
+	// 最近更新时间 RFC3339 UTC
+	UpdatedAt string `json:"updated_at"`
 }
 
 // DocumentDetail 文档详情。
 type DocumentDetail struct {
 	DocumentItem
+	// 文件清单（git 仓库=仓库内文件，upload=上传文件，url=抓取页面）
 	Files []DocumentFileItem `json:"files"`
+	// 任务历史（新到旧）
 	Tasks []DocumentTaskItem `json:"tasks"`
 }
 
 // DocumentFileItem 文件清单条目。
 type DocumentFileItem struct {
-	ID       int64  `json:"id"`
-	Path     string `json:"path"`
-	Status   string `json:"status"` // indexed | excluded | failed
+	// 文件记录 ID
+	ID int64 `json:"id"`
+	// 仓库内相对路径（git/url）或文件名（upload）
+	Path string `json:"path"`
+	// 文件状态
+	Status string `json:"status"` // indexed | excluded | failed
+	// 语言（代码文件按扩展名推断）
 	Language string `json:"language,omitempty"`
-	Size     int64  `json:"size"`
-	Error    string `json:"error,omitempty"`
+	// 字节数
+	Size int64 `json:"size"`
+	// 失败/排除原因（仅 failed/excluded 时可能携带）
+	Error string `json:"error,omitempty"`
 }
 
 // DocumentTaskItem 任务历史条目。
 type DocumentTaskItem struct {
-	ID         int64  `json:"id"`
-	Type       string `json:"type"` // full | sync
-	Status     string `json:"status"`
-	Retries    int    `json:"retries"`
-	Error      string `json:"error,omitempty"`
-	CreatedAt  string `json:"created_at"`
+	// 任务 ID
+	ID int64 `json:"id"`
+	// 任务类型
+	Type string `json:"type"` // full | sync
+	// 任务状态
+	Status string `json:"status"`
+	// 已重试次数
+	Retries int `json:"retries"`
+	// 失败原因（仅 failed）
+	Error string `json:"error,omitempty"`
+	// 任务创建时间 RFC3339
+	CreatedAt string `json:"created_at"`
+	// 完成时间 RFC3339（未完成为空）
 	FinishedAt string `json:"finished_at,omitempty"`
 }
 
@@ -378,8 +411,14 @@ func (s *DocumentService) createOneUpload(ctx context.Context, actorID, kbID int
 	d := &model.Document{KBID: kbID, Type: model.DocTypeUpload, Name: name, CreatedBy: actorID}
 	id, err := s.newDocAndTask(ctx, d, model.TaskTypeFull, ip, func(docID int64) error {
 		final = filepath.Join(s.uploadDir, fmt.Sprint(kbID), fmt.Sprint(docID))
+		// Windows 下目标目录已存在（如上次异常落下的历史残留）时 os.Rename 报
+		// "Access is denied" → 500。docID 为本次新建文档 ID，该路径不可能有合法内容，
+		// 落地前先清除残留；路径不存在时 RemoveAll 返回 nil，无害。
+		if rerr := os.RemoveAll(final); rerr != nil {
+			return fmt.Errorf("清除上传落地目录残留: doc=%d path=%s: %w", docID, final, rerr)
+		}
 		if rerr := os.Rename(staging, final); rerr != nil {
-			return fmt.Errorf("落地上传文件: %w", rerr)
+			return fmt.Errorf("落地上传文件: doc=%d dst=%s src=%s: %w", docID, final, staging, rerr)
 		}
 		renamed = true
 		return nil

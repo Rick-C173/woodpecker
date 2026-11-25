@@ -82,3 +82,10 @@ func AbortFailWith(c *gin.Context, status int, code, message string) {
 	FailWith(c, status, code, message)
 	c.Abort()
 }
+
+// ErrorBody 统一错误信封（仅用于接口文档标注：@Failure {object} httpx.ErrorBody）。
+type ErrorBody struct {
+	Code      string `json:"code" example:"KB_001"`
+	Message   string `json:"message" example:"知识库名称已存在"`
+	RequestID string `json:"request_id" example:"req_01HXXXXXXX"`
+}
