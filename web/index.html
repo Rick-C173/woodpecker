@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light" data-palette="p1">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>啄木鸟 Woodpecker · 企业知识库问答</title>
+    <script>
+      // 防 FOUC：在 CSS/JS 加载前同步读 localStorage（白名单校验）设置主题属性。
+      // 非法值丢弃回退默认；隐私模式 try/catch 静默失败。
+      (function () {
+        var root = document.documentElement;
+        var PALETTES = ['p1', 'p2', 'p3', 'p4', 'p5'];
+        var theme = 'light';
+        try {
+          var stored = localStorage.getItem('wp-theme');
+          if (stored === 'dark' || stored === 'light') {
+            theme = stored;
+          } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+            theme = 'dark';
+          }
+        } catch (e) {
+          /* 隐私模式：跟随默认 */
+        }
+        root.setAttribute('data-theme', theme);
+        var palette = 'p1';
+        try {
+          var p = localStorage.getItem('wp-palette');
+          if (PALETTES.indexOf(p) !== -1) palette = p;
+        } catch (e) {
+          /* 隐私模式：跟随默认 */
+        }
+        root.setAttribute('data-palette', palette);
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
