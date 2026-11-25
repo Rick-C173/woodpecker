@@ -78,7 +78,7 @@ func (f *FakeUserRepo) GetByEmail(_ context.Context, email string) (*model.User,
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	for _, u := range f.byName {
-		if u.Email != nil && strings.ToLower(*u.Email) == strings.ToLower(email) {
+		if u.Email != nil && strings.EqualFold(*u.Email, email) {
 			cp := *u
 			return &cp, nil
 		}
@@ -92,7 +92,7 @@ func (f *FakeUserRepo) CountByEmail(_ context.Context, email string) (int64, err
 	defer f.mu.Unlock()
 	var n int64
 	for _, u := range f.byName {
-		if u.Email != nil && strings.ToLower(*u.Email) == strings.ToLower(email) {
+		if u.Email != nil && strings.EqualFold(*u.Email, email) {
 			n++
 		}
 	}

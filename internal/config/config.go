@@ -130,7 +130,7 @@ func Load() *Config {
 		DBMaxIdleConns:           envInt("DB_MAX_IDLE_CONNS", 5),
 		DBConnMaxLifetimeMinutes: envInt("DB_CONN_MAX_LIFETIME_MINUTES", 30),
 
-		UploadDir: envStr("UPLOAD_DIR", "data/uploads"),
+		UploadDir:     envStr("UPLOAD_DIR", "data/uploads"),
 		InviteBaseURL: envStr("APP_BASE_URL", ""),
 
 		WorkerID: envStr("WORKER_ID", DefaultWorkerID()),

@@ -14,10 +14,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/smtp"
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // ErrNotConfigured SMTP 未配置（管理端尚未保存发件设置）。
@@ -25,11 +27,11 @@ var ErrNotConfigured = errors.New("SMTP 未配置")
 
 // Config SMTP 发件配置（settings 表 email_smtp 键，JSON 序列化存储）。
 type Config struct {
-	Host       string `json:"host"`        // SMTP 服务器
-	Port       int    `json:"port"`        // 465=隐式 TLS；587/25=STARTTLS
-	Username   string `json:"username"`    // 认证账号（可空=匿名）
+	Host        string `json:"host"`         // SMTP 服务器
+	Port        int    `json:"port"`         // 465=隐式 TLS；587/25=STARTTLS
+	Username    string `json:"username"`     // 认证账号（可空=匿名）
 	PasswordEnc string `json:"password_enc"` // AESGCM 加密后的密码（base64）
-	From       string `json:"from"`        // 发件人（如 "Woodpecker <noreply@corp.com>"）
+	From        string `json:"from"`         // 发件人（如 "Woodpecker <noreply@corp.com>"）
 }
 
 // Valid 配置是否完整可发送。
@@ -70,7 +72,7 @@ const settingKey = "email_smtp"
 // SMTPSettingStore 基于 settings 表的配置存取（密码加密委托 cipher）。
 type SMTPSettingStore struct {
 	Store   Store
-	Encrypt func(plaintext []byte) ([]byte, error) // crypto.AESGCM.Encrypt
+	Encrypt func(plaintext []byte) ([]byte, error)  // crypto.AESGCM.Encrypt
 	Decrypt func(ciphertext []byte) ([]byte, error) // crypto.AESGCM.Decrypt
 }
 
@@ -123,8 +125,8 @@ func (s *SMTPSender) Configured() bool {
 }
 
 // Send 发送一封文本邮件（连接复用 STARTTLS/隐式 TLS 按端口判定）。
-func (s *SMTPSender) Send(_ context.Context, to, subject, body string) error {
-	c, err := s.Store.Load(context.Background())
+func (s *SMTPSender) Send(ctx context.Context, to, subject, body string) error {
+	c, err := s.Store.Load(ctx)
 	if err != nil {
 		return err
 	}
@@ -145,31 +147,48 @@ func (s *SMTPSender) Send(_ context.Context, to, subject, body string) error {
 	if timeout <= 0 {
 		timeout = 15
 	}
+	dialer := &net.Dialer{Timeout: time.Duration(timeout) * time.Second}
 	hostOnly, _, _ := strings.Cut(addr, ":")
+	tlsCfg := &tls.Config{ServerName: hostOnly}
 
 	if c.Port == 465 {
 		// 隐式 TLS：先建立 TLS 连接再协商 SMTP
-		conn, derr := tls.Dial("tcp", addr, &tls.Config{ServerName: hostOnly})
+		conn, derr := dialer.DialContext(ctx, "tcp", addr)
 		if derr != nil {
 			return fmt.Errorf("SMTP 连接失败(%s): %w", addr, derr)
 		}
-		cl, cerr := smtp.NewClient(conn, hostOnly)
-		if cerr != nil {
+		tlsConn := tls.Client(conn, tlsCfg)
+		if herr := tlsConn.HandshakeContext(ctx); herr != nil {
 			_ = conn.Close()
+			return fmt.Errorf("TLS 握手失败(%s): %w", addr, herr)
+		}
+		cl, cerr := smtp.NewClient(tlsConn, hostOnly)
+		if cerr != nil {
+			_ = tlsConn.Close()
 			return fmt.Errorf("SMTP 会话失败: %w", cerr)
 		}
 		defer func() { _ = cl.Quit() }()
-		return deliver(cl, auth, from, to, msg)
+		if c.Username != "" {
+			if aerr := cl.Auth(auth); aerr != nil {
+				return fmt.Errorf("SMTP 认证失败: %w", aerr)
+			}
+		}
+		return deliver(cl, from, to, msg)
 	}
 
 	// 明文 + STARTTLS（服务器支持时升级）
-	cl, err := smtp.Dial(addr)
+	conn, err := dialer.DialContext(ctx, "tcp", addr)
 	if err != nil {
 		return fmt.Errorf("SMTP 连接失败(%s): %w", addr, err)
 	}
+	cl, cerr := smtp.NewClient(conn, hostOnly)
+	if cerr != nil {
+		_ = conn.Close()
+		return fmt.Errorf("SMTP 会话失败: %w", cerr)
+	}
 	defer func() { _ = cl.Quit() }()
 	if ok, _ := cl.Extension("STARTTLS"); ok {
-		if terr := cl.StartTLS(&tls.Config{ServerName: hostOnly}); terr != nil {
+		if terr := cl.StartTLS(tlsCfg); terr != nil {
 			return fmt.Errorf("STARTTLS 失败: %w", terr)
 		}
 	}
@@ -178,11 +197,11 @@ func (s *SMTPSender) Send(_ context.Context, to, subject, body string) error {
 			return fmt.Errorf("SMTP 认证失败: %w", aerr)
 		}
 	}
-	return deliver(cl, auth, from, to, msg)
+	return deliver(cl, from, to, msg)
 }
 
-// deliver 从 MailFrom 到正文交付（隐式 TLS 路径已建好 client）。
-func deliver(cl *smtp.Client, auth smtp.Auth, from, to, msg string) error {
+// deliver 从 MailFrom 到正文交付（认证已在调用方完成）。
+func deliver(cl *smtp.Client, from, to, msg string) error {
 	if err := cl.Mail(from); err != nil {
 		return fmt.Errorf("MAIL FROM 失败: %w", err)
 	}

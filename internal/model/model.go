@@ -28,19 +28,19 @@ func (User) TableName() string { return "users" }
 // Invite 邀请（FR-16）：每邮箱一条记录，重复邀请覆盖 token（重发）。
 // token 只存 sha256 hex（URL 明文仅出现在邮件与创建响应）。
 type Invite struct {
-	ID          int64      `gorm:"primaryKey;column:id"`
-	Email       string     `gorm:"column:email;size:255;uniqueIndex"`
-	TokenHash   string     `gorm:"column:token_hash;size:64;uniqueIndex"`
-	Status      int16      `gorm:"column:status"`       // 1=待接受 2=已接受 3=已撤销
-	ExpiresAt   time.Time  `gorm:"column:expires_at"`
-	AcceptedAt  *time.Time `gorm:"column:accepted_at"`
-	AcceptedBy  *int64     `gorm:"column:accepted_by"`
-	SendStatus  int16      `gorm:"column:send_status"` // 1=已发送 2=发送失败 3=未发送
-	SendError   *string    `gorm:"column:send_error"`
-	SendCount   int        `gorm:"column:send_count"`
-	CreatedBy   int64      `gorm:"column:created_by"`
-	CreatedAt   time.Time  `gorm:"column:created_at"`
-	UpdatedAt   time.Time  `gorm:"column:updated_at"`
+	ID         int64      `gorm:"primaryKey;column:id"`
+	Email      string     `gorm:"column:email;size:255;uniqueIndex"`
+	TokenHash  string     `gorm:"column:token_hash;size:64;uniqueIndex"`
+	Status     int16      `gorm:"column:status"` // 1=待接受 2=已接受 3=已撤销
+	ExpiresAt  time.Time  `gorm:"column:expires_at"`
+	AcceptedAt *time.Time `gorm:"column:accepted_at"`
+	AcceptedBy *int64     `gorm:"column:accepted_by"`
+	SendStatus int16      `gorm:"column:send_status"` // 1=已发送 2=发送失败 3=未发送
+	SendError  *string    `gorm:"column:send_error"`
+	SendCount  int        `gorm:"column:send_count"`
+	CreatedBy  int64      `gorm:"column:created_by"`
+	CreatedAt  time.Time  `gorm:"column:created_at"`
+	UpdatedAt  time.Time  `gorm:"column:updated_at"`
 }
 
 func (Invite) TableName() string { return "invites" }
@@ -51,8 +51,8 @@ const (
 	InviteStatusAccepted int16 = 2
 	InviteStatusRevoked  int16 = 3
 
-	InviteSentFailed     int16 = 2
-	InviteSentNotSent    int16 = 3
+	InviteSentFailed  int16 = 2
+	InviteSentNotSent int16 = 3
 )
 
 type AuditLog struct {

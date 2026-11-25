@@ -18,9 +18,9 @@ import (
 
 // 邀请参数（FR-16）。
 const (
-	inviteTokenTTL  = 7 * 24 * time.Hour
-	inviteEmailMax  = 255
-	inviteBatchMax  = 50
+	inviteTokenTTL = 7 * 24 * time.Hour
+	inviteEmailMax = 255
+	inviteBatchMax = 50
 )
 
 // emailPattern 简单格式校验（本地@域名，域名含点）。
@@ -45,13 +45,13 @@ type InviteUserLookup interface {
 // InviteService 邀请生命周期（FR-16）：创建/发送/列表/重发/撤销/校验。
 // 持邀注册（创建用户）在 AuthService.RegisterInvited。
 type InviteService struct {
-	invites  InviteRepo
-	users    InviteUserLookup
-	sender   mail.Sender
-	smtp     *mail.SMTPSettingStore // SMTP 配置存取（nil=视为未配置）
-	baseURL  string                 // 站点外部地址（邀请链接前缀，部署属性 APP_BASE_URL）
-	audit    *AuditService
-	now      func() time.Time
+	invites InviteRepo
+	users   InviteUserLookup
+	sender  mail.Sender
+	smtp    *mail.SMTPSettingStore // SMTP 配置存取（nil=视为未配置）
+	baseURL string                 // 站点外部地址（邀请链接前缀，部署属性 APP_BASE_URL）
+	audit   *AuditService
+	now     func() time.Time
 }
 
 func NewInviteService(invites InviteRepo, users InviteUserLookup, sender mail.Sender, smtp *mail.SMTPSettingStore, baseURL string, audit *AuditService) *InviteService {
@@ -63,15 +63,15 @@ func (s *InviteService) SetClock(now func() time.Time) { s.now = now }
 
 // InviteItem 邀请列表/操作响应。
 type InviteItem struct {
-	ID         int64     `json:"id"`
-	Email      string    `json:"email"`
-	Status     string    `json:"status"`      // pending | accepted | revoked
-	SendStatus string    `json:"send_status"` // sent | failed | not_sent
-	SendError  string    `json:"send_error,omitempty"`
-	ExpiresAt  string    `json:"expires_at"`
-	CreatedBy  int64     `json:"created_by"`
-	CreatedAt  string    `json:"created_at"`
-	Link       string    `json:"link,omitempty"` // 仅创建/重发响应携带（邮件丢失时手动转发）；列表为空
+	ID         int64  `json:"id"`
+	Email      string `json:"email"`
+	Status     string `json:"status"`      // pending | accepted | revoked
+	SendStatus string `json:"send_status"` // sent | failed | not_sent
+	SendError  string `json:"send_error,omitempty"`
+	ExpiresAt  string `json:"expires_at"`
+	CreatedBy  int64  `json:"created_by"`
+	CreatedAt  string `json:"created_at"`
+	Link       string `json:"link,omitempty"` // 仅创建/重发响应携带（邮件丢失时手动转发）；列表为空
 }
 
 func inviteStatusName(s int16) string {
@@ -98,24 +98,24 @@ func sendStatusName(s int16) string {
 
 func (s *InviteService) toItem(m *model.Invite) *InviteItem {
 	return &InviteItem{
-		ID:        m.ID,
-		Email:     m.Email,
-		Status:    inviteStatusName(m.Status),
+		ID:         m.ID,
+		Email:      m.Email,
+		Status:     inviteStatusName(m.Status),
 		SendStatus: sendStatusName(m.SendStatus),
-		ExpiresAt: m.ExpiresAt.UTC().Format(time.RFC3339),
-		CreatedBy: m.CreatedBy,
-		CreatedAt: m.CreatedAt.UTC().Format(time.RFC3339),
+		ExpiresAt:  m.ExpiresAt.UTC().Format(time.RFC3339),
+		CreatedBy:  m.CreatedBy,
+		CreatedAt:  m.CreatedAt.UTC().Format(time.RFC3339),
 	}
 }
 
 // InviteResult 批量邀请的逐邮箱结果。
 type InviteResult struct {
-	Email  string `json:"email"`
-	OK     bool   `json:"ok"`
-	Sent   bool   `json:"sent"`            // 邮件是否已发出（false=SMTP 未配置/发送失败，链接可手动转发）
+	Email  string      `json:"email"`
+	OK     bool        `json:"ok"`
+	Sent   bool        `json:"sent"` // 邮件是否已发出（false=SMTP 未配置/发送失败，链接可手动转发）
 	Invite *InviteItem `json:"invite,omitempty"`
-	Link   string `json:"link,omitempty"`  // 降级路径：未发出时返回明文链接
-	Error  string `json:"error,omitempty"`
+	Link   string      `json:"link,omitempty"` // 降级路径：未发出时返回明文链接
+	Error  string      `json:"error,omitempty"`
 }
 
 // CreateRequest 发起邀请（单个或批量）。
@@ -158,8 +158,8 @@ func (s *InviteService) Create(ctx context.Context, actorID int64, emails []stri
 	return results, nil
 }
 
-// inviteOne 单个邮箱的邀请创建与发送。
-func (s *InviteService) inviteOne(ctx context.Context, actorID int64, email, ip string) InviteResult {
+// inviteOne 单个邮箱的邀请创建与发送（审计在 Create 层统一记录）。
+func (s *InviteService) inviteOne(ctx context.Context, actorID int64, email, _ string) InviteResult {
 	res := InviteResult{Email: email}
 	n, err := s.users.CountByEmail(ctx, email)
 	if err != nil {
