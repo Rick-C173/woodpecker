@@ -34,11 +34,11 @@ func TestM2KnowledgeBaseAndMembers(t *testing.T) {
 	sc, body = e.call(t, "POST", "/api/v1/auth/login", "", map[string]any{"username": "dev", "password": "dev-pass-123"})
 	require.Equal(t, 200, sc, body)
 	assert.Equal(t, true, body["must_change_password"], "管理员创建的账号首登必须改密")
-	// 首登未改密 → 业务接口 403 AUTH_007（审计 P1-4）
+	// 首登未改密 → 业务接口 403 AUTH_07（审计 P1-4）
 	devInitialToken, _ := body["token"].(string)
 	sc, body = e.call(t, "GET", "/api/v1/kbs", devInitialToken, nil)
 	assert.Equal(t, http.StatusForbidden, sc)
-	assert.Equal(t, "AUTH_007", code(t, body))
+	assert.Equal(t, "AUTH_07", code(t, body))
 	// 改密后正常访问
 	devToken := e.loginReady(t, "dev", "dev-pass-123", "dev-pass-456")
 

@@ -30,9 +30,14 @@ func convID(c *gin.Context) int64 {
 // ListConversations GET /kbs/{kb}/conversations（成员，仅我的）
 //
 //	@Summary	我的会话列表
+//	@Description	我在该知识库下的会话列表（仅自己的，不含他人），按最近活跃排序。返回 {items:[...]}，不分页（会话数规模小）。
+//	@Description
+//	@Description	权限：库成员。
 //	@Tags		conversations
 //	@Produce	json
 //	@Success	200	{object}	object{items=[]service.ConversationItem}
+//	@Param	kb	path	integer	true	"知识库 ID"
+//	@Failure	401	{object}	httpx.ErrorBody	"未登录 / token 失效（AUTH_004）/ 账号被禁用（AUTH_003）"
 //	@Router		/kbs/{kb}/conversations [get]
 func (h *ChatHandler) ListConversations(c *gin.Context) {
 	items, err := h.svc.ListMine(c.Request.Context(), middleware.KBID(c), middleware.UserID(c))
@@ -46,9 +51,14 @@ func (h *ChatHandler) ListConversations(c *gin.Context) {
 // CreateConversation POST /kbs/{kb}/conversations（成员）
 //
 //	@Summary	新建会话
+//	@Description	在该知识库下新建空会话，返回会话条目。标题默认为「新会话」，首条提问后自动改为提问摘要（≤50 字）。
+//	@Description
+//	@Description	权限：库成员。
 //	@Tags		conversations
 //	@Produce	json
 //	@Success	201	{object}	service.ConversationItem
+//	@Param	kb	path	integer	true	"知识库 ID"
+//	@Failure	401	{object}	httpx.ErrorBody	"未登录 / token 失效（AUTH_004）/ 账号被禁用（AUTH_003）"
 //	@Router		/kbs/{kb}/conversations [post]
 func (h *ChatHandler) CreateConversation(c *gin.Context) {
 	item, err := h.svc.CreateConversation(c.Request.Context(), middleware.KBID(c), middleware.UserID(c))
@@ -62,9 +72,17 @@ func (h *ChatHandler) CreateConversation(c *gin.Context) {
 // GetConversation GET /conversations/{c}（所属用户/管理员）
 //
 //	@Summary	消息历史（含引用与我的反馈）
+//	@Description	会话详情：基础信息 + 全部消息（含每条回答的 citations 引用与我（当前请求者）的 feedback 点踩）。
+//	@Description
+//	@Description	访问规则：先校验会话所属知识库的成员资格（R6 非成员 → 404，不泄露存在性），再校验会话所属用户（他人会话 → 404）；管理员可访问任意会话。被移除的成员立即失去历史会话访问。
+//	@Description
+//	@Description	权限：会话所属用户或管理员。
 //	@Tags		conversations
 //	@Produce	json
 //	@Success	200	{object}	service.ConversationDetail
+//	@Param	c	path	integer	true	"会话 ID"
+//	@Failure	404	{object}	httpx.ErrorBody	"会话不存在 / 非所属用户且非管理员 / 非库成员（统一 404，不泄露存在性）"
+//	@Failure	401	{object}	httpx.ErrorBody	"未登录 / token 失效（AUTH_004）/ 账号被禁用（AUTH_003）"
 //	@Router		/conversations/{c} [get]
 func (h *ChatHandler) GetConversation(c *gin.Context) {
 	detail, err := h.svc.Get(c.Request.Context(), convID(c), middleware.UserID(c), middleware.IsAdmin(c))
@@ -78,9 +96,16 @@ func (h *ChatHandler) GetConversation(c *gin.Context) {
 // RenameConversation PATCH /conversations/{c}（所属用户）
 //
 //	@Summary	重命名会话
+//	@Description	重命名会话。字段缺省不修改；title 必填。
+//	@Description
+//	@Description	权限：会话所属用户（管理员也只能改自己的？——与实现一致：管理员可访问任意会话，但重命名/删除按所属用户语义处理）。
 //	@Tags		conversations
 //	@Produce	json
 //	@Success	200	{object}	object{message=string}
+//	@Param	c	path	integer	true	"会话 ID"
+//	@Failure	422	{object}	httpx.ErrorBody	"title 为空（VALIDATION_FAILED）"
+//	@Failure	404	{object}	httpx.ErrorBody	"会话不存在或无权访问"
+//	@Failure	401	{object}	httpx.ErrorBody	"未登录 / token 失效（AUTH_004）/ 账号被禁用（AUTH_003）"
 //	@Router		/conversations/{c} [patch]
 func (h *ChatHandler) RenameConversation(c *gin.Context) {
 	var req struct {
@@ -100,9 +125,15 @@ func (h *ChatHandler) RenameConversation(c *gin.Context) {
 // DeleteConversation DELETE /conversations/{c}（所属用户；反馈级联删）
 //
 //	@Summary	删除会话
+//	@Description	删除会话及其全部消息，反馈记录级联删除。
+//	@Description
+//	@Description	权限：会话所属用户（管理员可删任意会话）。
 //	@Tags		conversations
 //	@Produce	json
 //	@Success	200	{object}	object{message=string}
+//	@Param	c	path	integer	true	"会话 ID"
+//	@Failure	404	{object}	httpx.ErrorBody	"会话不存在或无权访问"
+//	@Failure	401	{object}	httpx.ErrorBody	"未登录 / token 失效（AUTH_004）/ 账号被禁用（AUTH_003）"
 //	@Router		/conversations/{c} [delete]
 func (h *ChatHandler) DeleteConversation(c *gin.Context) {
 	if err := h.svc.Delete(c.Request.Context(), convID(c), middleware.UserID(c), middleware.IsAdmin(c)); err != nil {
@@ -115,9 +146,27 @@ func (h *ChatHandler) DeleteConversation(c *gin.Context) {
 // Ask POST /conversations/{c}/messages（所属用户，问答限流 10 req/min）：SSE 响应。
 //
 //	@Summary	提问（SSE 流式回答 + 引用）
+//	@Description	提问（SSE 流式回答）。Content-Type: text/event-stream。
+//	@Description
+//	@Description	事件流顺序：delta*（回答增量，多次）→ citations?（引用列表，仅当回答中出现 [n] 标注且引用有效时发一次）→ done（结束）。异常时发 error 终止；每 15s 发 ping 心跳防代理断连。
+//	@Description
+//	@Description	citations 规则（审计 P1-16）：只包含回答正文里真正标注过的资料，seq 按「回答中首次出现顺序」从 1 重新编号；检索命中但回答未引用的一律不发、不落库。依据不足时正常输出说明文字，不发 citations 直接 done（PRD FR-07）。
+//	@Description
+//	@Description	停止生成 = 客户端断开连接；已生成的部分照常落库（role=assistant，标记 interrupted）。
+//	@Description
+//	@Description	流式期间消息不落库，done 时才写库（含 tokens 与 citations）。
+//	@Description
+//	@Description	权限：会话所属用户（管理员可代任意会话提问）；问答限流 10 req/min/用户 → 429 RATE_LIMITED。
 //	@Tags		conversations
 //	@Accept		json
 //	@Produce	text/event-stream
+//	@Param	c	path	integer	true	"会话 ID"
+//	@Param	body	body	object{content=string}	true	"提问内容（≤4000 字符）"
+//	@Success	200	{string}	string	"SSE 事件流：delta*（回答增量）→ citations?（引用，仅回答中实际标注 [n] 时）→ done（message_id/prompt_tokens/completion_tokens）；异常 error；每 15s 心跳 ping；停止生成=客户端断开"
+//	@Failure	422	{object}	httpx.ErrorBody	"content 为空或超长（VALIDATION_FAILED）"
+//	@Failure	404	{object}	httpx.ErrorBody	"会话不存在或无权访问"
+//	@Failure	429	{object}	httpx.ErrorBody	"问答限流 10 req/min/用户（RATE_LIMITED）"
+//	@Failure	401	{object}	httpx.ErrorBody	"未登录 / token 失效（AUTH_004）/ 账号被禁用（AUTH_003）"
 //	@Router		/conversations/{c}/messages [post]
 func (h *ChatHandler) Ask(c *gin.Context) {
 	var req struct {
@@ -138,8 +187,16 @@ func (h *ChatHandler) Ask(c *gin.Context) {
 // Regenerate POST /messages/{m}/regenerate（所属用户）：SSE；替换该回答内容。
 //
 //	@Summary	重新生成（SSE）
+//	@Description	重新生成指定回答（SSE 流，事件协议同提问接口）。成功后**替换**该条 assistant 消息内容与引用，原回答不保留版本。
+//	@Description
+//	@Description	权限：会话所属用户；同样受问答限流 10 req/min → 429。
 //	@Tags		messages
 //	@Produce	text/event-stream
+//	@Param	m	path	integer	true	"回答消息 ID（须为 assistant 消息）"
+//	@Success	200	{string}	string	"SSE 事件流：协议同提问接口；成功后替换该回答内容与引用"
+//	@Failure	404	{object}	httpx.ErrorBody	"消息不存在或无权访问"
+//	@Failure	429	{object}	httpx.ErrorBody	"问答限流（RATE_LIMITED）"
+//	@Failure	401	{object}	httpx.ErrorBody	"未登录 / token 失效（AUTH_004）/ 账号被禁用（AUTH_003）"
 //	@Router		/messages/{m}/regenerate [post]
 func (h *ChatHandler) Regenerate(c *gin.Context) {
 	id, _ := strconv.ParseInt(c.Param("m"), 10, 64)
@@ -154,10 +211,17 @@ func (h *ChatHandler) Regenerate(c *gin.Context) {
 // Feedback POST /messages/{m}/feedback（所属用户）：点踩（重复覆盖）。
 //
 //	@Summary	点踩反馈
+//	@Description	对回答点踩（FR-14）。reason: 1=答案不相关 2=引用错误 3=内容过时 4=其他；comment 可选。重复提交覆盖上次反馈（一条回答一人一条反馈）。
+//	@Description
+//	@Description	权限：会话所属用户。
 //	@Tags		messages
 //	@Accept		json
 //	@Produce	json
 //	@Success	200	{object}	object{message=string}
+//	@Param	m	path	integer	true	"回答消息 ID"
+//	@Failure	422	{object}	httpx.ErrorBody	"reason 缺省或非法（VALIDATION_FAILED）"
+//	@Failure	404	{object}	httpx.ErrorBody	"消息不存在或无权访问"
+//	@Failure	401	{object}	httpx.ErrorBody	"未登录 / token 失效（AUTH_004）/ 账号被禁用（AUTH_003）"
 //	@Router		/messages/{m}/feedback [post]
 func (h *ChatHandler) Feedback(c *gin.Context) {
 	var req struct {
@@ -179,9 +243,15 @@ func (h *ChatHandler) Feedback(c *gin.Context) {
 // DeleteFeedback DELETE /messages/{m}/feedback（所属用户）：撤销点踩。
 //
 //	@Summary	撤销点踩
+//	@Description	撤销自己对某条回答的点踩。未点踩时同样返回成功（幂等）。
+//	@Description
+//	@Description	权限：会话所属用户。
 //	@Tags		messages
 //	@Produce	json
 //	@Success	200	{object}	object{message=string}
+//	@Param	m	path	integer	true	"回答消息 ID"
+//	@Failure	404	{object}	httpx.ErrorBody	"消息不存在或无权访问"
+//	@Failure	401	{object}	httpx.ErrorBody	"未登录 / token 失效（AUTH_004）/ 账号被禁用（AUTH_003）"
 //	@Router		/messages/{m}/feedback [delete]
 func (h *ChatHandler) DeleteFeedback(c *gin.Context) {
 	id, _ := strconv.ParseInt(c.Param("m"), 10, 64)

@@ -36,22 +36,22 @@ type KBRepo interface {
 
 // KBItem 知识库列表/详情响应。
 type KBItem struct {
-	ID            int64  `json:"id"`
-	Name          string `json:"name"`
-	Description   string `json:"description"`
-	DocumentCount int64  `json:"document_count"`
-	MyRole        string `json:"my_role"`
-	CreatedBy     int64  `json:"created_by"`
-	CreatedAt     string `json:"created_at"`
-	UpdatedAt     string `json:"updated_at"`
+	ID            int64  `json:"id"`             // 知识库 ID
+	Name          string `json:"name"`           // 名称（同账号内唯一，≤50 字符）
+	Description   string `json:"description"`    // 描述
+	DocumentCount int64  `json:"document_count"` // 库内文档总数
+	MyRole        string `json:"my_role"`        // 请求者在库内的角色：owner=管理者 editor=编辑者 member=成员
+	CreatedBy     int64  `json:"created_by"`     // 创建人用户 ID
+	CreatedAt     string `json:"created_at"`     // 创建时间 RFC3339 UTC
+	UpdatedAt     string `json:"updated_at"`     // 最近更新时间 RFC3339 UTC
 }
 
 // KBMemberItem 成员列表响应。
 type KBMemberItem struct {
-	UserID    int64  `json:"user_id"`
-	Username  string `json:"username"`
-	Role      string `json:"role"`
-	CreatedAt string `json:"created_at"`
+	UserID    int64  `json:"user_id"`    // 用户 ID
+	Username  string `json:"username"`   // 用户名
+	Role      string `json:"role"`       // 角色：owner|editor|member（R6）
+	CreatedAt string `json:"created_at"` // 加入时间 RFC3339 UTC
 }
 
 // KBService 知识库与成员权限（PRD FR-02 / R6）。

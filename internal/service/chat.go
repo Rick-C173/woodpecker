@@ -41,41 +41,65 @@ type ChatEvent struct {
 
 // CitationItem 引用条目（API设计.md §4 citations 帧）。
 type CitationItem struct {
-	Seq         int     `json:"seq"`
-	DocumentID  int64   `json:"document_id"`
-	ChunkID     int64   `json:"chunk_id"`
-	FilePath    *string `json:"file_path"`
-	LineStart   *int    `json:"line_start"`
-	LineEnd     *int    `json:"line_end"`
+	// 引用序号（按回答中 [n] 首次出现顺序，从 1 开始）
+	Seq int `json:"seq"`
+	// 来源文档 ID
+	DocumentID int64 `json:"document_id"`
+	// 来源分块 ID
+	ChunkID int64 `json:"chunk_id"`
+	// 代码/文件路径（url 类型文档为 null）
+	FilePath *string `json:"file_path"`
+	// 起始行（1-based，url 类型为 null）
+	LineStart *int `json:"line_start"`
+	// 结束行（含）
+	LineEnd *int `json:"line_end"`
+	// Markdown 标题路径（如 设计 > 限流），代码文件为 null
 	HeadingPath *string `json:"heading_path"`
-	SourceURL   *string `json:"source_url"`
-	Snippet     string  `json:"snippet"`
+	// 网页原文 URL（仅 url 类型文档）
+	SourceURL *string `json:"source_url"`
+	// 来源分块内容快照
+	Snippet string `json:"snippet"`
 }
 
 // ConversationItem 会话列表条目。
 type ConversationItem struct {
-	ID           int64  `json:"id"`
-	KBID         int64  `json:"kb_id"`
-	Title        string `json:"title"`
-	MessageCount int64  `json:"message_count"`
-	UpdatedAt    string `json:"updated_at"`
+	// 会话 ID
+	ID int64 `json:"id"`
+	// 所属知识库 ID
+	KBID int64 `json:"kb_id"`
+	// 标题（默认取首条提问摘要，不超过 50 字）
+	Title string `json:"title"`
+	// 消息条数
+	MessageCount int64 `json:"message_count"`
+	// 最近活跃时间 RFC3339 UTC
+	UpdatedAt string `json:"updated_at"`
 }
 
 // MessageItem 消息历史条目（含引用与我的反馈）。
 type MessageItem struct {
-	ID               int64          `json:"id"`
-	Role             string         `json:"role"` // user | assistant
-	Content          string         `json:"content"`
-	Interrupted      bool           `json:"interrupted"`
-	CompletionTokens int            `json:"completion_tokens"`
-	CreatedAt        string         `json:"created_at"`
-	Citations        []CitationItem `json:"citations"`
-	Feedback         *FeedbackItem  `json:"feedback,omitempty"`
+	// 消息 ID
+	ID int64 `json:"id"`
+	// 角色
+	Role string `json:"role"` // user | assistant
+	// 消息内容（回答中的引用以 [n] 形式内嵌）
+	Content string `json:"content"`
+	// 回答是否被中断（客户端断开）
+	Interrupted bool `json:"interrupted"`
+	// 回答生成 token 数（user 消息为 0）
+	CompletionTokens int `json:"completion_tokens"`
+	// 创建时间 RFC3339 UTC
+	CreatedAt string `json:"created_at"`
+	// 引用列表（仅 assistant 且回答中有 [n] 标注时非空）
+	Citations []CitationItem `json:"citations"`
+	// 我（当前请求者）对该回答的点踩，未点踩为 null
+	Feedback *FeedbackItem `json:"feedback,omitempty"`
 }
 
 // FeedbackItem 我的点踩。
 type FeedbackItem struct {
-	Reason  int    `json:"reason"`
+	// 点踩原因 1-4：1 答案不相关 / 2 引用错误 / 3 内容过时 / 4 其他
+	Reason int `json:"reason"`
+	// 补充说明（可空）
 	Comment string `json:"comment,omitempty"`
 }
 

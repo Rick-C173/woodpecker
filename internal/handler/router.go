@@ -92,7 +92,7 @@ func NewRouter(d Deps) *gin.Engine {
 	// 改密接口本身（含首登强制改密）不受强制改密拦截；成功后 token_version+1 需重新登录。
 	authed.POST("/auth/password", d.Auth.ChangePassword)
 
-	// 首登强制改密（PRD FR-01 / 审计 P1-4）：除改密白名单外，带 must_change_password 的会话一律 403 AUTH_007。
+	// 首登强制改密（PRD FR-01 / 审计 P1-4）：除改密白名单外，带 must_change_password 的会话一律 403 AUTH_07。
 	// mustChangeOK 与 authed 权限完全一致，只是多一层状态拦截。
 	mustChangeOK := authed.Group("", middleware.RequirePasswordChanged())
 
@@ -160,7 +160,7 @@ func NewRouter(d Deps) *gin.Engine {
 	// admin（管理员）
 	// 顺序：Auth → 限流 → Admin → 强制改密（限流必须在 Auth 之后才能取到 user key，P2-30）。
 	// 越权优先返回 FORBIDDEN（不向无权限者泄露账号改密状态），
-	// 管理员一旦被标记改密仍会被 AUTH_007 拦在业务接口之外。
+	// 管理员一旦被标记改密仍会被 AUTH_07 拦在业务接口之外。
 	admin := v1.Group("/admin",
 		middleware.Auth(d.Issuer, userLookup(d.UserRepo)),
 		limiter.Handler(middleware.UserKey),

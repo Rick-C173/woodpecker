@@ -233,10 +233,10 @@ func TestAuthHandlerFlows(t *testing.T) {
 	assert.Equal(t, true, body["must_change_password"], "管理员创建的账号首登必须改密")
 	devToken, _ := body["token"].(string)
 
-	// P1-4：首登未改密 → 业务接口 403 AUTH_007（服务端强制，不依赖前端）
+	// P1-4：首登未改密 → 业务接口 403 AUTH_07（服务端强制，不依赖前端）
 	sc, body = get(t, h.ts, "/api/v1/kbs", devToken)
 	assert.Equal(t, 403, sc)
-	assert.Equal(t, "AUTH_007", jcode(t, body))
+	assert.Equal(t, "AUTH_07", jcode(t, body))
 
 	sc, body = get(t, h.ts, "/api/v1/admin/users", devToken)
 	assert.Equal(t, 403, sc)

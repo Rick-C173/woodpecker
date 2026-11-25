@@ -23,9 +23,12 @@ type SettingStore interface {
 
 // SettingsView 设置展示（GET /admin/settings）。
 type SettingsView struct {
-	ExclusionRules  []string `json:"exclusion_rules"`            // null=未自定义（用默认清单）
-	SelfRegister    bool     `json:"self_register"`              // 自助注册开关（默认关闭）
-	ExclusionCustom bool     `json:"exclusion_rules_customized"` // 是否已自定义
+	// 自定义排除规则（glob 数组）；null=未自定义，用内置默认清单
+	ExclusionRules []string `json:"exclusion_rules"` // null=未自定义（用默认清单）
+	// 自助注册开关（POST /auth/register 是否可用，默认关闭，FR-01）
+	SelfRegister bool `json:"self_register"` // 自助注册开关（默认关闭）
+	// 排除规则是否已自定义
+	ExclusionCustom bool `json:"exclusion_rules_customized"` // 是否已自定义
 }
 
 // SettingsService 系统设置管理（FR-13 / FR-01 / R1b）。

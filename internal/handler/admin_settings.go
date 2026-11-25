@@ -24,9 +24,13 @@ func NewAdminSettingsHandler(settings *service.SettingsService, query *service.A
 // Get GET /admin/settings
 //
 //	@Summary	系统设置当前值
+//	@Description	系统设置当前值（FR-13）：排除规则与自助注册开关。exclusion_rules 为 null 表示未自定义、使用内置默认清单（README/锁文件等）。
+//	@Description
+//	@Description	权限：管理员。缺省值直接展示，前端一次拉全。
 //	@Tags		settings
 //	@Produce	json
 //	@Success	200	{object}	service.SettingsView
+//	@Failure	401	{object}	httpx.ErrorBody	"未登录 / token 失效（AUTH_004）/ 账号被禁用（AUTH_003）；非管理员 403 FORBIDDEN"
 //	@Router		/admin/settings [get]
 func (h *AdminSettingsHandler) Get(c *gin.Context) {
 	v, err := h.settings.Get(c.Request.Context())
@@ -40,10 +44,17 @@ func (h *AdminSettingsHandler) Get(c *gin.Context) {
 // Update PATCH /admin/settings
 //
 //	@Summary	更新系统设置（记审计）
+//	@Description	更新系统设置（记审计 action=setting.update）。字段缺省不修改；至少提供一项，否则 422。
+//	@Description
+//	@Description	exclusion_rules 传 glob 数组覆盖自定义清单；传空数组=清空自定义（回到默认清单）。self_register 控制自助注册开关（默认关闭，FR-01）。
+//	@Description
+//	@Description	权限：管理员。
 //	@Tags		settings
 //	@Accept		json
 //	@Produce	json
 //	@Success	200	{object}	object{message=string}
+//	@Failure	422	{object}	httpx.ErrorBody	"请求体非法或未提供任何要更新的设置（VALIDATION_FAILED）"
+//	@Failure	401	{object}	httpx.ErrorBody	"未登录 / token 失效（AUTH_004）/ 账号被禁用（AUTH_003）；非管理员 403 FORBIDDEN"
 //	@Router		/admin/settings [patch]
 func (h *AdminSettingsHandler) Update(c *gin.Context) {
 	var req service.UpdateRequest
@@ -78,6 +89,9 @@ func parseTimeQuery(c *gin.Context, key string) (*time.Time, error) {
 // ListAuditLogs GET /admin/audit-logs
 //
 //	@Summary	审计日志查询（筛选分页）
+//	@Description	审计日志查询（分页，新到旧）。所有写操作与越权尝试均记录（FR-15）；detail 为动作相关附加信息。
+//	@Description
+//	@Description	权限：管理员。
 //	@Tags		audit
 //	@Produce	json
 //	@Param		user_id		query	int		false	"操作人"
@@ -86,6 +100,10 @@ func parseTimeQuery(c *gin.Context, key string) (*time.Time, error) {
 //	@Param		from		query	string	false	"起始时间 RFC3339"
 //	@Param		to			query	string	false	"截止时间 RFC3339"
 //	@Success	200	{object}	object{items=[]repo.AuditRow,total=int,page=int,page_size=int}
+//	@Param	page	query	integer	false	"页码，默认 1"
+//	@Param	page_size	query	integer	false	"每页条数，默认 20，最大 100"
+//	@Failure	422	{object}	httpx.ErrorBody	"from/to 不是合法 RFC3339（VALIDATION_FAILED）"
+//	@Failure	401	{object}	httpx.ErrorBody	"未登录 / token 失效（AUTH_004）/ 账号被禁用（AUTH_003）；非管理员 403 FORBIDDEN"
 //	@Router		/admin/audit-logs [get]
 func (h *AdminSettingsHandler) ListAuditLogs(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
@@ -111,6 +129,9 @@ func (h *AdminSettingsHandler) ListAuditLogs(c *gin.Context) {
 // ListFeedbacks GET /admin/feedbacks
 //
 //	@Summary	反馈列表（FR-14，筛选分页）
+//	@Description	点踩反馈列表（FR-14，分页，新到旧）。联查被点踩回答与反馈人，message_text 为回答内容截断摘要。
+//	@Description
+//	@Description	权限：管理员。
 //	@Tags		audit
 //	@Produce	json
 //	@Param		kb_id	query	int		false	"知识库"
@@ -118,6 +139,10 @@ func (h *AdminSettingsHandler) ListAuditLogs(c *gin.Context) {
 //	@Param		from	query	string	false	"起始时间 RFC3339"
 //	@Param		to		query	string	false	"截止时间 RFC3339"
 //	@Success	200	{object}	object{items=[]repo.FeedbackAdminRow,total=int,page=int,page_size=int}
+//	@Param	page	query	integer	false	"页码，默认 1"
+//	@Param	page_size	query	integer	false	"每页条数，默认 20，最大 100"
+//	@Failure	422	{object}	httpx.ErrorBody	"from/to 不是合法 RFC3339（VALIDATION_FAILED）"
+//	@Failure	401	{object}	httpx.ErrorBody	"未登录 / token 失效（AUTH_004）/ 账号被禁用（AUTH_003）；非管理员 403 FORBIDDEN"
 //	@Router		/admin/feedbacks [get]
 func (h *AdminSettingsHandler) ListFeedbacks(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))

@@ -32,6 +32,8 @@ md/
 # web (M8 起生效)
 web/node_modules/
 web/dist/
+node_modules/
+web/package-lock.json
 
 # local dev artifacts
 *.log
@@ -50,3 +52,10 @@ coverage.html
 # 第三方 HTML 分享工具产物（Trae 导出的临时分享包，不入库）
 .trae-html-share-packages/
 .screenshots/
+
+.codebuddy
+
+docs/*.json
+docs/*.yaml
+docs/*.yam
+

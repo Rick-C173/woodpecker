@@ -42,22 +42,34 @@ type SearchReranker interface {
 
 // SearchItem 检索结果条目（API设计.md §5 快照字段）。
 type SearchItem struct {
-	ChunkID     int64   `json:"chunk_id"`
-	DocumentID  int64   `json:"document_id"`
-	FilePath    *string `json:"file_path"`
-	LineStart   *int    `json:"line_start"`
-	LineEnd     *int    `json:"line_end"`
+	// 分块 ID
+	ChunkID int64 `json:"chunk_id"`
+	// 所属文档 ID
+	DocumentID int64 `json:"document_id"`
+	// 文件路径（url 类型为 null）
+	FilePath *string `json:"file_path"`
+	// 起始行
+	LineStart *int `json:"line_start"`
+	// 结束行
+	LineEnd *int `json:"line_end"`
+	// Markdown 标题路径
 	HeadingPath *string `json:"heading_path"`
-	Content     string  `json:"content"`
-	Score       float64 `json:"score"`
+	// 分块内容快照
+	Content string `json:"content"`
+	// 融合得分（RRF，越小越相关）
+	Score float64 `json:"score"`
 }
 
 // SearchResult 检索响应（分页信封）。
 type SearchResult struct {
-	Items    []SearchItem `json:"items"`
-	Total    int64        `json:"total"`
-	Page     int          `json:"page"`
-	PageSize int          `json:"page_size"`
+	// 命中条目（按相关度排序）
+	Items []SearchItem `json:"items"`
+	// 命中总数
+	Total int64 `json:"total"`
+	// 当前页码
+	Page int `json:"page"`
+	// 每页条数（默认 20，最大 100）
+	PageSize int `json:"page_size"`
 }
 
 // SearchService 混合检索（FR-10 检索页 + M6 问答引用复用）。

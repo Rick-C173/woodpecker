@@ -69,12 +69,12 @@ func TestAuditLogsAPI(t *testing.T) {
 	sc, kb := post(t, h.ts, "/api/v1/kbs", token, map[string]any{"name": "审计库"})
 	require.Equal(t, 201, sc, kb)
 
-	// 全量查询（分页信封）：register 不记审计（枚举无 auth.register），共 login_failed + kb.create
+	// 全量查询（分页信封）：register 记审计（user.register，首管理员引导），共 register + login_failed + kb.create
 	sc, body := get(t, h.ts, "/api/v1/admin/audit-logs?page=1&page_size=10", token)
 	require.Equal(t, 200, sc, body)
-	assert.InDelta(t, 2, body["total"], 0.001)
+	assert.InDelta(t, 3, body["total"], 0.001)
 	items, _ := body["items"].([]any)
-	require.Len(t, items, 2)
+	require.Len(t, items, 3)
 	first, _ := items[0].(map[string]any)
 	assert.Equal(t, "kb.create", first["action"], "新→旧排序")
 

@@ -25,7 +25,7 @@ func loginToken(t *testing.T, ts *httptest.Server, username, password string) st
 }
 
 // loginReadyToken 管理员创建的账号首登必须改密（P1-4 起服务端强制，未改密访问业务接口返回
-// 403 AUTH_007）。需要访问业务接口的用例统一走这里：登录 → 改密 → 返回改密后的新 token，
+// 403 AUTH_07）。需要访问业务接口的用例统一走这里：登录 → 改密 → 返回改密后的新 token，
 // 与真实用户流一致（不靠削弱中间件让测试变绿）。
 func loginReadyToken(t *testing.T, ts *httptest.Server, username, initial, newPassword string) string {
 	t.Helper()

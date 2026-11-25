@@ -32,7 +32,7 @@ const (
 	CodeAuthStaleToken     = "AUTH_004"
 	CodeRegisterClosed     = "AUTH_005"
 	CodePasswordWeak       = "AUTH_006"
-	CodeMustChangePassword = "AUTH_007" // 403 需先修改初始密码（中间件拦截，此处仅保持码表同步）
+	CodeMustChangePassword = "AUTH_07" // 403 需先修改初始密码（中间件拦截，此处仅保持码表同步）
 	CodeUserExists         = "USER_001"
 	CodeUserSelfDisable    = "USER_002"
 	CodeUserLastAdmin      = "USER_003"
@@ -85,11 +85,11 @@ func (s *AuthService) SetClock(now func() time.Time) { s.now = now }
 func (s *AuthService) SetPolicy(p PasswordPolicy) { s.policy = p }
 
 type AuthResult struct {
-	Token              string `json:"token"`
-	MustChangePassword bool   `json:"must_change_password"`
-	IsAdmin            bool   `json:"is_admin"`
-	UserID             int64  `json:"user_id"`
-	Username           string `json:"username"`
+	Token              string `json:"token"`                // JWT，后续请求以 Authorization: Bearer <token> 携带
+	MustChangePassword bool   `json:"must_change_password"` // 首登强制改密标记：true 时除改密接口外一律 403 AUTH_07
+	IsAdmin            bool   `json:"is_admin"`             // 是否管理员
+	UserID             int64  `json:"user_id"`              // 用户 ID
+	Username           string `json:"username"`             // 用户名
 }
 
 func (s *AuthService) result(u *model.User) (*AuthResult, error) {
@@ -148,7 +148,7 @@ func (s *AuthService) Login(ctx context.Context, username, password, ip string) 
 }
 
 // Register 自助注册（PRD FR-01）：仅当系统无任何用户（首管理员引导）或管理员开启开关时放行。
-func (s *AuthService) Register(ctx context.Context, username, password, _ string) (*AuthResult, error) {
+func (s *AuthService) Register(ctx context.Context, username, password, ip string) (*AuthResult, error) {
 	total, err := s.users.Count(ctx)
 	if err != nil {
 		return nil, err
@@ -160,6 +160,8 @@ func (s *AuthService) Register(ctx context.Context, username, password, _ string
 			return nil, err
 		}
 		if !enabled {
+			s.audit.Record(ctx, nil, "auth.register_denied", "user", nil,
+				map[string]any{"username": username, "reason": "register_closed"}, ip)
 			return nil, NewServiceError(CodeRegisterClosed, "自助注册未开放，请联系管理员创建账号")
 		}
 	}
@@ -185,6 +187,8 @@ func (s *AuthService) Register(ctx context.Context, username, password, _ string
 	if err := s.users.Create(ctx, u); err != nil {
 		return nil, err
 	}
+	s.audit.Record(ctx, &u.ID, "user.register", "user", &u.ID,
+		map[string]any{"username": username, "bootstrap_admin": isBootstrap}, ip)
 	return s.result(u)
 }
 

@@ -181,7 +181,7 @@ func TestAuthMiddleware(t *testing.T) {
 }
 
 // TestRequirePasswordChanged 首登强制改密拦截（审计 P1-4）：
-// 标记为 true 的会话只能访问改密白名单，其余一律 403 AUTH_007。
+// 标记为 true 的会话只能访问改密白名单，其余一律 403 AUTH_07。
 func TestRequirePasswordChanged(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	issuer := jwt.NewIssuer("it-secret", time.Hour)
@@ -214,10 +214,10 @@ func TestRequirePasswordChanged(t *testing.T) {
 
 	// 改密白名单：放行
 	assert.Equal(t, 200, call("POST", "/api/v1/auth/password", token).Code)
-	// 业务接口：403 AUTH_007
+	// 业务接口：403 AUTH_07
 	w := call("GET", "/api/v1/kbs", token)
 	assert.Equal(t, 403, w.Code)
-	assert.Contains(t, w.Body.String(), "AUTH_007")
+	assert.Contains(t, w.Body.String(), "AUTH_07")
 
 	// 未标记账号：正常放行
 	assert.Equal(t, 200, call("GET", "/api/v1/kbs", normal).Code)

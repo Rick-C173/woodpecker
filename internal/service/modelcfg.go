@@ -91,27 +91,27 @@ func (s *ModelConfigService) invalidateDefaults(ctx context.Context) {
 // ---- 响应结构 ----
 
 type ModelServiceItem struct {
-	ID         int64  `json:"id"`
-	Name       string `json:"name"`
-	BaseURL    string `json:"base_url"`
-	Enabled    bool   `json:"enabled"`
-	EntryCount int64  `json:"entry_count"`
-	HasKey     bool   `json:"has_key"` // API Key 永不回显明文
-	CreatedAt  string `json:"created_at"`
-	UpdatedAt  string `json:"updated_at"`
+	ID         int64  `json:"id"`          // 服务 ID
+	Name       string `json:"name"`        // 服务名称
+	BaseURL    string `json:"base_url"`    // OpenAI 兼容端点前缀
+	Enabled    bool   `json:"enabled"`     // 是否启用（停用持有默认条目的服务 → MODEL_004）
+	EntryCount int64  `json:"entry_count"` // 服务下条目数
+	HasKey     bool   `json:"has_key"`     // API Key 永不回显明文，仅返回此标记
+	CreatedAt  string `json:"created_at"`  // 创建时间 RFC3339 UTC
+	UpdatedAt  string `json:"updated_at"`  // 最近更新时间 RFC3339 UTC
 }
 
 type ModelEntryItem struct {
-	ID          int64  `json:"id"`
-	ServiceID   int64  `json:"service_id"`
-	ServiceName string `json:"service_name"`
-	Purpose     string `json:"purpose"`
-	ModelName   string `json:"model_name"`
-	Params      string `json:"params"`
-	IsDefault   bool   `json:"is_default"`
-	Enabled     bool   `json:"enabled"`
-	CreatedAt   string `json:"created_at"`
-	UpdatedAt   string `json:"updated_at"`
+	ID          int64  `json:"id"`           // 条目 ID
+	ServiceID   int64  `json:"service_id"`   // 所属服务 ID
+	ServiceName string `json:"service_name"` // 所属服务名称
+	Purpose     string `json:"purpose"`      // 用途：chat|embedding|rerank
+	ModelName   string `json:"model_name"`   // 模型名称
+	Params      string `json:"params"`       // 模型参数 JSON 字符串（temperature/top_p/dimensions/top_n 等）
+	IsDefault   bool   `json:"is_default"`   // 该用途唯一默认条目
+	Enabled     bool   `json:"enabled"`      // 是否启用
+	CreatedAt   string `json:"created_at"`   // 创建时间 RFC3339 UTC
+	UpdatedAt   string `json:"updated_at"`   // 最近更新时间 RFC3339 UTC
 }
 
 func (s *ModelConfigService) toServiceItem(r repo.ModelServiceRow) ModelServiceItem {
@@ -173,7 +173,10 @@ func (s *ModelConfigService) CreateService(ctx context.Context, actorID int64, n
 	s.audit.Record(ctx, &actorID, "model.service_update", "model_service", &svc.ID,
 		map[string]any{"action": "create", "name": name}, ip)
 	s.invalidateDefaults(ctx)
-	return &ModelServiceItem{ID: svc.ID, Name: name, BaseURL: baseURL, Enabled: true, HasKey: true}, nil
+	return &ModelServiceItem{
+		ID: svc.ID, Name: name, BaseURL: baseURL, Enabled: true, HasKey: true,
+		CreatedAt: now.UTC().Format(time.RFC3339), UpdatedAt: now.UTC().Format(time.RFC3339),
+	}, nil
 }
 
 // UpdateService 更新/启停：各字段缺省表示不修改；API Key 缺省不修改。
@@ -232,7 +235,9 @@ func (s *ModelConfigService) UpdateService(ctx context.Context, actorID, id int6
 	s.invalidateDefaults(ctx)
 	return &ModelServiceItem{
 		ID: svc.ID, Name: svc.Name, BaseURL: svc.BaseURL, Enabled: svc.Enabled,
-		HasKey: true, UpdatedAt: svc.UpdatedAt.UTC().Format(time.RFC3339),
+		HasKey:    true,
+		CreatedAt: svc.CreatedAt.UTC().Format(time.RFC3339),
+		UpdatedAt: svc.UpdatedAt.UTC().Format(time.RFC3339),
 	}, nil
 }
 
@@ -376,7 +381,12 @@ func (s *ModelConfigService) CreateEntry(ctx context.Context, actorID, serviceID
 	s.audit.Record(ctx, &actorID, "model.entry_update", "model_entry", &e.ID,
 		map[string]any{"action": "create", "service_id": serviceID, "purpose": purposeStr, "model": modelName, "is_default": isDefault}, ip)
 	s.invalidateDefaults(ctx)
-	return &ModelEntryItem{ID: e.ID, ServiceID: serviceID, ServiceName: svc.Name, Purpose: purposeStr, ModelName: modelName, Params: params, IsDefault: isDefault, Enabled: svc.Enabled}, nil
+	return &ModelEntryItem{
+		ID: e.ID, ServiceID: serviceID, ServiceName: svc.Name,
+		Purpose: purposeStr, ModelName: modelName, Params: params,
+		IsDefault: isDefault, Enabled: svc.Enabled,
+		CreatedAt: now.UTC().Format(time.RFC3339), UpdatedAt: now.UTC().Format(time.RFC3339),
+	}, nil
 }
 
 // UpdateEntry 更新条目：字段缺省不修改；isDefault=true 切换默认（服务须启用中）。
@@ -450,6 +460,7 @@ func (s *ModelConfigService) UpdateEntry(ctx context.Context, actorID, id int64,
 		ID: e.ID, ServiceID: e.ServiceID, ServiceName: svc.Name,
 		Purpose: model.ModelPurposeName(e.Purpose), ModelName: e.ModelName,
 		Params: string(e.Params), IsDefault: e.IsDefault, Enabled: svc.Enabled,
+		CreatedAt: e.CreatedAt.UTC().Format(time.RFC3339),
 		UpdatedAt: e.UpdatedAt.UTC().Format(time.RFC3339),
 	}, nil
 }
