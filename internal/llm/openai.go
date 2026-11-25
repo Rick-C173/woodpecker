@@ -43,6 +43,17 @@ func (p *OpenAIProvider) client(cfg ResolvedConfig) *openai.Client {
 	return openai.NewClientWithConfig(cc)
 }
 
+// streamClient 流式调用专用客户端：**不设** http.Client.Timeout。
+// http.Client.Timeout 是整个请求（含读流式 body）的墙钟上限——端到端验证发现长回答
+// 生成超过 30s 即被掐断（真实缺陷）。流式生命周期由请求 ctx 控制：SSE 客户端断开、
+// handler 超时都会取消 ctx，取消经 ctx 传播即可中止底层连接。
+func (p *OpenAIProvider) streamClient(cfg ResolvedConfig) *openai.Client {
+	cc := openai.DefaultConfig(cfg.APIKey)
+	cc.BaseURL = strings.TrimSuffix(cfg.BaseURL, "/")
+	cc.HTTPClient = &http.Client{}
+	return openai.NewClientWithConfig(cc)
+}
+
 // chatParams 从配置 JSON 解析对话参数（temperature/top_p）。
 type chatParams struct {
 	Temperature *float32 `json:"temperature"`
@@ -127,7 +138,7 @@ func (p *OpenAIProvider) ChatStream(ctx context.Context, cfg ResolvedConfig, req
 	if params.TopP != nil {
 		creq.TopP = *params.TopP
 	}
-	stream, err := p.client(cfg).CreateChatCompletionStream(ctx, creq)
+	stream, err := p.streamClient(cfg).CreateChatCompletionStream(ctx, creq)
 	if err != nil {
 		return nil, classifyErr(err, "对话")
 	}
