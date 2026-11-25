@@ -25,7 +25,7 @@ const ADMIN_NAV = [
 export function AdminShell() {
   return (
     <div className="flex h-full">
-      <nav className="flex w-52 flex-none flex-col gap-1 border-r border-[var(--border)] px-2.5 py-4">
+      <nav className="flex w-60 flex-none flex-col gap-1 border-r border-[var(--border)] px-2.5 py-4">
         <NavLink to="/kbs" className="nav-item mb-2 text-[var(--faint)]">
           <ArrowLeft aria-hidden="true" />
           返回知识库

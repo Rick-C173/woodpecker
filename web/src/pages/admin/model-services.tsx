@@ -555,14 +555,14 @@ export function AdminModelServicesPage() {
                       <TableCell>
                         <PurposeBadge purpose={entry.purpose} />
                       </TableCell>
-                      <TableCell className="font-mono text-xs">{entry.model_name}</TableCell>
+                      <TableCell className="max-w-44 truncate font-mono text-xs" title={entry.model_name}>{entry.model_name}</TableCell>
                       <TableCell className="text-xs">{entry.service_name}</TableCell>
                       <TableCell className="max-w-56 truncate font-mono text-xs text-[var(--muted)]" title={entry.params}>
                         {entry.params || '—'}
                       </TableCell>
                       <TableCell>
                         {entry.is_default ? (
-                          <span className="badge role-editor">默认</span>
+                          <span className="badge flag">默认</span>
                         ) : (
                           <span className="text-xs text-[var(--faint)]">—</span>
                         )}

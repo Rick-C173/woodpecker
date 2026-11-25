@@ -12,6 +12,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { FileStatusBadge } from '@/components/shared/status-badge';
+import { EmptyState } from '@/components/states/empty-state';
 import type { components } from '@/api/schema';
 
 type DocumentFileItem = components['schemas']['service.DocumentFileItem'];
@@ -27,7 +28,9 @@ function formatBytes(bytes: number | null | undefined): string {
 export function FileList({ files }: { files?: DocumentFileItem[] | null }) {
   const list = files ?? [];
   if (list.length === 0) {
-    return <p className="px-2 py-6 text-center text-sm text-[var(--muted)]">暂无文件清单</p>;
+    return (
+      <EmptyState title="暂无文件清单" description="接入文档并完成摄取后，这里会展示文件清单与状态。" />
+    );
   }
 
   return (

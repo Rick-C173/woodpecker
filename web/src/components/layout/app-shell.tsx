@@ -33,7 +33,7 @@ export function AppShell() {
 
   return (
     <div className="relative z-[1] flex h-screen">
-      <aside className="sidebar flex w-56 flex-none flex-col px-2.5 py-4">
+      <aside className="sidebar flex w-60 flex-none flex-col px-2.5 py-4">
         <div className="flex items-center gap-2 px-2 pb-4 font-bold">
           <span className="flex size-8 items-center justify-center rounded-[var(--radius)] bg-[var(--grad)] text-white shadow-[var(--btn-shadow)]">
             🐦

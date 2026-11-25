@@ -87,7 +87,7 @@ function ConversationListItem({
         />
         <button
           type="button"
-          className="flex size-7 flex-none cursor-pointer items-center justify-center rounded-[var(--radius)] text-[var(--muted)] hover:bg-[var(--primary-soft)] hover:text-[var(--primary)]"
+          className="flex size-7 flex-none cursor-pointer items-center justify-center rounded-[var(--radius)] text-[var(--muted)] transition-colors hover:bg-[var(--primary-soft)] hover:text-[var(--primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--primary)]"
           onClick={() => onCancelEdit()}
           aria-label="取消重命名"
         >
@@ -98,7 +98,7 @@ function ConversationListItem({
   }
 
   return (
-    <div className={cn('group relative', active && 'conv-item-active')}>
+    <div className={cn('group relative rounded-[var(--radius)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--primary)]', active && 'ring-1 ring-[var(--border-strong)]')}>
       <span className="absolute inset-0 rounded-[var(--radius)]" aria-hidden="true" />
       <div
         className={cn(
@@ -112,14 +112,14 @@ function ConversationListItem({
         <span className="min-w-0 flex-1 truncate text-[13px]" title={conversation.title ?? ''}>
           {conversation.title ?? '新会话'}
         </span>
-        <span className="flex-none text-[10px] tabular-nums text-[var(--faint)] group-hover:hidden">
+        <span className="flex-none text-[11px] tabular-nums text-[var(--faint)] group-hover:hidden">
           {fromNow(conversation.updated_at) || ''}
         </span>
         {/* hover 操作：重命名 / 删除 */}
         <span className="hidden flex-none items-center gap-0.5 group-hover:flex">
           <button
             type="button"
-            className="flex size-6 cursor-pointer items-center justify-center rounded text-[var(--muted)] hover:text-[var(--primary)]"
+            className="flex size-6 cursor-pointer items-center justify-center rounded text-[var(--muted)] transition-colors hover:bg-[var(--primary-soft)] hover:text-[var(--primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--primary)]"
             onClick={onStartEdit}
             title="重命名"
             aria-label={`重命名会话 ${conversation.title ?? ''}`}
@@ -128,7 +128,7 @@ function ConversationListItem({
           </button>
           <button
             type="button"
-            className="flex size-6 cursor-pointer items-center justify-center rounded text-[var(--muted)] hover:text-[var(--destructive)]"
+            className="flex size-6 cursor-pointer items-center justify-center rounded text-[var(--muted)] transition-colors hover:bg-[var(--destructive-soft)] hover:text-[var(--destructive)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--primary)]"
             onClick={onDelete}
             title="删除会话"
             aria-label={`删除会话 ${conversation.title ?? ''}`}
@@ -262,7 +262,7 @@ export function KbChatPage() {
   return (
     <div className="flex h-full min-h-0" data-testid="kb-chat-page">
       {/* 左侧：会话列表侧栏（玻璃拟态白名单容器） */}
-      <aside className="conv-list flex w-64 flex-none flex-col">
+      <aside className="conv-list flex w-60 flex-none flex-col">
         <div className="flex items-center justify-between border-b border-[var(--border)] px-3 py-3">
           <h2 className="text-sm font-semibold">会话</h2>
           <Button
@@ -336,9 +336,9 @@ export function KbChatPage() {
         ) : (
           <>
             <div className="topbar flex-none">
-              <h1 className="min-w-0 flex-1 truncate text-sm font-semibold">
-                {detail.data?.title ?? '会话'}
-              </h1>
+              <div className="min-w-0 flex-1 truncate text-sm font-semibold">
+                  {detail.data?.title ?? '会话'}
+              </div>
               {view.status === 'streaming' ? (
                 <span className="flex-none text-xs text-[var(--primary)]">回答生成中…</span>
               ) : null}

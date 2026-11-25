@@ -74,7 +74,7 @@ function RoleSelect({
 }) {
   return (
     <select
-      className="h-8 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] px-2 text-xs"
+      className="h-8 cursor-pointer rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] px-2 text-xs transition-colors hover:border-[var(--border-strong)] focus-visible:border-[var(--border-strong)] focus-visible:ring-[3px] focus-visible:ring-[var(--primary-soft)] outline-none"
       value={value}
       disabled={disabled}
       aria-label="成员角色"
@@ -153,7 +153,7 @@ function AddMemberDialog({
             <Label htmlFor="member-role">角色</Label>
             <select
               id="member-role"
-              className="h-[var(--row)] w-full rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] px-3 text-sm"
+              className="h-[var(--row)] w-full cursor-pointer rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] px-3 text-sm transition-colors hover:border-[var(--border-strong)] focus-visible:border-[var(--border-strong)] focus-visible:ring-[3px] focus-visible:ring-[var(--primary-soft)] outline-none"
               {...form.register('role')}
             >
               {KB_ROLES.map((r) => (
@@ -204,7 +204,7 @@ function MembersTab({ kbId }: { kbId: number }) {
 
       <QueryBoundary
         query={members}
-        skeleton={<Skeleton className="h-48 w-full" />}
+        skeleton={<div className="panel space-y-2"><Skeleton className="h-10 w-full" /><Skeleton className="h-10 w-full" /><Skeleton className="h-10 w-full" /></div>}
         empty={
           <EmptyState
             icon={Users}
@@ -314,7 +314,7 @@ function DocumentsTab({
     <div className="space-y-4">
       <QueryBoundary
         query={list}
-        skeleton={<Skeleton className="h-56 w-full" />}
+        skeleton={<div className="panel space-y-3"><Skeleton className="h-7 w-1/3" /><Skeleton className="h-14 w-full" /><Skeleton className="h-14 w-full" /><Skeleton className="h-14 w-full" /></div>}
         empty={
           <EmptyState
             icon={FolderOpen}
@@ -416,7 +416,7 @@ export function KbDetailPage() {
                     </h1>
                     <RoleBadge role={data.my_role} />
                   </div>
-                  <p className="mt-1 text-sm text-[var(--muted)]">
+                  <p className="mt-1 line-clamp-2 text-sm text-[var(--muted)]">
                     {data.description || '暂无描述'}
                   </p>
                   <p className="mt-2 text-xs text-[var(--faint)]">
