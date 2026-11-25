@@ -9,6 +9,7 @@ import {
   BookOpenText,
   ClipboardList,
   Cog,
+  MailPlus,
   MessagesSquare,
   Users,
   Wrench,
@@ -16,6 +17,8 @@ import {
 
 const ADMIN_NAV = [
   { to: '/admin/users', label: '用户管理', icon: Users },
+  { to: '/admin/invitations', label: '邀请管理', icon: MailPlus },
+  { to: '/admin/email', label: '邮件配置', icon: MailPlus },
   { to: '/admin/models', label: '模型服务', icon: Wrench },
   { to: '/admin/audit', label: '审计日志', icon: ClipboardList },
   { to: '/admin/settings', label: '系统设置', icon: Cog },
