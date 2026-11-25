@@ -17,7 +17,7 @@ DOCS_DIR       := docs
 BACKUP_DIR     := bin/apifox-backup
 
 .DEFAULT_GOAL := help
-.PHONY: help run api worker build test cover cover-html integration fmt vet lint lint-fix tidy api-docs api-sync api-sync-overwrite api-backup clean
+.PHONY: help run api worker build test cover cover-html integration fmt vet lint lint-fix tidy web-install web web-test web-lint web-typecheck web-build api-docs api-sync api-sync-overwrite api-backup clean
 
 ## ---- 帮助 ----
 help:
@@ -42,6 +42,12 @@ help:
 	@echo   make docker-build             构建生产镜像（server + web）
 	@echo   make docker-up               生产编排启动（需先配置 .env，见 deploy/.env.production.example）
 	@echo   make docker-down             停止生产编排
+	@echo   make web-install              前端安装依赖（npm ci）
+	@echo   make web                      前端开发服务器（Vite，5173，/api 代理 8080）
+	@echo   make web-test                 前端单元测试（vitest）
+	@echo   make web-lint                 前端 ESLint
+	@echo   make web-typecheck            前端 TypeScript 类型检查
+	@echo   make web-build                前端生产构建（web/dist）
 	@echo   make clean                     清理所有编译与运行生成的文件（bin/覆盖率/data/日志等）
 
 ## ---- 运行 ----
@@ -94,8 +100,7 @@ lint-fix:
 tidy:
 	go mod tidy
 
-## ---- 生产部署（M9）----
-
+## docker部署
 docker-build:
 	docker build -t woodpecker-server:latest .
 	docker build -t woodpecker-web:latest ./web
@@ -108,15 +113,28 @@ docker-up:
 docker-down:
 	docker compose down
 
+## ---- 前端（web/，Node 22+）----
+
+web-install:
+	cd web && npm ci
+
+# Vite dev server：/api 经代理转发 localhost:8080（SSE 直通），需后端先启动
+web:
+	cd web && npm run dev
+
+web-test:
+	cd web && npm run test
+
+web-lint:
+	cd web && npm run lint
+
+web-typecheck:
+	cd web && npm run typecheck
+
+web-build:
+	cd web && npm run build
+
 ## ---- 清理 ----
-# 删除所有编译与运行生成的文件。显式白名单，**不基于 gitignore 做全量清理**
-# （git clean -Xd 会删掉 md/ 设计文档与 .idea/ 等被 ignore 但绝不能动的目录；
-#  且实测 git clean -d 加 pathspec 时目录过滤不生效）：
-#   编译：bin/（二进制 + Apifox 备份）、coverage.out / coverage_integration.out / coverage.html、
-#         Go 1.27 覆盖率剥后缀产物（coverage / it_nocoverpkg / jwt_coverpkg / wp_cov*）
-#   运行：data/（上传与 staging）、logs/ 与根目录 *.log、.apifox（CLI 本地状态，删后需重新登录）、
-#         .trae-html-share-packages/、web/dist（M8 前端构建产物）
-# docs/（swag 生成）不清理：make api-docs 随时重建，且是接口契约事实源。
 clean:
 	go clean -testcache
 	rm -rf bin data logs .apifox .trae-html-share-packages web/dist
@@ -135,21 +153,13 @@ api-docs:
 # 日常同步：只把新增接口导入 Apifox，已有接口（含云端精修的描述/示例）一律不动。
 # 适合「新增接口」场景；修改已有接口后请用 api-sync-overwrite。
 api-sync: api-docs
-	mkdir -p $(BACKUP_DIR)
-	apifox export --project $(APIFOX_PROJECT) --format apifox --output "$(BACKUP_DIR)/before-sync.apifox.json"
-	apifox import --project $(APIFOX_PROJECT) --format openapi --file $(DOCS_DIR)/swagger.json --overwrite-mode ignore
-	@echo 同步完成（ignore 模式：已有接口未改动，备份在 $(BACKUP_DIR)/before-sync.apifox.json）
+	python scripts/apifox_sync.py ignore
 
 # 全量刷新：以 docs/swagger.json 为准覆盖 Apifox 同名接口（云端描述/示例会被 spec 取代）。
 # 使用前提：接口的 swaggo 注解已维护完整（描述/参数/错误码），否则先补注解再跑。
 api-sync-overwrite: api-docs
-	mkdir -p $(BACKUP_DIR)
-	apifox export --project $(APIFOX_PROJECT) --format apifox --output "$(BACKUP_DIR)/before-overwrite.apifox.json"
-	apifox import --project $(APIFOX_PROJECT) --format openapi --file $(DOCS_DIR)/swagger.json --overwrite-mode overwrite
-	@echo 已全量覆盖同步（备份在 $(BACKUP_DIR)/before-overwrite.apifox.json，可随时导回）
+	python scripts/apifox_sync.py overwrite
 
 # 导出 Apifox 项目完整快照（Apifox 格式，可整体导回恢复），修改前先备份。
 api-backup:
-	mkdir -p $(BACKUP_DIR)
-	apifox export --project $(APIFOX_PROJECT) --format apifox --output "$(BACKUP_DIR)/snapshot-$$(date +%Y%m%d-%H%M%S).apifox.json"
-	@echo 已备份到 $(BACKUP_DIR)/
+	python scripts/apifox_sync.py backup
