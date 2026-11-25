@@ -75,7 +75,12 @@ func TestKBAdminCRUDAndVisibility(t *testing.T) {
 	sc, body = get(t, h.ts, "/api/v1/kbs/"+i64(kbID), rootToken)
 	require.Equal(t, 200, sc)
 	assert.Equal(t, "平台文档", body["name"])
-	// 管理员非成员访问 → 记审计
+	// 创建者已是 owner 成员，本人访问不再触发管理员越权审计；
+	// 用另一管理员（非成员）访问验证 bypass 审计仍在记录
+	_, body = post(t, h.ts, "/api/v1/admin/users", rootToken, map[string]any{"username": "boss", "password": "boss-pass-12", "is_admin": true})
+	bossToken := loginReadyToken(t, h.ts, "boss", "boss-pass-12", "boss-pass-34")
+	sc, body = get(t, h.ts, "/api/v1/kbs/"+i64(kbID), bossToken)
+	require.Equal(t, 200, sc, body)
 	assert.GreaterOrEqual(t, h.env.Audit.CountAction("kb.admin_access"), 1)
 
 	// 编辑
@@ -128,10 +133,14 @@ func TestKBMembersFlows(t *testing.T) {
 	devID := int64(body["id"].(float64))
 	devToken := loginReadyToken(t, h.ts, "dev", "dev-pass-123", "dev-pass-456")
 
-	// 初始成员为空
+	// 初始成员：创建者默认 owner 行（端到端验证发现的隐患修复）
 	sc, body := get(t, h.ts, "/api/v1/kbs/"+i64(kbID)+"/members", rootToken)
 	require.Equal(t, 200, sc)
-	assert.Empty(t, body["items"])
+	items, _ := body["items"].([]any)
+	require.Len(t, items, 1)
+	owner, _ := items[0].(map[string]any)
+	assert.Equal(t, "root", owner["username"])
+	assert.Equal(t, "owner", owner["role"])
 
 	// 添加成员（editor）
 	sc, body = post(t, h.ts, "/api/v1/kbs/"+i64(kbID)+"/members", rootToken,
@@ -139,12 +148,15 @@ func TestKBMembersFlows(t *testing.T) {
 	require.Equal(t, 201, sc, body)
 	assert.Equal(t, "editor", body["role"])
 
-	// 成员列表含用户名
+	// 成员列表含用户名（owner 行在前，role ASC）
 	sc, body = get(t, h.ts, "/api/v1/kbs/"+i64(kbID)+"/members", rootToken)
 	require.Equal(t, 200, sc)
-	items, _ := body["items"].([]any)
-	require.Len(t, items, 1)
+	items, _ = body["items"].([]any)
+	require.Len(t, items, 2)
 	m, _ := items[0].(map[string]any)
+	assert.Equal(t, "root", m["username"])
+	assert.Equal(t, "owner", m["role"])
+	m, _ = items[1].(map[string]any)
 	assert.Equal(t, "dev", m["username"])
 	assert.Equal(t, "editor", m["role"])
 

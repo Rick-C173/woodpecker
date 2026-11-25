@@ -162,6 +162,15 @@ func (s *KBService) Create(ctx context.Context, actorID int64, name, description
 	if err := s.kbs.Create(ctx, kb); err != nil {
 		return nil, err
 	}
+	// 创建者落 kb_members owner 行（端到端验证发现的隐患）：KBAccess 对管理员豁免
+	// （role=0）时管理员操作不受影响，但成员列表展示与「创建者即管理者」语义都依赖该行。
+	// 成员行写失败则不留半成品库——刚建的库无任何级联数据，补偿删除必成功。
+	if err := s.kbs.UpsertMember(ctx, &model.KBMember{
+		KBID: kb.ID, UserID: actorID, Role: model.KBRoleOwner,
+	}); err != nil {
+		_ = s.kbs.Delete(ctx, kb.ID)
+		return nil, err
+	}
 	s.audit.Record(ctx, &actorID, "kb.create", "kb", &kb.ID,
 		map[string]any{"name": kb.Name}, ip)
 	item := s.toItem(repo.KBRow{

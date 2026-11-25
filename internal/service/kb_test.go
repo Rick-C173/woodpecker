@@ -33,6 +33,11 @@ func TestKBCreateAndList(t *testing.T) {
 	assert.Equal(t, int64(0), item.DocumentCount)
 	assert.Equal(t, 1, env.Audit.CountAction("kb.create"))
 
+	// 创建者默认落 kb_members owner 行（端到端验证发现的隐患修复）
+	role, err := env.KBs.GetMemberRole(ctx, item.ID, root.ID)
+	require.NoError(t, err)
+	assert.Equal(t, model.KBRoleOwner, role)
+
 	// 重名 → KB_001
 	_, err = env.KBSvc.Create(ctx, root.ID, "平台文档", "", "")
 	assert.Equal(t, service.CodeKBNameExists, svcErr(t, err).Code)
@@ -139,15 +144,17 @@ func TestKBMemberLifecycle(t *testing.T) {
 	_, err = env.KBSvc.AddMember(ctx, root.ID, kb.ID, 9999, "member", "")
 	assert.Equal(t, service.CodeNotFound, svcErr(t, err).Code)
 
-	// 添加 → 成员列表
+	// 添加 → 成员列表（创建者 owner 行在前，role ASC）
 	_, err = env.KBSvc.AddMember(ctx, root.ID, kb.ID, dev.ID, "editor", "ip")
 	require.NoError(t, err)
 	assert.Equal(t, 1, env.Audit.CountAction("member.grant"))
 	members, err := env.KBSvc.ListMembers(ctx, kb.ID)
 	require.NoError(t, err)
-	require.Len(t, members, 1)
-	assert.Equal(t, "dev", members[0].Username)
-	assert.Equal(t, "editor", members[0].Role)
+	require.Len(t, members, 2)
+	assert.Equal(t, "root", members[0].Username)
+	assert.Equal(t, "owner", members[0].Role)
+	assert.Equal(t, "dev", members[1].Username)
+	assert.Equal(t, "editor", members[1].Role)
 
 	// 角色变更
 	err = env.KBSvc.UpdateMemberRole(ctx, root.ID, kb.ID, dev.ID, "boss", "")
@@ -165,7 +172,7 @@ func TestKBMemberLifecycle(t *testing.T) {
 	assert.Equal(t, service.CodeNotFound, svcErr(t, err).Code)
 	require.NoError(t, env.KBSvc.RemoveMember(ctx, root.ID, kb.ID, dev.ID, "ip"))
 	assert.Equal(t, 1, env.Audit.CountAction("member.remove"))
-	assert.Equal(t, 0, env.KBs.MemberCount(kb.ID))
+	assert.Equal(t, 1, env.KBs.MemberCount(kb.ID)) // 仅剩创建者 owner 行
 	err = env.KBSvc.RemoveMember(ctx, root.ID, kb.ID, dev.ID, "")
 	assert.Equal(t, service.CodeNotFound, svcErr(t, err).Code)
 
@@ -256,6 +263,14 @@ func TestKBRepoErrorPaths(t *testing.T) {
 	require.ErrorIs(t, err, injected)
 	env.KBs.ErrOnMembers = nil
 
+	// Create 后写 owner 成员行失败 → 补偿删除，不留半成品库
+	env.KBs.ErrOnMembers = injected
+	_, err = env.KBSvc.Create(ctx, root.ID, "补偿库", "", "")
+	require.ErrorIs(t, err, injected)
+	_, gerr := env.KBs.GetByName(ctx, "补偿库")
+	require.Error(t, gerr)
+	env.KBs.ErrOnMembers = nil
+
 	// 用户存在性查询失败
 	env.KBs.ErrOnUserExists = injected
 	_, err = env.KBSvc.AddMember(ctx, root.ID, kb.ID, dev.ID, "member", "")
@@ -290,5 +305,5 @@ func TestKBMemberErrorPaths(t *testing.T) {
 	// 审计写入失败不抛错（静默降级）
 	env.Audit.FailNext = true
 	require.NoError(t, env.KBSvc.RemoveMember(ctx, root.ID, kb.ID, dev.ID, "ip"))
-	assert.Equal(t, 0, env.KBs.MemberCount(kb.ID))
+	assert.Equal(t, 1, env.KBs.MemberCount(kb.ID)) // 仅剩创建者 owner 行
 }
