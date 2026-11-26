@@ -10,6 +10,8 @@ import (
 	"woodpecker/internal/jwt"
 )
 
+// TODO(方向待办-1): API Token——机器访问凭证（长期 token + scope 控制），是 MCP Server 与 CLI
+// 的前置依赖；落地后 JWT 仅服务交互式会话。见 md/产品与后端规划.md。（2026-11-26 规划）
 const (
 	CtxUserID  = "user_id"
 	CtxIsAdmin = "is_admin"

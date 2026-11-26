@@ -18,6 +18,9 @@ type UserLookupRepo interface {
 	GetByID(ctx context.Context, id int64) (*model.User, error)
 }
 
+// TODO(方向待办-2): MCP Server——把知识库检索/摄取能力以 MCP 协议（HTTP transport）暴露，
+// 供 AI 辅助开发工具直连；依赖 API Token 先行。见 md/形态扩展可行性-MCP-CLI-桌面.md。（2026-11-26 规划）
+//
 // Deps 组合根注入：main.go 构造 repos/services 后传入（技术选型 §5 分层）。
 type Deps struct {
 	Cfg      *config.Config

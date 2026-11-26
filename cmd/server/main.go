@@ -43,6 +43,8 @@ import (
 )
 
 func main() {
+	// TODO(方向待办-4): 形态扩展——CLI / 桌面端（独立二进制 cmd/woodpecker-cli 等），
+	// 等 MCP Server 验证价值后再评估优先级。见 md/形态扩展可行性-MCP-CLI-桌面.md。（2026-11-26 规划）
 	mode := flag.String("mode", "all", "运行模式：api | worker | all")
 	// Windows 服务模式：sc.exe 注册后由 SCM 启动（binPath 携带 --svc）；仅 Windows 有实现。
 	svcFlag := flag.Bool("svc", false, "以 Windows 服务方式运行（sc.exe 注册，仅 Windows）")
