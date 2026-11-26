@@ -2,6 +2,9 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,6 +25,7 @@ const (
 	CodeDocUnsupported  = "DOC_002"          // 422 文件格式不支持
 	CodeDocUnreachable  = "DOC_003"          // 422 仓库凭证无效或地址不可达
 	CodeDocSyncFailed   = "DOC_004"          // 422 同步失败（远端不可达），旧内容保持可用
+	CodeDocWebhookAuth  = "DOC_005"          // 401 webhook 验签 token 无效（M14）
 	CodeDocTaskRunning  = "DOC_TASK_RUNNING" // 409 已有运行中任务
 )
 
@@ -114,6 +118,8 @@ type DocRepo interface {
 	GetTaskByID(ctx context.Context, id int64) (*model.IngestTask, error)
 	HasRunningTask(ctx context.Context, documentID int64) (bool, error)
 	ListTaskHistory(ctx context.Context, documentID int64, limit int) ([]repo.TaskRow, error)
+	// ListAutoSyncDocs 待定时同步的 Git 文档（M14：auto_sync=true 且非 processing）
+	ListAutoSyncDocs(ctx context.Context) ([]model.Document, error)
 }
 
 // UploadFile 上传的单个文件（handler 解析 multipart 后传入）。
@@ -154,6 +160,10 @@ type DocumentItem struct {
 	CanReindex bool `json:"can_reindex"` // 管理者以上
 	// 当前用户可否重试（失败态且编辑者+）
 	CanRetry bool `json:"can_retry"` // 失败态
+	// 定时同步开关（M14，仅 git 类型）：true=worker 周期扫描并入队增量 sync
+	AutoSync bool `json:"auto_sync"`
+	// 是否已配置 webhook 验签 token（M14，仅 git 类型；secret 本体永不回显）
+	HasWebhook bool `json:"has_webhook"`
 	// 创建人用户 ID
 	CreatedBy int64 `json:"created_by"`
 	// 创建时间 RFC3339 UTC
@@ -530,7 +540,7 @@ func (s *DocumentService) Retry(ctx context.Context, actorID, kbID, docID int64,
 	if d.Status != model.DocStatusFailed {
 		return NewServiceError(CodeValidation, "仅失败状态的文档可重试")
 	}
-	return s.enqueueNewTask(ctx, actorID, d, model.TaskTypeFull, ip)
+	return s.enqueueNewTask(ctx, &actorID, d, model.TaskTypeFull, ip)
 }
 
 // Reindex 重建索引（管理者+）：仅已就绪态。
@@ -542,7 +552,7 @@ func (s *DocumentService) Reindex(ctx context.Context, actorID, kbID, docID int6
 	if d.Status != model.DocStatusReady {
 		return NewServiceError(CodeValidation, "仅已就绪的文档可重建索引")
 	}
-	return s.enqueueNewTask(ctx, actorID, d, model.TaskTypeFull, ip)
+	return s.enqueueNewTask(ctx, &actorID, d, model.TaskTypeFull, ip)
 }
 
 // Sync 手动同步（编辑者+，FR-03）：仅 git 类型；增量摄取，比对 last_commit。
@@ -557,13 +567,123 @@ func (s *DocumentService) Sync(ctx context.Context, actorID, kbID, docID int64, 
 	if d.Status == model.DocStatusProcessing {
 		return NewServiceError(CodeValidation, "文档处理中，无需同步")
 	}
-	return s.enqueueNewTask(ctx, actorID, d, model.TaskTypeSync, ip)
+	return s.enqueueNewTask(ctx, &actorID, d, model.TaskTypeSync, ip)
+}
+
+// ---- M14 Git 自动同步（FR-03 增强）：定时拉取 + webhook 双通道 ----
+
+// SetAutoSync 开关定时同步（编辑者+，仅 git 类型）：true=worker 按
+// GIT_AUTO_SYNC_MINUTES 周期扫描并入队增量 sync（文档内容以 last_commit diff 判定）。
+func (s *DocumentService) SetAutoSync(ctx context.Context, actorID, kbID, docID int64, enabled bool, ip string) error {
+	d, err := s.getOwned(ctx, kbID, docID)
+	if err != nil {
+		return err
+	}
+	if d.Type != model.DocTypeGit {
+		return NewServiceError(CodeValidation, "仅 Git 类型文档支持定时同步")
+	}
+	if d.AutoSync == enabled {
+		return nil // 幂等
+	}
+	d.AutoSync = enabled
+	d.UpdatedAt = s.now()
+	if err := s.docs.SaveDocument(ctx, d); err != nil {
+		return err
+	}
+	s.audit.Record(ctx, &actorID, "document.auto_sync_update", "document", &d.ID,
+		map[string]any{"enabled": enabled}, ip)
+	return nil
+}
+
+// RotateWebhookSecret 生成/轮换 webhook 验签 token（编辑者+）：32 字节随机 → hex(64)，
+// AES-GCM 加密落库；明文仅本次响应返回（与初始密码同一展示语义）。
+// 已有运行中任务不影响轮换（token 在下次 webhook 才被比对）。
+func (s *DocumentService) RotateWebhookSecret(ctx context.Context, actorID, kbID, docID int64, ip string) (string, error) {
+	d, err := s.getOwned(ctx, kbID, docID)
+	if err != nil {
+		return "", err
+	}
+	if d.Type != model.DocTypeGit {
+		return "", NewServiceError(CodeValidation, "仅 Git 类型文档支持 webhook")
+	}
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", fmt.Errorf("生成 webhook secret: %w", err)
+	}
+	plain := hex.EncodeToString(raw)
+	enc, err := s.cipher.Encrypt([]byte(plain))
+	if err != nil {
+		return "", fmt.Errorf("加密 webhook secret: %w", err)
+	}
+	d.WebhookSecret = enc
+	d.UpdatedAt = s.now()
+	if err := s.docs.SaveDocument(ctx, d); err != nil {
+		return "", err
+	}
+	s.audit.Record(ctx, &actorID, "document.webhook_rotate", "document", &d.ID,
+		map[string]any{"has_webhook": true}, ip)
+	return plain, nil
+}
+
+// HandleWebhook Git 平台 push 事件入口（公开端点 + token 校验）：
+// X-Woodpecker-Token 与加密落库的 secret 常量时间比对；通过即入队增量 sync
+// （审计 actor=NULL=系统）。未配置 webhook 与文档不存在统一 404（不泄露）。
+func (s *DocumentService) HandleWebhook(ctx context.Context, kbID, docID int64, token, ip string) error {
+	d, err := s.getOwned(ctx, kbID, docID)
+	if err != nil {
+		return err
+	}
+	if d.Type != model.DocTypeGit || len(d.WebhookSecret) == 0 {
+		return NewServiceError(CodeNotFound, "文档不存在")
+	}
+	plain, err := s.cipher.Decrypt(d.WebhookSecret)
+	if err != nil {
+		return fmt.Errorf("解密 webhook secret: %w", err)
+	}
+	if subtle.ConstantTimeCompare([]byte(strings.TrimSpace(token)), plain) != 1 {
+		return NewServiceError(CodeDocWebhookAuth, "webhook token 无效")
+	}
+	if d.Status == model.DocStatusProcessing {
+		return NewServiceError(CodeDocTaskRunning, "文档处理中，无需同步")
+	}
+	return s.enqueueNewTask(ctx, nil, d, model.TaskTypeSync, ip)
+}
+
+// AutoSyncAll 定时同步扫描入口（worker 周期调用）：遍历 auto_sync 的 git 文档，
+// 逐个幂等入队增量 sync；有运行中任务的跳过（计数返回，单个失败不中断整批）。
+func (s *DocumentService) AutoSyncAll(ctx context.Context) (enqueued, skipped int) {
+	docs, err := s.docs.ListAutoSyncDocs(ctx)
+	if err != nil {
+		slog.Error("定时同步扫描失败", "err", err)
+		return 0, 0
+	}
+	for i := range docs {
+		d := &docs[i]
+		running, err := s.docs.HasRunningTask(ctx, d.ID)
+		if err != nil {
+			slog.Warn("定时同步跳过（查询运行中任务失败）", "doc_id", d.ID, "err", err)
+			skipped++
+			continue
+		}
+		if running {
+			skipped++
+			continue
+		}
+		if err := s.enqueueNewTask(ctx, nil, d, model.TaskTypeSync, ""); err != nil {
+			// 409（并发下他人先入队）与临时错误均不中断整批，下个周期自然重试
+			slog.Warn("定时同步入队失败", "doc_id", d.ID, "err", err)
+			skipped++
+			continue
+		}
+		enqueued++
+	}
+	return enqueued, skipped
 }
 
 // enqueueNewTask 幂等入队：存在运行中任务 → 409 DOC_TASK_RUNNING（API设计.md §7）。
 // HasRunningTask 的「先查后写」只是快速失败路径；并发下由 DB 约束
 // uq_ingest_tasks_running（迁移 000006）兜底，冲突经 repo.ErrTaskRunning 映射为同一业务错误（审计 P1-10）。
-func (s *DocumentService) enqueueNewTask(ctx context.Context, actorID int64, d *model.Document, taskType int16, ip string) error {
+func (s *DocumentService) enqueueNewTask(ctx context.Context, actorID *int64, d *model.Document, taskType int16, ip string) error {
 	running, err := s.docs.HasRunningTask(ctx, d.ID)
 	if err != nil {
 		return err
@@ -600,7 +720,7 @@ func (s *DocumentService) enqueueNewTask(ctx context.Context, actorID int64, d *
 			action = "document.reindex"
 		}
 	}
-	s.audit.Record(ctx, &actorID, action, "document", &d.ID,
+	s.audit.Record(ctx, actorID, action, "document", &d.ID,
 		map[string]any{"task_id": t.ID, "task_type": taskType}, ip)
 	return nil
 }
@@ -633,6 +753,7 @@ func (s *DocumentService) itemOf(d *model.Document, id int64) *DocumentItem {
 	item := s.rowToItem(repo.DocumentRow{
 		ID: id, Type: d.Type, Name: d.Name, Status: d.Status, Stage: d.Stage,
 		Error: d.Error, SourceURL: d.SourceURL, RepoURL: d.RepoURL, GitRef: d.GitRef,
+		AutoSync: d.AutoSync, HasWebhook: len(d.WebhookSecret) > 0,
 		FileCount: &fc, TotalSize: &ts, LastSyncedAt: d.LastSyncedAt,
 		CreatedBy: d.CreatedBy, CreatedAt: d.CreatedAt, UpdatedAt: d.UpdatedAt,
 	})
@@ -667,6 +788,8 @@ func (s *DocumentService) rowToItem(r repo.DocumentRow) DocumentItem {
 	item.CanSync = r.Type == model.DocTypeGit && (r.Status == model.DocStatusReady || r.Status == model.DocStatusFailed)
 	item.CanReindex = r.Status == model.DocStatusReady
 	item.CanRetry = r.Status == model.DocStatusFailed
+	item.AutoSync = r.AutoSync
+	item.HasWebhook = r.HasWebhook
 	return item
 }
 

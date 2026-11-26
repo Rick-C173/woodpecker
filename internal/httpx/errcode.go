@@ -34,10 +34,12 @@ const (
 	CodeDocFormatNoSupport = "DOC_002"           // 422 文件格式不支持
 	CodeDocCredInvalid     = "DOC_003"           // 422 仓库凭证无效或地址不可达
 	CodeDocSyncFailed      = "DOC_004"           // 422 同步失败（远端不可达）
-	CodeDocTaskRunning     = "DOC_TASK_RUNNING"  // 409 已有运行中任务
-	CodeModelNoDefault     = "MODEL_001"         // 422 该用途缺少默认条目
-	CodeModelDefaultLocked = "MODEL_002"         // 422 默认条目不可删除
-	CodeModelHasEntries    = "MODEL_003"         // 409 模型服务下存在条目，不可删除
+	// CodeDocWebhookAuth webhook 验签 token 无效（M14）。
+	CodeDocWebhookAuth     = "DOC_005"          // 401 webhook 验签 token 无效
+	CodeDocTaskRunning     = "DOC_TASK_RUNNING" // 409 已有运行中任务
+	CodeModelNoDefault     = "MODEL_001"        // 422 该用途缺少默认条目
+	CodeModelDefaultLocked = "MODEL_002"        // 422 默认条目不可删除
+	CodeModelHasEntries    = "MODEL_003"        // 409 模型服务下存在条目，不可删除
 	// CodeModelHasDefaultEntry 停用持有默认条目的服务（审计 P1-6）。
 	CodeModelHasDefaultEntry = "MODEL_004"    // 422 服务下存在默认条目，不可停用
 	CodeLLMUnavailable       = "LLM_001"      // 502 模型服务不可用
@@ -73,6 +75,7 @@ var httpStatusByCode = map[string]int{
 	CodeDocFormatNoSupport:     http.StatusUnprocessableEntity,
 	CodeDocCredInvalid:         http.StatusUnprocessableEntity,
 	CodeDocSyncFailed:          http.StatusUnprocessableEntity,
+	CodeDocWebhookAuth:         http.StatusUnauthorized,
 	CodeDocTaskRunning:         http.StatusConflict,
 	CodeModelNoDefault:         http.StatusUnprocessableEntity,
 	CodeModelDefaultLocked:     http.StatusUnprocessableEntity,

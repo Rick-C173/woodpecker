@@ -387,3 +387,97 @@ func (h *DocumentHandler) Sync(c *gin.Context) {
 	}
 	c.JSON(http.StatusAccepted, gin.H{"message": "同步任务已排队"})
 }
+
+// SetAutoSync PATCH /kbs/{kb}/documents/{doc}/auto-sync（编辑者+）：开关定时拉取（M14）。
+//
+//	@Summary	开关定时同步
+//	@Description	仅 git 类型：true 时 worker 按 GIT_AUTO_SYNC_MINUTES 周期扫描并入队增量 sync（幂等，重复设置同值直接 200）。
+//	@Tags		documents
+//	@Accept		json
+//	@Produce	json
+//	@Param		kb	path	integer	true	"知识库 ID"
+//	@Param		doc	path	integer	true	"文档 ID"
+//	@Param		body	body	object{auto_sync=bool}	true	"开关"
+//	@Success	200	{object}	object{auto_sync=bool}
+//	@Failure	422	{object}	httpx.ErrorBody	"仅 git 类型可设置"
+//	@Failure	404	{object}	httpx.ErrorBody	"文档不存在"
+//	@Router		/kbs/{kb}/documents/{doc}/auto-sync [patch]
+//	@Security	BearerAuth
+func (h *DocumentHandler) SetAutoSync(c *gin.Context) {
+	var req struct {
+		AutoSync bool `json:"auto_sync"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.Fail(c, httpx.CodeValidation, "auto_sync 必须为布尔值")
+		return
+	}
+	if err := h.svc.SetAutoSync(c.Request.Context(), middleware.UserID(c), middleware.KBID(c), parseDocID(c), req.AutoSync, c.ClientIP()); err != nil {
+		httpx.FailServiceError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"auto_sync": req.AutoSync})
+}
+
+// RotateWebhookSecret POST /kbs/{kb}/documents/{doc}/webhook-secret（编辑者+）：生成/轮换验签 token（M14）。
+//
+//	@Summary	生成/轮换 webhook 验签 token
+//	@Description	生成 32 字节随机 token（AES-GCM 加密落库），明文仅本次响应返回；Git 平台侧配置自定义 header X-Woodpecker-Token=<token>。
+//	@Tags		documents
+//	@Produce	json
+//	@Param		kb	path	integer	true	"知识库 ID"
+//	@Param		doc	path	integer	true	"文档 ID"
+//	@Success	200	{object}	object{webhook_token=string,webhook_url=string}
+//	@Failure	422	{object}	httpx.ErrorBody	"仅 git 类型"
+//	@Failure	404	{object}	httpx.ErrorBody	"文档不存在"
+//	@Router		/kbs/{kb}/documents/{doc}/webhook-secret [post]
+//	@Security	BearerAuth
+func (h *DocumentHandler) RotateWebhookSecret(c *gin.Context) {
+	plain, err := h.svc.RotateWebhookSecret(c.Request.Context(), middleware.UserID(c), middleware.KBID(c), parseDocID(c), c.ClientIP())
+	if err != nil {
+		httpx.FailServiceError(c, err)
+		return
+	}
+	webhookURL := fmt.Sprintf("%s/api/v1/kbs/%d/documents/%d/webhook", baseURL(c), middleware.KBID(c), parseDocID(c))
+	c.JSON(http.StatusOK, gin.H{"webhook_token": plain, "webhook_url": webhookURL})
+}
+
+// Webhook POST /kbs/{kb}/documents/{doc}/webhook（公开 + token 校验）：Git 平台 push 事件入口（M14）。
+//
+//	@Summary	Git 平台 webhook 回调
+//	@Description	校验自定义 header X-Woodpecker-Token（与加密落库 secret 比对），通过即入队增量 sync；
+//	@Description	未配置 webhook 与文档不存在统一 404（不泄露）；token 无效 401 DOC_005；已有任务 409。
+//	@Description	公开路由（无登录态）：文档级权限由 webhook secret 替代用户认证。
+//	@Tags		documents
+//	@Produce	json
+//	@Param		X-Woodpecker-Token	header	string	true	"webhook 验签 token"
+//	@Success	202	{object}	object{message=string}
+//	@Failure	401	{object}	httpx.ErrorBody	"token 无效（DOC_005）"
+//	@Failure	404	{object}	httpx.ErrorBody	"文档不存在或未启用 webhook"
+//	@Failure	409	{object}	httpx.ErrorBody	"已有运行中任务"
+//	@Router		/kbs/{kb}/documents/{doc}/webhook [post]
+func (h *DocumentHandler) Webhook(c *gin.Context) {
+	// 公开路由：不经过 KBAccess 中间件，kb 从路径参数自行解析（与 parseDocID 同理）
+	kb, _ := strconv.ParseInt(c.Param("kb"), 10, 64)
+	if err := h.svc.HandleWebhook(c.Request.Context(), kb, parseDocID(c), c.GetHeader("X-Woodpecker-Token"), c.ClientIP()); err != nil {
+		httpx.FailServiceError(c, err)
+		return
+	}
+	c.JSON(http.StatusAccepted, gin.H{"message": "同步任务已排队"})
+}
+
+// baseURL 外部可见基础地址（webhook 展示用）：反代头 X-Forwarded-Proto/Host 优先，兜底请求自身。
+func baseURL(c *gin.Context) string {
+	scheme := c.GetHeader("X-Forwarded-Proto")
+	if scheme == "" {
+		if c.Request.TLS != nil {
+			scheme = "https"
+		} else {
+			scheme = "http"
+		}
+	}
+	host := c.GetHeader("X-Forwarded-Host")
+	if host == "" {
+		host = c.Request.Host
+	}
+	return scheme + "://" + host
+}

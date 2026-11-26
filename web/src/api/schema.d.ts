@@ -3359,6 +3359,77 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/kbs/{kb}/documents/{doc}/auto-sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * 开关定时同步
+         * @description 仅 git 类型：true 时 worker 按 GIT_AUTO_SYNC_MINUTES 周期扫描并入队增量 sync（幂等，重复设置同值直接 200）。
+         */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description 知识库 ID */
+                    kb: number;
+                    /** @description 文档 ID */
+                    doc: number;
+                };
+                cookie?: never;
+            };
+            /** @description 开关 */
+            requestBody: {
+                content: {
+                    "application/json": {
+                        auto_sync?: boolean;
+                    };
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            auto_sync?: boolean;
+                        };
+                    };
+                };
+                /** @description 文档不存在 */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["httpx.ErrorBody"];
+                    };
+                };
+                /** @description 仅 git 类型可设置 */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["httpx.ErrorBody"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
     "/kbs/{kb}/documents/{doc}/reindex": {
         parameters: {
             query?: never;
@@ -3601,6 +3672,144 @@ export interface paths {
                     };
                 };
                 /** @description 仅 git 类型可同步 */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["httpx.ErrorBody"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/kbs/{kb}/documents/{doc}/webhook": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Git 平台 webhook 回调
+         * @description 校验自定义 header X-Woodpecker-Token（与加密落库 secret 比对），通过即入队增量 sync；
+         *     未配置 webhook 与文档不存在统一 404（不泄露）；token 无效 401 DOC_005；已有任务 409。
+         *     公开路由（无登录态）：文档级权限由 webhook secret 替代用户认证。
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description webhook 验签 token */
+                    "X-Woodpecker-Token": string;
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Accepted */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message?: string;
+                        };
+                    };
+                };
+                /** @description token 无效（DOC_005） */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["httpx.ErrorBody"];
+                    };
+                };
+                /** @description 文档不存在或未启用 webhook */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["httpx.ErrorBody"];
+                    };
+                };
+                /** @description 已有运行中任务 */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["httpx.ErrorBody"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/kbs/{kb}/documents/{doc}/webhook-secret": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 生成/轮换 webhook 验签 token
+         * @description 生成 32 字节随机 token（AES-GCM 加密落库），明文仅本次响应返回；Git 平台侧配置自定义 header X-Woodpecker-Token=<token>。
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description 知识库 ID */
+                    kb: number;
+                    /** @description 文档 ID */
+                    doc: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            webhook_token?: string;
+                            webhook_url?: string;
+                        };
+                    };
+                };
+                /** @description 文档不存在 */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["httpx.ErrorBody"];
+                    };
+                };
+                /** @description 仅 git 类型 */
                 422: {
                     headers: {
                         [name: string]: unknown;
@@ -4578,6 +4787,8 @@ export interface components {
             updated_at?: string;
         };
         "service.DocumentDetail": {
+            /** @description 定时同步开关（M14，仅 git 类型）：true=worker 周期扫描并入队增量 sync */
+            auto_sync?: boolean;
             /** @description 当前用户可否重建索引（管理者+且 ready） */
             can_reindex?: boolean;
             /** @description 当前用户可否重试（失败态且编辑者+） */
@@ -4596,6 +4807,8 @@ export interface components {
             files?: components["schemas"]["service.DocumentFileItem"][];
             /** @description 分支/标签（仅 git，空=默认分支） */
             git_ref?: string;
+            /** @description 是否已配置 webhook 验签 token（M14，仅 git 类型；secret 本体永不回显） */
+            has_webhook?: boolean;
             /** @description 文档 ID */
             id?: number;
             /** @description 最近一次同步完成时间 RFC3339（未同步过为空） */
@@ -4634,6 +4847,8 @@ export interface components {
             status?: string;
         };
         "service.DocumentItem": {
+            /** @description 定时同步开关（M14，仅 git 类型）：true=worker 周期扫描并入队增量 sync */
+            auto_sync?: boolean;
             /** @description 当前用户可否重建索引（管理者+且 ready） */
             can_reindex?: boolean;
             /** @description 当前用户可否重试（失败态且编辑者+） */
@@ -4650,6 +4865,8 @@ export interface components {
             file_count?: number;
             /** @description 分支/标签（仅 git，空=默认分支） */
             git_ref?: string;
+            /** @description 是否已配置 webhook 验签 token（M14，仅 git 类型；secret 本体永不回显） */
+            has_webhook?: boolean;
             /** @description 文档 ID */
             id?: number;
             /** @description 最近一次同步完成时间 RFC3339（未同步过为空） */

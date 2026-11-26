@@ -3212,6 +3212,81 @@ const docTemplate = `{
                 }
             }
         },
+        "/kbs/{kb}/documents/{doc}/auto-sync": {
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "仅 git 类型：true 时 worker 按 GIT_AUTO_SYNC_MINUTES 周期扫描并入队增量 sync（幂等，重复设置同值直接 200）。",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "documents"
+                ],
+                "summary": "开关定时同步",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "知识库 ID",
+                        "name": "kb",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "文档 ID",
+                        "name": "doc",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "开关",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "auto_sync": {
+                                    "type": "boolean"
+                                }
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "auto_sync": {
+                                    "type": "boolean"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "文档不存在",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorBody"
+                        }
+                    },
+                    "422": {
+                        "description": "仅 git 类型可设置",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorBody"
+                        }
+                    }
+                }
+            }
+        },
         "/kbs/{kb}/documents/{doc}/reindex": {
             "post": {
                 "description": "对已就绪文档全量重建索引（ReplaceDocumentChunks 语义：先清后建）。202 排队。\n\n仅 ready 状态可重建；同文档已有运行中任务时 409 DOC_TASK_RUNNING。\n\n权限：管理者及以上（owner，含管理员）。",
@@ -3400,6 +3475,119 @@ const docTemplate = `{
                     },
                     "422": {
                         "description": "仅 git 类型可同步",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorBody"
+                        }
+                    }
+                }
+            }
+        },
+        "/kbs/{kb}/documents/{doc}/webhook": {
+            "post": {
+                "description": "校验自定义 header X-Woodpecker-Token（与加密落库 secret 比对），通过即入队增量 sync；\n未配置 webhook 与文档不存在统一 404（不泄露）；token 无效 401 DOC_005；已有任务 409。\n公开路由（无登录态）：文档级权限由 webhook secret 替代用户认证。",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "documents"
+                ],
+                "summary": "Git 平台 webhook 回调",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "webhook 验签 token",
+                        "name": "X-Woodpecker-Token",
+                        "in": "header",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "message": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "token 无效（DOC_005）",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorBody"
+                        }
+                    },
+                    "404": {
+                        "description": "文档不存在或未启用 webhook",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorBody"
+                        }
+                    },
+                    "409": {
+                        "description": "已有运行中任务",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorBody"
+                        }
+                    }
+                }
+            }
+        },
+        "/kbs/{kb}/documents/{doc}/webhook-secret": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "生成 32 字节随机 token（AES-GCM 加密落库），明文仅本次响应返回；Git 平台侧配置自定义 header X-Woodpecker-Token=\u003ctoken\u003e。",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "documents"
+                ],
+                "summary": "生成/轮换 webhook 验签 token",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "知识库 ID",
+                        "name": "kb",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "文档 ID",
+                        "name": "doc",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "webhook_token": {
+                                    "type": "string"
+                                },
+                                "webhook_url": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "文档不存在",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorBody"
+                        }
+                    },
+                    "422": {
+                        "description": "仅 git 类型",
                         "schema": {
                             "$ref": "#/definitions/httpx.ErrorBody"
                         }
@@ -4639,6 +4827,10 @@ const docTemplate = `{
         "service.DocumentDetail": {
             "type": "object",
             "properties": {
+                "auto_sync": {
+                    "description": "定时同步开关（M14，仅 git 类型）：true=worker 周期扫描并入队增量 sync",
+                    "type": "boolean"
+                },
                 "can_reindex": {
                     "description": "当前用户可否重建索引（管理者+且 ready）",
                     "type": "boolean"
@@ -4677,6 +4869,10 @@ const docTemplate = `{
                 "git_ref": {
                     "description": "分支/标签（仅 git，空=默认分支）",
                     "type": "string"
+                },
+                "has_webhook": {
+                    "description": "是否已配置 webhook 验签 token（M14，仅 git 类型；secret 本体永不回显）",
+                    "type": "boolean"
                 },
                 "id": {
                     "description": "文档 ID",
@@ -4759,6 +4955,10 @@ const docTemplate = `{
         "service.DocumentItem": {
             "type": "object",
             "properties": {
+                "auto_sync": {
+                    "description": "定时同步开关（M14，仅 git 类型）：true=worker 周期扫描并入队增量 sync",
+                    "type": "boolean"
+                },
                 "can_reindex": {
                     "description": "当前用户可否重建索引（管理者+且 ready）",
                     "type": "boolean"
@@ -4790,6 +4990,10 @@ const docTemplate = `{
                 "git_ref": {
                     "description": "分支/标签（仅 git，空=默认分支）",
                     "type": "string"
+                },
+                "has_webhook": {
+                    "description": "是否已配置 webhook 验签 token（M14，仅 git 类型；secret 本体永不回显）",
+                    "type": "boolean"
                 },
                 "id": {
                     "description": "文档 ID",

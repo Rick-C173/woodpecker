@@ -177,6 +177,11 @@ func NewRouter(d Deps) *gin.Engine {
 		docs.POST("/:doc/sync", middleware.RequireKBEditor(), d.Document.Sync)
 		docs.DELETE("/:doc", middleware.RequireKBOwner(), d.Document.Delete)
 		docs.POST("/:doc/reindex", middleware.RequireKBOwner(), d.Document.Reindex)
+		// M14 Git 自动同步：定时拉取开关 + webhook 验签 token（编辑者+）
+		docs.PATCH("/:doc/auto-sync", middleware.RequireKBEditor(), d.Document.SetAutoSync)
+		docs.POST("/:doc/webhook-secret", middleware.RequireKBEditor(), d.Document.RotateWebhookSecret)
+		// M14 webhook 回调：公开路由（Git 平台调用，X-Woodpecker-Token 校验替代用户认证）
+		v1.POST("/kbs/:kb/documents/:doc/webhook", d.Document.Webhook)
 	}
 
 	// 会话与问答（FR-07/09，API设计.md §3.7）：

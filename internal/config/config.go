@@ -37,6 +37,9 @@ const DefaultWorkerZombieTimeoutMinutes = 5
 // 启动恢复看不到陈旧心跳的场景。
 const DefaultWorkerZombieSweepMinutes = 2
 
+// DefaultGitAutoSyncMinutes Git 定时同步扫描间隔缺省值（分钟，M14）。
+const DefaultGitAutoSyncMinutes = 30
+
 // 开发环境占位密钥（仅非生产可回落，生产缺失直接拒绝启动）。
 const (
 	devJWTSecret     = "dev-only-jwt-secret"
@@ -97,6 +100,11 @@ type Config struct {
 	// 心跳超时的运行中任务由后台循环定期置失败，覆盖「Pod 秒级重建 → 启动恢复时心跳还没过期」
 	// 的场景（否则文档只能等下一次重启才被回收）。<=0 关闭 sweeper。
 	WorkerZombieSweepMinutes int
+
+	// GitAutoSyncMinutes Git 定时同步扫描间隔（分钟，M14）。
+	// worker 周期扫描 auto_sync=true 的 git 文档并入队增量 sync（内容变化由 last_commit diff 判定）。
+	// <=0 关闭定时同步（webhook 触发不受影响）。默认 30。
+	GitAutoSyncMinutes int
 }
 
 // Load 读取配置：.env 文件（存在则加载，不覆盖已有环境变量）→ 环境变量 → 默认值。
@@ -137,6 +145,7 @@ func Load() *Config {
 
 		WorkerZombieTimeoutMinutes: envInt("WORKER_ZOMBIE_TIMEOUT_MINUTES", DefaultWorkerZombieTimeoutMinutes),
 		WorkerZombieSweepMinutes:   envInt("WORKER_ZOMBIE_SWEEP_MINUTES", DefaultWorkerZombieSweepMinutes),
+		GitAutoSyncMinutes:         envInt("GIT_AUTO_SYNC_MINUTES", DefaultGitAutoSyncMinutes),
 	}
 	if cfg.JWTSecret == "" {
 		if cfg.IsProduction() {

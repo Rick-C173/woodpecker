@@ -61,12 +61,16 @@ type Document struct {
 	IgnoreRules   StringArray `gorm:"column:ignore_rules;type:text[]"`
 	LastCommit    *string     `gorm:"column:last_commit;size:40"`
 	LastSyncedAt  *time.Time  `gorm:"column:last_synced_at"`
-	SourceURL     *string     `gorm:"column:source_url;size:2000"`
-	FileCount     *int        `gorm:"column:file_count"`
-	TotalSize     *int64      `gorm:"column:total_size"`
-	CreatedBy     int64       `gorm:"column:created_by"`
-	CreatedAt     time.Time   `gorm:"column:created_at"`
-	UpdatedAt     time.Time   `gorm:"column:updated_at"`
+	// M14 Git 自动同步（FR-03 增强）：auto_sync=true 时 worker 周期扫描并入队增量 sync；
+	// webhook_secret 为 AES-GCM 加密的验签 token（X-Woodpecker-Token 头比对，NULL=未启用）。
+	AutoSync      bool      `gorm:"column:auto_sync"`
+	WebhookSecret []byte    `gorm:"column:webhook_secret"`
+	SourceURL     *string   `gorm:"column:source_url;size:2000"`
+	FileCount     *int      `gorm:"column:file_count"`
+	TotalSize     *int64    `gorm:"column:total_size"`
+	CreatedBy     int64     `gorm:"column:created_by"`
+	CreatedAt     time.Time `gorm:"column:created_at"`
+	UpdatedAt     time.Time `gorm:"column:updated_at"`
 }
 
 func (Document) TableName() string { return "documents" }
