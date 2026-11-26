@@ -59,3 +59,8 @@ docs/*.json
 docs/*.yaml
 docs/*.yam
 
+.trae/
+
+# 内嵌前端产物（构建时由 scripts/embed_web.go 生成，不入库；.gitkeep 占位保证编译）
+internal/web/dist/*
+!internal/web/dist/.gitkeep

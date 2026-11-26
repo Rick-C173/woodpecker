@@ -1,0 +1,2 @@
+占位文件：保证 go:embed all:dist 在未构建前端时编译通过。
+真实产物由 make build-all / scripts/deploy 链路生成（npm run build 后拷贝 web/dist 到此目录）。

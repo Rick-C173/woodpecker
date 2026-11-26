@@ -59,6 +59,10 @@ type Deps struct {
 	Pinger Pinger // 可选：测试注入探针；为空时由 DB 派生
 	// RedisPinger 可选：Redis（asynq 队列/默认配置缓存）探针；为空时探针视为未配置该依赖（P2-27）
 	RedisPinger Pinger
+
+	// NoRoute 可选：非 API 路径兜底处理器——单二进制部署时内嵌前端 SPA
+	// （internal/web.Handler()，见 scripts/deploy 裸机方案）；为空保持 gin 默认 404。
+	NoRoute gin.HandlerFunc
 }
 
 // NewRouter 装配全局中间件与 /api/v1 路由。
@@ -259,6 +263,10 @@ func NewRouter(d Deps) *gin.Engine {
 
 	r.GET("/healthz", Health())                     // 基础设施探针挂在根路径（liveness：仅进程）
 	r.GET("/readyz", Readyz(pinger, d.RedisPinger)) // readiness：依赖就绪判定
+
+	if d.NoRoute != nil {
+		r.NoRoute(d.NoRoute)
+	}
 
 	return r
 }

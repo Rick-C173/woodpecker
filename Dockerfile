@@ -3,8 +3,19 @@
 #
 # go-git（纯 Go Git 实现）+ CGO_ENABLED=0：无 cgo 依赖，产出静态二进制；
 # go-enry 无 oniguruma 时自动降级纯 Go 语言检测。
+# 前端产物内嵌进二进制（internal/web/dist）：与裸机部署（scripts/deploy）同一条
+# build-all 链路；分离托管场景仍可用 web/Dockerfile 镜像 + nginx 模板。
 FROM golang:1.27-bookworm AS builder
 
+# ---- 前端构建（内嵌进二进制）----
+FROM node:22-alpine AS web-builder
+WORKDIR /web
+COPY web/package.json web/package-lock.json ./
+RUN npm ci
+COPY web/ .
+RUN npm run build
+
+# ---- 后端构建 ----
 # 模块代理与校验库：goproxy.cn（阿里云镜像曾出现缓存损坏的 zip 包，实测 goproxy.cn 可靠）
 ARG GOPROXY=https://goproxy.cn,direct
 ARG GOSUMDB=sum.golang.org
@@ -17,6 +28,8 @@ RUN go mod download
 COPY cmd ./cmd
 COPY internal ./internal
 COPY migrations ./migrations
+# 内嵌前端产物（覆盖 internal/web/dist 的 .gitkeep 占位）
+COPY --from=web-builder /web/dist ./internal/web/dist
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags "-s -w" -o /out/woodpecker ./cmd/server
 
 # 运行镜像：alpine + CA 证书（模型 API / Git HTTPS 需要）+ tzdata（中文时间显示）

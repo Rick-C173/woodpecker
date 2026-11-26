@@ -1,0 +1,50 @@
+# Woodpecker nginx 分离托管模板（前端 nginx 直出 + API 反代后端 8080）。
+#
+# 适用场景：企业已有 nginx/统一网关设施，前端不想内嵌进后端二进制时使用：
+#   1. 前端产物另行构建：cd web && npm run build（产物 web/dist）
+#   2. 后端只跑 API（内嵌产物存在也不冲突——nginx 优先接管 /）
+#   3. 用本模板替换 server_name/root 后放到 /etc/nginx/conf.d/woodpecker.conf
+#
+# 注意（运行手册 §部署）：/api/v1/conversations/{c}/messages 是 SSE 流式响应，
+# proxy_buffering 必须关闭，否则回答卡在生成中直到结束才一次性吐出。
+server {
+    listen 80;
+    server_name wp.example.com;      # 改成实际域名或注释掉（用 IP 访问）
+
+    # 前端 SPA（vite 构建产物）
+    root /var/www/woodpecker;        # web/dist 内容拷贝到该目录
+    index index.html;
+
+    # 带哈希的静态资源长缓存；index.html 不缓存
+    location ~* ^/assets/ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        try_files $uri =404;
+    }
+    location = /index.html {
+        add_header Cache-Control "no-cache";
+    }
+
+    # API 反代（含 SSE 长连接与文件上传）
+    location /api/ {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # SSE（流式回答）必须关闭缓冲
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 300s;
+        # 上传 50x5MB
+        client_max_body_size 260m;
+    }
+
+    # OIDC 回调（FR-19）：后端端点在 /api/ 前缀下已覆盖，无需单独配置。
+
+    # SPA history 路由回退
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
