@@ -50,12 +50,12 @@ func TestMain(m *testing.M) {
 }
 
 // itTruncate 清空业务表（每测试独立数据）。
-// 清单须与 internal/integration/setup_test.go 的 truncateAll 保持一致（共 15 张）。
+// 清单须与 internal/integration/setup_test.go 的 truncateAll 保持一致（共 16 张）。
 func itTruncate(t *testing.T) {
 	t.Helper()
 	err := itDB.Exec(`TRUNCATE users, audit_logs, settings, model_services, model_entries,
 		knowledge_bases, kb_members, documents, document_files, ingest_tasks, chunks,
-		conversations, messages, message_citations, feedbacks RESTART IDENTITY CASCADE`).Error
+		conversations, messages, message_citations, feedbacks, invites RESTART IDENTITY CASCADE`).Error
 	if err != nil {
 		t.Fatalf("清空表失败: %v", err)
 	}

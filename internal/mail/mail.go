@@ -92,7 +92,8 @@ func (s *SMTPSettingStore) Load(ctx context.Context) (*Config, error) {
 	return &c, nil
 }
 
-// Save 写配置（密码明文传入，加密落库；密码为空表示不改）。actorID 为更新人。
+// Save 写配置（密码明文传入，加密落库；newPassword 为空表示不修改密码）。
+// actorID 为更新人。调用方未携带旧密文时自动回填现有密码，避免静默清空。
 func (s *SMTPSettingStore) Save(ctx context.Context, actorID int64, c *Config, newPassword string) error {
 	if newPassword != "" {
 		enc, err := s.Encrypt([]byte(newPassword))
@@ -100,6 +101,10 @@ func (s *SMTPSettingStore) Save(ctx context.Context, actorID int64, c *Config, n
 			return fmt.Errorf("SMTP 密码加密失败: %w", err)
 		}
 		c.PasswordEnc = base64.StdEncoding.EncodeToString(enc)
+	} else if c.PasswordEnc == "" {
+		if old, lerr := s.Load(ctx); lerr == nil && old != nil {
+			c.PasswordEnc = old.PasswordEnc
+		}
 	}
 	raw, err := json.Marshal(c)
 	if err != nil {

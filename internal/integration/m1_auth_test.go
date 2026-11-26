@@ -23,6 +23,7 @@ import (
 	"woodpecker/internal/handler"
 	"woodpecker/internal/jwt"
 	"woodpecker/internal/llm"
+	"woodpecker/internal/mail"
 	"woodpecker/internal/repo"
 	"woodpecker/internal/service"
 )
@@ -38,7 +39,7 @@ func setup(t *testing.T) *env {
 	db := openTestDB(t)
 	truncateAll(db)
 
-	cfg := &config.Config{LogLevel: "debug", JWTSecret: "it-secret", JWTTLHours: 24, CORSOrigins: "*"}
+	cfg := &config.Config{LogLevel: "debug", JWTSecret: "it-secret", JWTTLHours: 24, CORSOrigins: "*", InviteBaseURL: "http://it.test"}
 	users := repo.NewUserRepo(db)
 	auditSvc := service.NewAuditService(repo.NewAuditRepo(db))
 	settings := repo.NewSettingRepo(db)
@@ -52,6 +53,11 @@ func setup(t *testing.T) *env {
 	require.NoError(t, err)
 	modelCfgRepo := repo.NewModelCfgRepo(db)
 	modelCfgSvc := service.NewModelConfigService(modelCfgRepo, cipher, cache.NoopCache{}, llm.NewOpenAIProvider(), auditSvc)
+	// M10：邮箱邀请制（SMTP 用真实 Sender，用例配置不可达主机验证失败路径）
+	invites := repo.NewInviteRepo(db)
+	smtpStore := &mail.SMTPSettingStore{Store: settings, Encrypt: cipher.Encrypt, Decrypt: cipher.Decrypt}
+	inviteSvc := service.NewInviteService(invites, users, mail.NewSMTPSender(smtpStore), smtpStore, cfg.InviteBaseURL, auditSvc)
+	authSvc.SetInvites(invites)
 
 	router := handler.NewRouter(handler.Deps{
 		Cfg:      cfg,
@@ -60,6 +66,7 @@ func setup(t *testing.T) *env {
 		Admin:    handler.NewAdminUsersHandler(adminSvc),
 		KB:       handler.NewKBHandler(kbSvc),
 		ModelCfg: handler.NewModelCfgHandler(modelCfgSvc),
+		Invite:   handler.NewInviteHandler(inviteSvc, authSvc, smtpStore, mail.NewSMTPSender(smtpStore)),
 		UserRepo: users,
 		Issuer:   issuer,
 		KBLookup: kbs,
