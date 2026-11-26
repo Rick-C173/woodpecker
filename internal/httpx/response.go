@@ -6,8 +6,6 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-
-	"woodpecker/internal/service"
 )
 
 // 统一响应约定（md/API设计.md §1）：
@@ -57,9 +55,9 @@ func FailWith(c *gin.Context, status int, code, message string) {
 	})
 }
 
-// FailServiceError 渲染 service.ServiceError；其他错误按 500。
+// FailServiceError 渲染 ServiceError；其他错误按 500。
 func FailServiceError(c *gin.Context, err error) {
-	var se *service.ServiceError
+	var se *ServiceError
 	if errors.As(err, &se) {
 		Fail(c, se.Code, se.Message)
 		return

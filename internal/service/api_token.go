@@ -14,12 +14,6 @@ import (
 	"woodpecker/internal/repo"
 )
 
-// 错误码常量（与 internal/httpx/errcode.go 保持同步）
-const (
-	CodeTokenLimit   = "TOK_001" // 422 API Token 数量超出上限
-	CodeTokenInvalid = "TOK_002" // 401 API Token 无效或已吊销/过期
-)
-
 // TokenPrefix API Token 明文前缀：wpk_ + 64 hex。
 // 与 httpx.TokenPrefix 保持同步（httpx 已引用本包，此处不能反向 import）。
 const TokenPrefix = "wpk_"

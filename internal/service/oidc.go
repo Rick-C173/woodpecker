@@ -21,11 +21,6 @@ import (
 	"woodpecker/internal/repo"
 )
 
-// OIDC 本地错误码副本（service 层不 import httpx）。
-const (
-	CodeOIDCLoginFail = "AUTH_010" // 401 SSO 登录失败（IdP 不可达/回调非法/账号被禁用）
-)
-
 // OIDCUserStore 用户存取（repo.UserRepo 满足；FR-19 JIT 建号/绑定）。
 type OIDCUserStore interface {
 	GetByEmail(ctx context.Context, email string) (*model.User, error)

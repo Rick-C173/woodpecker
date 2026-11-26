@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"woodpecker/internal/httpx"
 	"woodpecker/internal/model"
 	"woodpecker/internal/repo"
 	"woodpecker/internal/service"
@@ -123,7 +124,7 @@ func TestMCEntryAndDefaults(t *testing.T) {
 	// 停用持有默认条目的服务 → 422 MODEL_004（审计 P1-6 / PRD FR-12）
 	// 修复前这里会成功，随后全站抛 MODEL_001：问答、检索、摄取同时失效。
 	_, err = e.svc.UpdateService(ctx, 1, svcID.ID, nil, nil, nil, boolPtr(false), "")
-	assert.Equal(t, service.CodeModelHasDefaultEntries, svcErr(t, err).Code)
+	assert.Equal(t, httpx.CodeModelHasDefaultEntry, svcErr(t, err).Code)
 	svcNow, gerr := e.repo.GetServiceByID(ctx, svcID.ID)
 	require.NoError(t, gerr)
 	assert.True(t, svcNow.Enabled, "拦截后服务应保持启用")
@@ -155,12 +156,12 @@ func TestMCEntryAndDefaults(t *testing.T) {
 
 	// 默认条目不可删 → MODEL_002
 	err = e.svc.DeleteEntry(ctx, 1, item2.ID, "")
-	assert.Equal(t, service.CodeModelDefaultDel, svcErr(t, err).Code)
+	assert.Equal(t, httpx.CodeModelDefaultLocked, svcErr(t, err).Code)
 
 	// 取消默认也不允许（必须切换）
 	fv := false
 	_, err = e.svc.UpdateEntry(ctx, 1, item2.ID, nil, nil, nil, &fv, "")
-	assert.Equal(t, service.CodeModelDefaultDel, svcErr(t, err).Code)
+	assert.Equal(t, httpx.CodeModelDefaultLocked, svcErr(t, err).Code)
 
 	// 非默认条目可删
 	non, err := e.svc.CreateEntry(ctx, 1, svcID.ID, "rerank", "bge-reranker", "", false, "")
@@ -368,7 +369,7 @@ func TestMCUpdateEntryDefaultGuards(t *testing.T) {
 
 	// 默认条目取消默认 → MODEL_002
 	_, err = e.svc.UpdateEntry(ctx, 1, defID, nil, nil, nil, boolPtr(false), "")
-	assert.Equal(t, service.CodeModelDefaultDel, svcErr(t, err).Code)
+	assert.Equal(t, httpx.CodeModelDefaultLocked, svcErr(t, err).Code)
 
 	// 设默认成功：is_default 切换并重读
 	updated, err := e.svc.UpdateEntry(ctx, 1, nonID, nil, nil, nil, boolPtr(true), "")

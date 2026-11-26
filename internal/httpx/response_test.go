@@ -9,8 +9,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
-
-	"woodpecker/internal/service"
 )
 
 func newCtx() (*gin.Context, *httptest.ResponseRecorder) {
@@ -63,7 +61,7 @@ func TestStatusOf(t *testing.T) {
 
 func TestFailServiceError(t *testing.T) {
 	c, w := newCtx()
-	FailServiceError(c, service.NewServiceError(CodeUserExists, "重名"))
+	FailServiceError(c, NewServiceError(CodeUserExists, "重名"))
 	assert.Equal(t, 409, w.Code)
 	assert.Contains(t, w.Body.String(), "USER_001")
 

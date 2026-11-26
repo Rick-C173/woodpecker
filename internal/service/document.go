@@ -14,19 +14,10 @@ import (
 	"strings"
 	"time"
 
+	"woodpecker/internal/httpx"
 	"woodpecker/internal/model"
 	"woodpecker/internal/rag"
 	"woodpecker/internal/repo"
-)
-
-// 错误码（与 httpx errcode 对应，API设计.md §2）。
-const (
-	CodeDocRepoTooLarge = "DOC_001"          // 422 仓库超过大小/文件数限制
-	CodeDocUnsupported  = "DOC_002"          // 422 文件格式不支持
-	CodeDocUnreachable  = "DOC_003"          // 422 仓库凭证无效或地址不可达
-	CodeDocSyncFailed   = "DOC_004"          // 422 同步失败（远端不可达），旧内容保持可用
-	CodeDocWebhookAuth  = "DOC_005"          // 401 webhook 验签 token 无效（M14）
-	CodeDocTaskRunning  = "DOC_TASK_RUNNING" // 409 已有运行中任务
 )
 
 // 凭证类型（API设计.md §5 / 数据库设计.md §3.2：credential = {"kind","secret"}）。
@@ -379,7 +370,7 @@ func (s *DocumentService) CreateUpload(ctx context.Context, actorID, kbID int64,
 			continue
 		}
 		if !rag.IsSupportedExt(name) {
-			rejected = append(rejected, *NewServiceError(CodeDocUnsupported, fmt.Sprintf("%s：格式不支持", name)))
+			rejected = append(rejected, *NewServiceError(httpx.CodeDocFormatNoSupport, fmt.Sprintf("%s：格式不支持", name)))
 			continue
 		}
 		if len(f.Content) > maxUploadFileBytes {

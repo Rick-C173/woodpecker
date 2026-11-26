@@ -10,20 +10,13 @@ import (
 	"time"
 
 	"woodpecker/internal/cache"
+	"woodpecker/internal/httpx"
 	"woodpecker/internal/llm"
 	"woodpecker/internal/model"
 	"woodpecker/internal/repo"
 )
 
-// 错误码（与 httpx/httpx errcode 对应，文档先行约定）。
-const (
-	CodeModelNoDefault  = "MODEL_001" // 422 该用途缺少默认条目
-	CodeModelDefaultDel = "MODEL_002" // 422 默认条目不可删除
-	CodeModelHasEntries = "MODEL_003" // 409 服务下存在条目
-	// CodeModelHasDefaultEntries 停用持有默认条目的服务（审计 P1-6）：
-	// 停用后 GetDefaultEntry 查不到默认（SQL 带 s.enabled=TRUE），问答/检索/摄取同时失效。
-	CodeModelHasDefaultEntries = "MODEL_004" // 422 服务下存在默认条目，请先取消默认
-)
+// 错误码 MODEL_001~004 定义于 httpx/errcode.go（全局唯一事实源）。
 
 // 模型服务字段上限（FR-12）。
 const (
@@ -221,7 +214,7 @@ func (s *ModelConfigService) UpdateService(ctx context.Context, actorID, id int6
 				return nil, cerr
 			}
 			if n > 0 {
-				return nil, NewServiceError(CodeModelHasDefaultEntries, "服务下存在默认条目，请先取消默认")
+				return nil, NewServiceError(httpx.CodeModelHasDefaultEntry, "服务下存在默认条目，请先取消默认")
 			}
 		}
 		svc.Enabled = *enabled
@@ -441,7 +434,7 @@ func (s *ModelConfigService) UpdateEntry(ctx context.Context, actorID, id int64,
 		detail["is_default"] = true
 	}
 	if isDefault != nil && !*isDefault && e.IsDefault {
-		return nil, NewServiceError(CodeModelDefaultDel, "默认条目不可取消默认，请先将默认切换到其他条目")
+		return nil, NewServiceError(httpx.CodeModelDefaultLocked, "默认条目不可取消默认，请先将默认切换到其他条目")
 	}
 	e.UpdatedAt = s.now()
 	if err := s.repo.SaveEntry(ctx, e); err != nil {
@@ -475,7 +468,7 @@ func (s *ModelConfigService) DeleteEntry(ctx context.Context, actorID, id int64,
 		return err
 	}
 	if e.IsDefault {
-		return NewServiceError(CodeModelDefaultDel, "默认条目不可删除，请先将默认切换到其他条目")
+		return NewServiceError(httpx.CodeModelDefaultLocked, "默认条目不可删除，请先将默认切换到其他条目")
 	}
 	if err := s.repo.DeleteEntry(ctx, id); err != nil {
 		return err

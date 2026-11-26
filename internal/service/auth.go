@@ -14,40 +14,8 @@ import (
 	"woodpecker/internal/repo"
 )
 
-// 业务错误：Code 与 md/API设计.md §2 一一对应，handler 层据此渲染。
-type ServiceError struct {
-	Code    string
-	Message string
-}
-
-func (e *ServiceError) Error() string { return e.Code + ": " + e.Message }
-
-func NewServiceError(code, message string) *ServiceError {
-	return &ServiceError{Code: code, Message: message}
-}
-
-// 错误码常量（与 internal/httpx/errcode.go 保持同步）
-const (
-	CodeAuthInvalid        = "AUTH_001"
-	CodeAuthLocked         = "AUTH_002"
-	CodeAuthDisabled       = "AUTH_003"
-	CodeAuthStaleToken     = "AUTH_004"
-	CodeRegisterClosed     = "AUTH_005"
-	CodePasswordWeak       = "AUTH_006"
-	CodeMustChangePassword = "AUTH_07" // 403 需先修改初始密码（中间件拦截，此处仅保持码表同步）
-	CodeUserExists         = "USER_001"
-	CodeUserSelfDisable    = "USER_002"
-	CodeUserLastAdmin      = "USER_003"
-	CodeInviteInvalid      = "AUTH_008" // 410 邀请无效或已过期（FR-16）
-	CodeInviteUsed         = "AUTH_009" // 409 邀请已被使用（FR-16）
-	CodeKBNameExists       = "KB_001"
-	CodeGroupNameExists    = "GROUP_001" // 409 用户组名已存在（FR-18）
-	CodeGroupUserExists    = "GROUP_002" // 409 用户已在组内（FR-18）
-	CodeGroupKBGranted     = "GROUP_003" // 409 组已授权到该库（FR-18）
-	CodeNotFound           = "NOT_FOUND"
-	CodeValidation         = "VALIDATION_FAILED"
-	CodeForbidden          = "FORBIDDEN"
-)
+// 业务错误 httpx.ServiceError（唯一定义在 internal/httpx）：Code 与 md/API设计.md §2
+// 一一对应，常量全局唯一定义于 httpx/errcode.go，service 与 handler 共用。
 
 // PasswordPolicy 密码与锁定策略（PRD FR-01）：默认值见 DefaultPasswordPolicy，
 // 可通过 SetPolicy 由配置文件注入。
