@@ -27,6 +27,8 @@ import { KbChatPage } from '@/pages/kb-chat';
 import { AdminUsersPage } from '@/pages/admin/users';
 import { AdminInvitationsPage } from '@/pages/admin/invitations';
 import { AdminEmailSettingsPage } from '@/pages/admin/email-settings';
+import { AdminGroupsPage } from '@/pages/admin/groups';
+import { AdminOidcSettingsPage } from '@/pages/admin/oidc-settings';
 import { AdminModelServicesPage } from '@/pages/admin/model-services';
 import { AdminAuditLogsPage } from '@/pages/admin/audit-logs';
 import { AdminSettingsPage } from '@/pages/admin/settings';
@@ -66,6 +68,23 @@ function AdminGuard({ children }: { children: ReactElement }) {
   return children;
 }
 
+/**
+ * M13（FR-19）：根路径 SSO 回跳中转——后端回调 302 到 `/?oidc=<code>`（或 `/?oidc_error=`），
+ * index 路由原样透传到 /login（登录页负责兑换/提示）；无参数时回 /kbs。
+ */
+function RootRedirect() {
+  const params = new URLSearchParams(window.location.search);
+  const code = params.get('oidc');
+  const oidcError = params.get('oidc_error');
+  if (code) {
+    return <Navigate replace to={`/login?oidc=${encodeURIComponent(code)}`} />;
+  }
+  if (oidcError) {
+    return <Navigate replace to={`/login?oidc_error=${encodeURIComponent(oidcError)}`} />;
+  }
+  return <Navigate replace to="/kbs" />;
+}
+
 /** 全局认证事件桥：client 中间件广播 401 / AUTH_007 → 统一导航。 */
 function AuthEventBridge() {
   const navigate = useNavigate();
@@ -95,7 +114,7 @@ export const router = createBrowserRouter([
       </>
     ),
     children: [
-      { index: true, element: <Navigate replace to="/kbs" /> },
+      { index: true, element: <RootRedirect /> },
       { path: 'kbs', element: <AuthGuard><KbsPage /></AuthGuard> },
       { path: 'kbs/:kbId', element: <AuthGuard><KbDetailPage /></AuthGuard> },
       {
@@ -127,10 +146,26 @@ export const router = createBrowserRouter([
             ),
           },
           {
+            path: 'groups',
+            element: (
+              <AuthGuard>
+                <AdminGuard><AdminGroupsPage /></AdminGuard>
+              </AuthGuard>
+            ),
+          },
+          {
             path: 'email',
             element: (
               <AuthGuard>
                 <AdminGuard><AdminEmailSettingsPage /></AdminGuard>
+              </AuthGuard>
+            ),
+          },
+          {
+            path: 'oidc',
+            element: (
+              <AuthGuard>
+                <AdminGuard><AdminOidcSettingsPage /></AdminGuard>
               </AuthGuard>
             ),
           },

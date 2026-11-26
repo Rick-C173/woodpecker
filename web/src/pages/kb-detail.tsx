@@ -21,8 +21,18 @@ import { RoleBadge } from '@/components/shared/role-badge';
 import { useAuth } from '@/hooks/use-auth';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
 import { DocumentTable } from '@/components/documents/document-table';
+import { useGroupsList, useGrantGroup, useKBGroupRoles, useRevokeGroup, useUpdateGroupRole } from '@/hooks/use-groups';
+
+type KBGroupRoleItem = components['schemas']['service.KBGroupRoleItem'];
 import { IngestWizard } from '@/components/documents/ingest-wizard';
 import { Button, buttonVariants } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -279,6 +289,9 @@ function MembersTab({ kbId }: { kbId: number }) {
 
       <AddMemberDialog open={addOpen} onOpenChange={setAddOpen} kbId={kbId} />
 
+      {/* 组授权区块（FR-18） */}
+      <GroupGrantsSection kbId={kbId} />
+
       <ConfirmDialog
         open={removing !== null}
         onOpenChange={(open) => {
@@ -300,6 +313,142 @@ function MembersTab({ kbId }: { kbId: number }) {
         }}
       />
     </div>
+  );
+}
+
+/* ------------------------------ 组授权区块（FR-18） ------------------------------ */
+
+/** 组授权：列表（组名/角色）+ 授权（组下拉 + 角色下拉）+ 变更/撤销。 */
+function GroupGrantsSection({ kbId }: { kbId: number }) {
+  const grants = useKBGroupRoles(kbId);
+  const groupsQ = useGroupsList();
+  const grant = useGrantGroup();
+  const updateRole = useUpdateGroupRole();
+  const revoke = useRevokeGroup();
+  const [groupId, setGroupId] = useState('');
+  const [role, setRole] = useState('member');
+  // 撤销确认
+  const [revoking, setRevoking] = useState<KBGroupRoleItem | null>(null);
+
+  const items = grants.data ?? [];
+  // 只能授权未授权的组
+  const grantedIds = new Set(items.map((g) => g.group_id));
+  const availableGroups = (groupsQ.data ?? []).filter((g) => !grantedIds.has(g.id));
+
+  const handleGrant = () => {
+    if (!groupId) return;
+    grant.mutate(
+      { kbId, groupId: Number(groupId), role },
+      {
+        onSuccess: () => {
+          toast.success('组授权成功');
+          setGroupId('');
+        },
+        onError: (e) => toast.error(e instanceof Error ? e.message : '组授权失败'),
+      },
+    );
+  };
+
+  return (
+    <section className="rounded-lg border border-[var(--border)] p-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold">组授权</h3>
+          <p className="text-xs text-[var(--faint)]">
+            组内成员按组角色访问本库（有效角色取直接授权与组授权的最高者）。
+          </p>
+        </div>
+      </div>
+
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <Select value={groupId} onValueChange={setGroupId}>
+          <SelectTrigger className="w-52" aria-label="选择用户组">
+            <SelectValue placeholder="选择用户组" />
+          </SelectTrigger>
+          <SelectContent>
+            {availableGroups.map((g) => (
+              <SelectItem key={g.id} value={String(g.id)}>
+                {g.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={role} onValueChange={setRole}>
+          <SelectTrigger className="w-36" aria-label="组角色">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="owner">管理者</SelectItem>
+            <SelectItem value="editor">编辑者</SelectItem>
+            <SelectItem value="member">成员</SelectItem>
+          </SelectContent>
+        </Select>
+        <Button size="sm" onClick={handleGrant} disabled={!groupId || grant.isPending}>
+          {grant.isPending ? '授权中…' : '授权'}
+        </Button>
+      </div>
+
+      {items.length === 0 ? (
+        <p className="py-2 text-center text-sm text-[var(--faint)]">暂无组授权</p>
+      ) : (
+        <div className="divide-y divide-[var(--border)] rounded-md border border-[var(--border)]">
+          {items.map((g) => (
+            <div key={g.group_id} className="flex items-center justify-between gap-3 px-3 py-2">
+              <span className="text-sm font-medium">{g.name}</span>
+              <div className="flex items-center gap-2">
+                <RoleSelect
+                  value={g.role ?? 'member'}
+                  disabled={updateRole.isPending}
+                  onChange={(r) =>
+                    updateRole.mutate(
+                      { kbId, groupId: g.group_id ?? 0, role: r },
+                      {
+                        onSuccess: () => toast.success('组角色已更新'),
+                        onError: (e) => toast.error(e instanceof Error ? e.message : '变更失败'),
+                      },
+                    )
+                  }
+                />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-[var(--destructive)]"
+                  disabled={revoke.isPending}
+                  onClick={() => setRevoking(g)}
+                >
+                  <Trash2 aria-hidden="true" />
+                  撤销
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <ConfirmDialog
+        open={revoking !== null}
+        onOpenChange={(open) => {
+          if (!open) setRevoking(null);
+        }}
+        title="撤销组授权"
+        description={`将撤销组「${revoking?.name ?? ''}」对本库的授权，组内成员立即失去本库访问。`}
+        confirmLabel="撤销"
+        busy={revoke.isPending}
+        onConfirm={() => {
+          if (!revoking) return;
+          revoke.mutate(
+            { kbId, groupId: revoking.group_id ?? 0 },
+            {
+              onSuccess: () => {
+                toast.success('组授权已撤销');
+                setRevoking(null);
+              },
+              onError: (e) => toast.error(e instanceof Error ? e.message : '撤销失败'),
+            },
+          );
+        }}
+      />
+    </section>
   );
 }
 

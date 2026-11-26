@@ -9,16 +9,20 @@ import {
   BookOpenText,
   ClipboardList,
   Cog,
+  KeyRound,
   MailPlus,
   MessagesSquare,
   Users,
+  UsersRound,
   Wrench,
 } from 'lucide-react';
 
 const ADMIN_NAV = [
   { to: '/admin/users', label: '用户管理', icon: Users },
+  { to: '/admin/groups', label: '用户组', icon: UsersRound },
   { to: '/admin/invitations', label: '邀请管理', icon: MailPlus },
   { to: '/admin/email', label: '邮件配置', icon: MailPlus },
+  { to: '/admin/oidc', label: 'SSO 登录', icon: KeyRound },
   { to: '/admin/models', label: '模型服务', icon: Wrench },
   { to: '/admin/audit', label: '审计日志', icon: ClipboardList },
   { to: '/admin/settings', label: '系统设置', icon: Cog },

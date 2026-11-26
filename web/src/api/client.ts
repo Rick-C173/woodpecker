@@ -14,8 +14,8 @@ import type { paths } from './schema';
 import { ApiError } from '@/lib/errors';
 import { clearAuth, emitAuthEvent, getToken } from '@/lib/auth';
 
-/** 公开端点：其 401 是业务结果（如 AUTH_001 密码错误），不得触发全局登出跳转。 */
-const PUBLIC_PATHS = ['/auth/login', '/auth/register'];
+/** 公开端点：其 401 是业务结果（如 AUTH_001 密码错误、AUTH_010 SSO 兑换过期），不得触发全局登出跳转。 */
+const PUBLIC_PATHS = ['/auth/login', '/auth/register', '/auth/oidc/status', '/auth/oidc/token'];
 
 /** 解析后端统一错误信封 {code, message, request_id}。 */
 async function parseErrorBody(

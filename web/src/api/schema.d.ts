@@ -280,6 +280,285 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 用户组列表（管理员）
+         * @description 含成员数与授权库数。
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items?: components["schemas"]["service.GroupItem"][];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        /**
+         * 建组（管理员）
+         * @description name 全局唯一 ≤50 字符；重名 409 GROUP_001。
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /** @description 组名与描述 */
+            requestBody: {
+                content: {
+                    "application/json": {
+                        description?: string;
+                        name?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["service.GroupItem"];
+                    };
+                };
+                /** @description GROUP_001 */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["httpx.ErrorBody"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/groups/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** 删组（管理员，级联解除组员与授权） */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description 组 ID */
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message?: string;
+                        };
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        /** 改组（管理员） */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description 组 ID */
+                    id: number;
+                };
+                cookie?: never;
+            };
+            /** @description 待修改字段（均可缺省） */
+            requestBody: {
+                content: {
+                    "application/json": {
+                        description?: string;
+                        name?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["service.GroupItem"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/admin/groups/{id}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 组成员列表（管理员） */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description 组 ID */
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items?: components["schemas"]["service.GroupMemberItem"][];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        /**
+         * 加组员（管理员）
+         * @description 用户不存在 404；已在组内 409 GROUP_002。
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description 组 ID */
+                    id: number;
+                };
+                cookie?: never;
+            };
+            /** @description 用户 */
+            requestBody: {
+                content: {
+                    "application/json": {
+                        user_id?: number;
+                    };
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["service.GroupMemberItem"];
+                    };
+                };
+                /** @description GROUP_002 */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["httpx.ErrorBody"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/groups/{id}/members/{user}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** 移出组（管理员，即时失去组授库访问） */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description 组 ID */
+                    id: number;
+                    /** @description 用户 ID */
+                    user: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message?: string;
+                        };
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/invitations": {
         parameters: {
             query?: never;
@@ -1039,6 +1318,136 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/oidc-settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 读取 OIDC 配置（管理员） */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            admin_claim?: string;
+                            admin_claim_value?: string;
+                            client_id?: string;
+                            configured?: boolean;
+                            enabled?: boolean;
+                            frontend_uri?: string;
+                            groups_claim?: string;
+                            issuer?: string;
+                            redirect_uri?: string;
+                            scopes?: string[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * 保存 OIDC 配置（管理员）
+         * @description client_secret 空=不修改；保存记审计。
+         */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /** @description OIDC 配置 */
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["handler.oidcSettingsRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message?: string;
+                        };
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/admin/oidc-settings/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * OIDC 连接测试（管理员）
+         * @description 拉取 IdP 发现文档并报告可达性与关键端点。
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            authorization_endpoint?: string;
+                            issuer?: string;
+                            token_endpoint?: string;
+                            userinfo_endpoint?: string;
+                        };
+                    };
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["httpx.ErrorBody"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/settings": {
         parameters: {
             query?: never;
@@ -1453,6 +1862,189 @@ export interface paths {
                             message?: string;
                             request_id?: string;
                         };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/oidc/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * IdP 回调（公开）
+         * @description 校验 state/cookie → 换 token、JIT 建号、组同步 → 302 前端 `/?oidc=<一次性code>`；失败 302 `/?oidc_error=<原因>`。
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Location: 前端地址 */
+                302: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "*/*": string;
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/oidc/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 发起 SSO（公开）
+         * @description state+nonce+PKCE verifier 存 HttpOnly cookie（10 分钟）；未启用 404。
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Location: IdP 授权端点 */
+                302: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "*/*": string;
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "*/*": components["schemas"]["httpx.ErrorBody"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/oidc/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * SSO 状态（公开）
+         * @description `{enabled}`，登录页据此显隐「企业账号登录」。
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            enabled?: boolean;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/oidc/token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * SSO 登录兑换（公开，FR-19）
+         * @description `{code}` 一次性 60s；响应与密码登录同构 AuthResult。
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /** @description 一次性 code */
+            requestBody: {
+                content: {
+                    "application/json": {
+                        code?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["service.AuthResult"];
+                    };
+                };
+                /** @description AUTH_010 登录已过期 */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["httpx.ErrorBody"];
                     };
                 };
             };
@@ -3025,6 +3617,160 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/kbs/{kb}/group-roles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 组授权列表（管理员/管理者） */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description 知识库 ID */
+                    kb: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items?: components["schemas"]["service.KBGroupRoleItem"][];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        /**
+         * 组授权（管理员/管理者）
+         * @description {group_id, role: owner|editor|member}；已授权 409 GROUP_003。
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description 知识库 ID */
+                    kb: number;
+                };
+                cookie?: never;
+            };
+            /** @description 组与角色 */
+            requestBody: {
+                content: {
+                    "application/json": {
+                        group_id?: number;
+                        role?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["service.KBGroupRoleItem"];
+                    };
+                };
+                /** @description GROUP_003 */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["httpx.ErrorBody"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/kbs/{kb}/group-roles/{group}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** 撤销组授权（管理员/管理者，组员即时失访） */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description 知识库 ID */
+                    kb: number;
+                    /** @description 组 ID */
+                    group: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message?: string;
+                        };
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        /** 变更组角色（管理员/管理者） */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description 知识库 ID */
+                    kb: number;
+                    /** @description 组 ID */
+                    group: number;
+                };
+                cookie?: never;
+            };
+            requestBody: components["requestBodies"]["Body"];
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message?: string;
+                        };
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
     "/kbs/{kb}/members": {
         parameters: {
             query?: never;
@@ -3270,14 +4016,7 @@ export interface paths {
                 };
                 cookie?: never;
             };
-            /** @description 新角色 */
-            requestBody: {
-                content: {
-                    "application/json": {
-                        role?: string;
-                    };
-                };
-            };
+            requestBody: components["requestBodies"]["Body"];
             responses: {
                 /** @description OK */
                 200: {
@@ -3687,6 +4426,19 @@ export interface components {
             port?: number;
             username?: string;
         };
+        "handler.oidcSettingsRequest": {
+            admin_claim?: string;
+            admin_claim_value?: string;
+            client_id?: string;
+            /** @description 明文仅传入；空=不修改 */
+            client_secret?: string;
+            enabled?: boolean;
+            frontend_uri?: string;
+            groups_claim?: string;
+            issuer?: string;
+            redirect_uri?: string;
+            scopes?: string[];
+        };
         "handler.patchUserResp": {
             /** @description 用户 ID */
             id?: number;
@@ -3941,6 +4693,20 @@ export interface components {
             /** @description 点踩原因 1-4：1 答案不相关 / 2 引用错误 / 3 内容过时 / 4 其他 */
             reason?: number;
         };
+        "service.GroupItem": {
+            created_at?: string;
+            description?: string;
+            id?: number;
+            kb_count?: number;
+            member_count?: number;
+            name?: string;
+            updated_at?: string;
+        };
+        "service.GroupMemberItem": {
+            created_at?: string;
+            user_id?: number;
+            username?: string;
+        };
         "service.InviteItem": {
             created_at?: string;
             created_by?: number;
@@ -3964,6 +4730,13 @@ export interface components {
             ok?: boolean;
             /** @description 邮件是否已发出（false=SMTP 未配置/发送失败，链接可手动转发） */
             sent?: boolean;
+        };
+        "service.KBGroupRoleItem": {
+            created_at?: string;
+            group_id?: number;
+            name?: string;
+            /** @description owner|editor|member */
+            role?: string;
         };
         "service.KBItem": {
             /** @description 创建时间 RFC3339 UTC */
@@ -4092,7 +4865,16 @@ export interface components {
     };
     responses: never;
     parameters: never;
-    requestBodies: never;
+    requestBodies: {
+        /** @description 新角色 */
+        Body: {
+            content: {
+                "application/json": {
+                    role?: string;
+                };
+            };
+        };
+    };
     headers: never;
     pathItems: never;
 }

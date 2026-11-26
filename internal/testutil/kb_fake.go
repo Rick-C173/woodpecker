@@ -18,12 +18,13 @@ type userGetter interface {
 
 // FakeKBRepo 知识库存储替身：内存实现，支持错误注入。
 type FakeKBRepo struct {
-	mu       sync.Mutex
-	kbs      map[int64]*model.KnowledgeBase
-	members  map[int64]map[int64]int16 // kb_id → user_id → role
-	docCount map[int64]int64
-	nextID   int64
-	Users    userGetter // 可选：校验目标用户是否存在
+	mu        sync.Mutex
+	kbs       map[int64]*model.KnowledgeBase
+	members   map[int64]map[int64]int16 // kb_id → user_id → role
+	effective map[int64]map[int64]int16 // FR-18 有效角色覆盖（模拟组合并结果）
+	docCount  map[int64]int64
+	nextID    int64
+	Users     userGetter // 可选：校验目标用户是否存在
 
 	ErrOnCreate     error
 	ErrOnSave       error
@@ -191,6 +192,40 @@ func (f *FakeKBRepo) GetMemberRole(_ context.Context, kbID, userID int64) (int16
 		return 0, repo.ErrNotFound
 	}
 	return role, nil
+}
+
+// EffectiveRoles 组授权合并后的有效角色覆盖（FR-18 单测用）：kb_id → user_id → role。
+// 未登记的 (kb,user) 落回直接授权（GetMemberRole 语义）。
+func (f *FakeKBRepo) GetEffectiveRole(ctx context.Context, kbID, userID int64) (int16, error) {
+	f.mu.Lock()
+	if f.ErrOnRole != nil {
+		f.mu.Unlock()
+		return 0, f.ErrOnRole
+	}
+	var eff int16
+	if byUser, ok := f.effective[kbID]; ok {
+		if role, ok := byUser[userID]; ok {
+			eff = role
+		}
+	}
+	f.mu.Unlock()
+	if eff > 0 {
+		return eff, nil
+	}
+	return f.GetMemberRole(ctx, kbID, userID)
+}
+
+// SetEffectiveRole 直接设置有效角色（模拟组授权合并结果，绕过 service）。
+func (f *FakeKBRepo) SetEffectiveRole(kbID, userID int64, role int16) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.effective == nil {
+		f.effective = map[int64]map[int64]int16{}
+	}
+	if f.effective[kbID] == nil {
+		f.effective[kbID] = map[int64]int16{}
+	}
+	f.effective[kbID][userID] = role
 }
 
 // GetVisibility 库可见性（FR-17）：0 值视为私有（SeedKB 建的库未显式设置）。

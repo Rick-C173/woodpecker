@@ -28,6 +28,8 @@ type KBRepo interface {
 	ListForUser(ctx context.Context, userID int64) ([]repo.KBRow, error)
 	ListAll(ctx context.Context) ([]repo.KBRow, error)
 	GetMemberRole(ctx context.Context, kbID, userID int64) (int16, error)
+	// GetEffectiveRole 有效角色（FR-18）：直接授权与组授权取最高；成员资格判定用
+	GetEffectiveRole(ctx context.Context, kbID, userID int64) (int16, error)
 	ListMembers(ctx context.Context, kbID int64) ([]repo.KBMemberRow, error)
 	UpsertMember(ctx context.Context, m *model.KBMember) error
 	DeleteMember(ctx context.Context, kbID, userID int64) error
@@ -127,7 +129,8 @@ func (s *KBService) Get(ctx context.Context, kbID, userID int64, isAdmin bool) (
 	}
 	role := "admin"
 	if !isAdmin {
-		r, err := s.kbs.GetMemberRole(ctx, kbID, userID)
+		// FR-18：成员资格按有效角色（直接 ∪ 组）判定；org 访客 fallback 同前
+		r, err := s.kbs.GetEffectiveRole(ctx, kbID, userID)
 		if err != nil {
 			if errors.Is(err, repo.ErrNotFound) {
 				// 非成员：全员可见库放行（org 只读访客）；私有库 404（不可见原则）

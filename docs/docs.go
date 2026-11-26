@@ -315,6 +315,320 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/groups": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "含成员数与授权库数。",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "groups"
+                ],
+                "summary": "用户组列表（管理员）",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "items": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/definitions/service.GroupItem"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "name 全局唯一 ≤50 字符；重名 409 GROUP_001。",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "groups"
+                ],
+                "summary": "建组（管理员）",
+                "parameters": [
+                    {
+                        "description": "组名与描述",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "description": {
+                                    "type": "string"
+                                },
+                                "name": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/service.GroupItem"
+                        }
+                    },
+                    "409": {
+                        "description": "GROUP_001",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorBody"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/groups/{id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "groups"
+                ],
+                "summary": "删组（管理员，级联解除组员与授权）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "组 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "message": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "groups"
+                ],
+                "summary": "改组（管理员）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "组 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "待修改字段（均可缺省）",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "description": {
+                                    "type": "string"
+                                },
+                                "name": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/service.GroupItem"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/groups/{id}/members": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "groups"
+                ],
+                "summary": "组成员列表（管理员）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "组 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "items": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/definitions/service.GroupMemberItem"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "用户不存在 404；已在组内 409 GROUP_002。",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "groups"
+                ],
+                "summary": "加组员（管理员）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "组 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "用户",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "user_id": {
+                                    "type": "integer"
+                                }
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/service.GroupMemberItem"
+                        }
+                    },
+                    "409": {
+                        "description": "GROUP_002",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorBody"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/groups/{id}/members/{user}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "groups"
+                ],
+                "summary": "移出组（管理员，即时失去组授库访问）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "组 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "用户 ID",
+                        "name": "user",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "message": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/admin/invitations": {
             "get": {
                 "security": [
@@ -1169,6 +1483,152 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/oidc-settings": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "oidc"
+                ],
+                "summary": "读取 OIDC 配置（管理员）",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "admin_claim": {
+                                    "type": "string"
+                                },
+                                "admin_claim_value": {
+                                    "type": "string"
+                                },
+                                "client_id": {
+                                    "type": "string"
+                                },
+                                "configured": {
+                                    "type": "boolean"
+                                },
+                                "enabled": {
+                                    "type": "boolean"
+                                },
+                                "frontend_uri": {
+                                    "type": "string"
+                                },
+                                "groups_claim": {
+                                    "type": "string"
+                                },
+                                "issuer": {
+                                    "type": "string"
+                                },
+                                "redirect_uri": {
+                                    "type": "string"
+                                },
+                                "scopes": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "client_secret 空=不修改；保存记审计。",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "oidc"
+                ],
+                "summary": "保存 OIDC 配置（管理员）",
+                "parameters": [
+                    {
+                        "description": "OIDC 配置",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.oidcSettingsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "message": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/oidc-settings/test": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "拉取 IdP 发现文档并报告可达性与关键端点。",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "oidc"
+                ],
+                "summary": "OIDC 连接测试（管理员）",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "authorization_endpoint": {
+                                    "type": "string"
+                                },
+                                "issuer": {
+                                    "type": "string"
+                                },
+                                "token_endpoint": {
+                                    "type": "string"
+                                },
+                                "userinfo_endpoint": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorBody"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/settings": {
             "get": {
                 "description": "系统设置当前值（FR-13）：排除规则与自助注册开关。exclusion_rules 为 null 表示未自定义、使用内置默认清单（README/锁文件等）。\n\n权限：管理员。缺省值直接展示，前端一次拉全。",
@@ -1486,6 +1946,116 @@ const docTemplate = `{
                                     "type": "string"
                                 }
                             }
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/oidc/callback": {
+            "get": {
+                "description": "校验 state/cookie → 换 token、JIT 建号、组同步 → 302 前端 ` + "`" + `/?oidc=\u003c一次性code\u003e` + "`" + `；失败 302 ` + "`" + `/?oidc_error=\u003c原因\u003e` + "`" + `。",
+                "tags": [
+                    "auth"
+                ],
+                "summary": "IdP 回调（公开）",
+                "responses": {
+                    "302": {
+                        "description": "Location: 前端地址",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/oidc/login": {
+            "get": {
+                "description": "state+nonce+PKCE verifier 存 HttpOnly cookie（10 分钟）；未启用 404。",
+                "tags": [
+                    "auth"
+                ],
+                "summary": "发起 SSO（公开）",
+                "responses": {
+                    "302": {
+                        "description": "Location: IdP 授权端点",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorBody"
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/oidc/status": {
+            "get": {
+                "description": "` + "`" + `{enabled}` + "`" + `，登录页据此显隐「企业账号登录」。",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "SSO 状态（公开）",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "enabled": {
+                                    "type": "boolean"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/oidc/token": {
+            "post": {
+                "description": "` + "`" + `{code}` + "`" + ` 一次性 60s；响应与密码登录同构 AuthResult。",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "SSO 登录兑换（公开，FR-19）",
+                "parameters": [
+                    {
+                        "description": "一次性 code",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "code": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/service.AuthResult"
+                        }
+                    },
+                    "401": {
+                        "description": "AUTH_010 登录已过期",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorBody"
                         }
                     }
                 }
@@ -2837,6 +3407,210 @@ const docTemplate = `{
                 }
             }
         },
+        "/kbs/{kb}/group-roles": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "kbs"
+                ],
+                "summary": "组授权列表（管理员/管理者）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "知识库 ID",
+                        "name": "kb",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "items": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/definitions/service.KBGroupRoleItem"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "{group_id, role: owner|editor|member}；已授权 409 GROUP_003。",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "kbs"
+                ],
+                "summary": "组授权（管理员/管理者）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "知识库 ID",
+                        "name": "kb",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "组与角色",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "group_id": {
+                                    "type": "integer"
+                                },
+                                "role": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/service.KBGroupRoleItem"
+                        }
+                    },
+                    "409": {
+                        "description": "GROUP_003",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorBody"
+                        }
+                    }
+                }
+            }
+        },
+        "/kbs/{kb}/group-roles/{group}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "kbs"
+                ],
+                "summary": "撤销组授权（管理员/管理者，组员即时失访）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "知识库 ID",
+                        "name": "kb",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "组 ID",
+                        "name": "group",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "message": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "kbs"
+                ],
+                "summary": "变更组角色（管理员/管理者）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "知识库 ID",
+                        "name": "kb",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "组 ID",
+                        "name": "group",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "新角色",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "role": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "message": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/kbs/{kb}/members": {
             "get": {
                 "security": [
@@ -3532,6 +4306,45 @@ const docTemplate = `{
                 }
             }
         },
+        "handler.oidcSettingsRequest": {
+            "type": "object",
+            "properties": {
+                "admin_claim": {
+                    "type": "string"
+                },
+                "admin_claim_value": {
+                    "type": "string"
+                },
+                "client_id": {
+                    "type": "string"
+                },
+                "client_secret": {
+                    "description": "明文仅传入；空=不修改",
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "frontend_uri": {
+                    "type": "string"
+                },
+                "groups_claim": {
+                    "type": "string"
+                },
+                "issuer": {
+                    "type": "string"
+                },
+                "redirect_uri": {
+                    "type": "string"
+                },
+                "scopes": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
         "handler.patchUserResp": {
             "type": "object",
             "properties": {
@@ -4066,6 +4879,46 @@ const docTemplate = `{
                 }
             }
         },
+        "service.GroupItem": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "kb_count": {
+                    "type": "integer"
+                },
+                "member_count": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "service.GroupMemberItem": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "integer"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
         "service.InviteItem": {
             "type": "object",
             "properties": {
@@ -4123,6 +4976,24 @@ const docTemplate = `{
                 "sent": {
                     "description": "邮件是否已发出（false=SMTP 未配置/发送失败，链接可手动转发）",
                     "type": "boolean"
+                }
+            }
+        },
+        "service.KBGroupRoleItem": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "group_id": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "role": {
+                    "description": "owner|editor|member",
+                    "type": "string"
                 }
             }
         },

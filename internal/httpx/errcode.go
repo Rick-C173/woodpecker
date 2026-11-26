@@ -18,6 +18,8 @@ const (
 	// CodeInviteInvalid 邀请无效或已过期（FR-16；token 不存在/过期/已撤销）。
 	CodeInviteInvalid      = "AUTH_008"          // 410 邀请无效或已过期
 	CodeInviteUsed         = "AUTH_009"          // 409 邀请已被使用
+	// CodeOIDCLoginFail SSO 登录失败（FR-19；一次性 code 过期/已消费、IdP 回调非法）。
+	CodeOIDCLoginFail      = "AUTH_010"          // 401 SSO 登录失败
 	CodeEmailSendFail      = "EMAIL_001"         // 422 邮件发送失败（邀请已创建，可配置后重发）
 	CodeNotFound           = "NOT_FOUND"         // 404 资源不存在
 	CodeValidation         = "VALIDATION_FAILED" // 422 参数校验失败
@@ -25,6 +27,9 @@ const (
 	CodeUserSelfDisable    = "USER_002"          // 422 不能禁用自己
 	CodeUserLastAdmin      = "USER_003"          // 422 最后一个管理员保护
 	CodeKBNameExists       = "KB_001"            // 409 知识库名称重复
+	CodeGroupNameExists    = "GROUP_001"         // 409 用户组名已存在
+	CodeGroupUserExists    = "GROUP_002"         // 409 用户已在组内
+	CodeGroupKBGranted     = "GROUP_003"         // 409 组已授权到该知识库
 	CodeDocRepoTooLarge    = "DOC_001"           // 422 仓库超过大小/文件数限制
 	CodeDocFormatNoSupport = "DOC_002"           // 422 文件格式不支持
 	CodeDocCredInvalid     = "DOC_003"           // 422 仓库凭证无效或地址不可达
@@ -53,6 +58,7 @@ var httpStatusByCode = map[string]int{
 	CodeAuthMustChangePassword: http.StatusForbidden,
 	CodeInviteInvalid:          http.StatusGone,
 	CodeInviteUsed:             http.StatusConflict,
+	CodeOIDCLoginFail:          http.StatusUnauthorized,
 	CodeEmailSendFail:          http.StatusUnprocessableEntity,
 	CodeNotFound:               http.StatusNotFound,
 	CodeValidation:             http.StatusUnprocessableEntity,
@@ -60,6 +66,9 @@ var httpStatusByCode = map[string]int{
 	CodeUserSelfDisable:        http.StatusUnprocessableEntity,
 	CodeUserLastAdmin:          http.StatusUnprocessableEntity,
 	CodeKBNameExists:           http.StatusConflict,
+	CodeGroupNameExists:        http.StatusConflict,
+	CodeGroupUserExists:        http.StatusConflict,
+	CodeGroupKBGranted:         http.StatusConflict,
 	CodeDocRepoTooLarge:        http.StatusUnprocessableEntity,
 	CodeDocFormatNoSupport:     http.StatusUnprocessableEntity,
 	CodeDocCredInvalid:         http.StatusUnprocessableEntity,
