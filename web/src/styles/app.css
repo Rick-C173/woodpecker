@@ -388,6 +388,13 @@ html[data-theme='dark'] .badge.role-admin::after {
   border: 1px solid var(--border);
 }
 
+/* org=全员可见库的只读访客（FR-17）：弱化描边样式，与成员区分 */
+.badge.role-org {
+  background: var(--primary-soft);
+  color: var(--faint);
+  border: 1px dashed var(--border);
+}
+
 /* ---------- 侧栏导航 ---------- */
 .nav-item {
   display: flex;

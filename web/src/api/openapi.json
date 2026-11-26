@@ -2184,12 +2184,15 @@
                                     },
                                     "name": {
                                         "type": "string"
+                                    },
+                                    "visibility": {
+                                        "type": "integer"
                                     }
                                 }
                             }
                         }
                     },
-                    "description": "知识库名称与描述",
+                    "description": "名称/描述/可见性（1=私有 2=全员可见，缺省私有）",
                     "required": true
                 },
                 "responses": {
@@ -2419,6 +2422,9 @@
                                     },
                                     "name": {
                                         "type": "string"
+                                    },
+                                    "visibility": {
+                                        "type": "integer"
                                     }
                                 }
                             }
@@ -3288,11 +3294,11 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "成员列表（user_id/username/role/加入时间）。\n\n角色定义（PRD R6）：owner=管理者（可删改内容）editor=编辑者（可补充内容）member=成员（只读）。\n\n权限：管理员。",
+                "description": "成员列表（user_id/username/role/加入时间）。\n\n角色定义（PRD R6）：owner=管理者（可删改内容、授权成员）editor=编辑者（可补充内容）member=成员（只读）。\n\n权限：管理员或库内管理者。",
                 "tags": [
                     "kbs"
                 ],
-                "summary": "成员列表（管理员）",
+                "summary": "成员列表（管理员/管理者）",
                 "parameters": [
                     {
                         "description": "知识库 ID",
@@ -3362,11 +3368,11 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "添加成员并指派角色：{user_id, role: owner|editor|member}。\n\n错误：404 目标用户不存在；409 已是成员。\n\n权限：管理员。",
+                "description": "添加成员并指派角色：{user_id, role: owner|editor|member}。\n\n错误：404 目标用户不存在；409 已是成员。\n\n权限：管理员或库内管理者（R6）。",
                 "tags": [
                     "kbs"
                 ],
-                "summary": "添加成员（管理员）",
+                "summary": "添加成员（管理员/管理者）",
                 "parameters": [
                     {
                         "description": "知识库 ID",
@@ -3470,11 +3476,11 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "移除成员，**其历史会话保留但立即失访**（后续访问会话 404）。\n\n权限：管理员。",
+                "description": "移除成员，**其历史会话保留但立即失访**（后续访问会话 404）；管理者不能移除自己（403，需管理员处理）。\n\n权限：管理员或库内管理者（R6）。",
                 "tags": [
                     "kbs"
                 ],
-                "summary": "移除成员（管理员）",
+                "summary": "移除成员（管理员/管理者）",
                 "parameters": [
                     {
                         "description": "知识库 ID",
@@ -3504,6 +3510,27 @@
                                     "type": "object",
                                     "properties": {
                                         "message": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "code": {
+                                            "type": "string"
+                                        },
+                                        "message": {
+                                            "type": "string"
+                                        },
+                                        "request_id": {
                                             "type": "string"
                                         }
                                     }
@@ -3561,11 +3588,11 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "变更成员角色（owner|editor|member）。\n\n权限：管理员。",
+                "description": "变更成员角色（owner|editor|member）；管理者不能变更自己的角色（403，需管理员处理）。\n\n权限：管理员或库内管理者（R6）。",
                 "tags": [
                     "kbs"
                 ],
-                "summary": "修改成员角色（管理员）",
+                "summary": "修改成员角色（管理员/管理者）",
                 "parameters": [
                     {
                         "description": "知识库 ID",
@@ -3611,6 +3638,27 @@
                                     "type": "object",
                                     "properties": {
                                         "message": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "code": {
+                                            "type": "string"
+                                        },
+                                        "message": {
+                                            "type": "string"
+                                        },
+                                        "request_id": {
                                             "type": "string"
                                         }
                                     }
@@ -4684,7 +4732,7 @@
                         "type": "integer"
                     },
                     "my_role": {
-                        "description": "请求者在库内的角色：owner=管理者 editor=编辑者 member=成员",
+                        "description": "请求者在库内的角色：owner=管理者 editor=编辑者 member=成员 org=全员可见只读访客 admin=管理员",
                         "type": "string"
                     },
                     "name": {
@@ -4694,6 +4742,10 @@
                     "updated_at": {
                         "description": "最近更新时间 RFC3339 UTC",
                         "type": "string"
+                    },
+                    "visibility": {
+                        "description": "可见性：1=私有 2=全员可见（FR-17）",
+                        "type": "integer"
                     }
                 }
             },

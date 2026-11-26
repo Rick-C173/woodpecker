@@ -2024,12 +2024,13 @@ export interface paths {
                 path?: never;
                 cookie?: never;
             };
-            /** @description 知识库名称与描述 */
+            /** @description 名称/描述/可见性（1=私有 2=全员可见，缺省私有） */
             requestBody: {
                 content: {
                     "application/json": {
                         description?: string;
                         name?: string;
+                        visibility?: number;
                     };
                 };
             };
@@ -2216,6 +2217,7 @@ export interface paths {
                     "application/json": {
                         description?: string;
                         name?: string;
+                        visibility?: number;
                     };
                 };
             };
@@ -3031,12 +3033,12 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * 成员列表（管理员）
+         * 成员列表（管理员/管理者）
          * @description 成员列表（user_id/username/role/加入时间）。
          *
-         *     角色定义（PRD R6）：owner=管理者（可删改内容）editor=编辑者（可补充内容）member=成员（只读）。
+         *     角色定义（PRD R6）：owner=管理者（可删改内容、授权成员）editor=编辑者（可补充内容）member=成员（只读）。
          *
-         *     权限：管理员。
+         *     权限：管理员或库内管理者。
          */
         get: {
             parameters: {
@@ -3087,12 +3089,12 @@ export interface paths {
         };
         put?: never;
         /**
-         * 添加成员（管理员）
+         * 添加成员（管理员/管理者）
          * @description 添加成员并指派角色：{user_id, role: owner|editor|member}。
          *
          *     错误：404 目标用户不存在；409 已是成员。
          *
-         *     权限：管理员。
+         *     权限：管理员或库内管理者（R6）。
          */
         post: {
             parameters: {
@@ -3177,10 +3179,10 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * 移除成员（管理员）
-         * @description 移除成员，**其历史会话保留但立即失访**（后续访问会话 404）。
+         * 移除成员（管理员/管理者）
+         * @description 移除成员，**其历史会话保留但立即失访**（后续访问会话 404）；管理者不能移除自己（403，需管理员处理）。
          *
-         *     权限：管理员。
+         *     权限：管理员或库内管理者（R6）。
          */
         delete: {
             parameters: {
@@ -3204,6 +3206,19 @@ export interface paths {
                     content: {
                         "application/json": {
                             message?: string;
+                        };
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code?: string;
+                            message?: string;
+                            request_id?: string;
                         };
                     };
                 };
@@ -3238,10 +3253,10 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * 修改成员角色（管理员）
-         * @description 变更成员角色（owner|editor|member）。
+         * 修改成员角色（管理员/管理者）
+         * @description 变更成员角色（owner|editor|member）；管理者不能变更自己的角色（403，需管理员处理）。
          *
-         *     权限：管理员。
+         *     权限：管理员或库内管理者（R6）。
          */
         patch: {
             parameters: {
@@ -3272,6 +3287,19 @@ export interface paths {
                     content: {
                         "application/json": {
                             message?: string;
+                        };
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code?: string;
+                            message?: string;
+                            request_id?: string;
                         };
                     };
                 };
@@ -3948,12 +3976,14 @@ export interface components {
             document_count?: number;
             /** @description 知识库 ID */
             id?: number;
-            /** @description 请求者在库内的角色：owner=管理者 editor=编辑者 member=成员 */
+            /** @description 请求者在库内的角色：owner=管理者 editor=编辑者 member=成员 org=全员可见只读访客 admin=管理员 */
             my_role?: string;
             /** @description 名称（同账号内唯一，≤50 字符） */
             name?: string;
             /** @description 最近更新时间 RFC3339 UTC */
             updated_at?: string;
+            /** @description 可见性：1=私有 2=全员可见（FR-17） */
+            visibility?: number;
         };
         "service.KBMemberItem": {
             /** @description 加入时间 RFC3339 UTC */

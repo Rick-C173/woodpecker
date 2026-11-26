@@ -45,7 +45,12 @@ export function useKbDetail(kbId: number, enabled = true) {
 export function useCreateKb() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (body: { name: string; description?: string }): Promise<KBItem> => {
+    mutationFn: async (body: {
+      name: string;
+      description?: string;
+      /** 1=私有（缺省）2=全员可见（FR-17） */
+      visibility?: number;
+    }): Promise<KBItem> => {
       const { data, response } = await api.POST('/kbs', { body });
       if (!response.ok || !data) throw new Error('创建知识库失败');
       return data;
@@ -56,11 +61,15 @@ export function useCreateKb() {
   });
 }
 
-/** 改名/改描述（管理员）。 */
+/** 改名/描述/可见性（管理员，FR-17）。 */
 export function useUpdateKb(kbId: number) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (body: { name?: string; description?: string }): Promise<KBItem> => {
+    mutationFn: async (body: {
+      name?: string;
+      description?: string;
+      visibility?: number;
+    }): Promise<KBItem> => {
       const { data, response } = await api.PATCH('/kbs/{kb}', {
         params: { path: { kb: kbId } },
         body,
