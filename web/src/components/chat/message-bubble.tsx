@@ -127,7 +127,7 @@ export function MessageBubble({
                 onCite={citations.length > 0 ? onCitationClick : undefined}
               />
               {interrupted ? (
-                <p className="mt-1.5 inline-flex items-center rounded-[var(--radius)] bg-[var(--muted)] px-2 py-0.5 text-xs text-[var(--muted-foreground)]" data-testid="interrupted-tag">
+                <p className="mt-1.5 inline-flex items-center rounded-[var(--radius)] bg-[var(--muted-bg)] border border-[var(--border)] px-2 py-0.5 text-xs text-[var(--muted-foreground)]" data-testid="interrupted-tag">
                   已停止，部分回答已保留
                 </p>
               ) : null}

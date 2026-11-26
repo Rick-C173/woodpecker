@@ -10,7 +10,6 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { ThemeControls } from '@/components/theme/theme-controls';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -70,9 +69,6 @@ export function LoginPage() {
   return (
     <div className="flex h-screen items-center justify-center">
       <div className="login-card">
-        <div className="mb-4">
-          <ThemeControls />
-        </div>
         <div className="login-logo" aria-hidden="true">
           🐦
         </div>

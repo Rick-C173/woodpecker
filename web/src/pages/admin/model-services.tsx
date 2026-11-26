@@ -86,7 +86,7 @@ function EnabledBadge({ enabled }: { enabled?: boolean }) {
         'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium',
         enabled
           ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
-          : 'bg-[var(--muted)] text-[var(--muted-foreground)]',
+          : 'bg-[var(--muted-bg)] text-[var(--muted-foreground)]',
       )}
     >
       {enabled ? '启用' : '停用'}

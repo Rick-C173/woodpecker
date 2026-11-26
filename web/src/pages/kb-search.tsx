@@ -148,7 +148,7 @@ export function KbSearchPage() {
                       </div>
                       {item.score !== undefined && item.score !== null ? (
                         <span
-                          className="rounded-md bg-[var(--muted)] px-1.5 py-0.5 text-xs tabular-nums text-[var(--muted-foreground)]"
+                          className="rounded-md bg-[var(--muted-bg)] border border-[var(--border)] px-1.5 py-0.5 text-xs tabular-nums text-[var(--muted-foreground)]"
                           title="融合得分（RRF，越小越相关）"
                         >
                           score {item.score.toFixed(4)}
