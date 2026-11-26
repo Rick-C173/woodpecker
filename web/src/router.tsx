@@ -26,6 +26,7 @@ import { KbChatPage } from '@/pages/kb-chat';
 import { AdminUsersPage } from '@/pages/admin/users';
 import { AdminInvitationsPage } from '@/pages/admin/invitations';
 import { AdminEmailSettingsPage } from '@/pages/admin/email-settings';
+import { AdminGroupsPage } from '@/pages/admin/groups';
 import { AdminModelServicesPage } from '@/pages/admin/model-services';
 import { AdminAuditLogsPage } from '@/pages/admin/audit-logs';
 import { AdminSettingsPage } from '@/pages/admin/settings';
@@ -121,6 +122,14 @@ export const router = createBrowserRouter([
             element: (
               <AuthGuard>
                 <AdminGuard><AdminInvitationsPage /></AdminGuard>
+              </AuthGuard>
+            ),
+          },
+          {
+            path: 'groups',
+            element: (
+              <AuthGuard>
+                <AdminGuard><AdminGroupsPage /></AdminGuard>
               </AuthGuard>
             ),
           },
