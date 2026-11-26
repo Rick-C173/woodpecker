@@ -4427,6 +4427,127 @@ const docTemplate = `{
                     }
                 }
             }
+        },
+        "/tokens": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "按创建时间倒序；` + "`" + `prefix` + "`" + ` 展示时拼 ` + "`" + `wpk_` + "`" + ` 前缀。",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tokens"
+                ],
+                "summary": "我的 API Token 列表",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "items": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/definitions/service.APITokenItem"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "明文 ` + "`" + `wpk_\u003c64hex\u003e` + "`" + ` 仅此一次返回；每人上限 20 个有效 Token（TOK_001）。",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tokens"
+                ],
+                "summary": "创建 API Token",
+                "parameters": [
+                    {
+                        "description": "名称 + 可选有效天数（1~3650，缺省永久）",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.createTokenReq"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/service.CreatedToken"
+                        }
+                    },
+                    "422": {
+                        "description": "TOK_001 超上限 / VALIDATION_FAILED 参数非法",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorBody"
+                        }
+                    }
+                }
+            }
+        },
+        "/tokens/{id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "软吊销（revoked_at 置时间）；仅本人。",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tokens"
+                ],
+                "summary": "吊销 API Token",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "token ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "revoked": {
+                                    "type": "boolean"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorBody"
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
@@ -4445,6 +4566,21 @@ const docTemplate = `{
                     ]
                 },
                 "secret": {
+                    "type": "string"
+                }
+            }
+        },
+        "handler.createTokenReq": {
+            "type": "object",
+            "required": [
+                "name"
+            ],
+            "properties": {
+                "expires_in_days": {
+                    "description": "可空=永久；1~3650",
+                    "type": "integer"
+                },
+                "name": {
                     "type": "string"
                 }
             }
@@ -4680,6 +4816,33 @@ const docTemplate = `{
                 }
             }
         },
+        "service.APITokenItem": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "last_used_at": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "prefix": {
+                    "description": "展示用：客户端按 \"wpk_\"+prefix 拼接前 12 字符",
+                    "type": "string"
+                },
+                "revoked_at": {
+                    "type": "string"
+                }
+            }
+        },
         "service.AdminUserItem": {
             "type": "object",
             "properties": {
@@ -4820,6 +4983,18 @@ const docTemplate = `{
                 },
                 "updated_at": {
                     "description": "最近活跃时间 RFC3339 UTC",
+                    "type": "string"
+                }
+            }
+        },
+        "service.CreatedToken": {
+            "type": "object",
+            "properties": {
+                "item": {
+                    "$ref": "#/definitions/service.APITokenItem"
+                },
+                "token": {
+                    "description": "完整明文 wpk_\u003c64hex\u003e，仅创建响应返回一次",
                     "type": "string"
                 }
             }

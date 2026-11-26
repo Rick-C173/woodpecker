@@ -2,6 +2,7 @@
 package database
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -38,6 +39,7 @@ func Open(dsn string, maxOpen, maxIdle, maxLifetimeMinutes int) (*gorm.DB, error
 // Migrate 按文件名字典序执行嵌入的 *.up.sql，已应用文件记录在 applied_migrations 表，
 // 重复执行幂等、多进程并发安全（server 与 worker 同时启动不冲突）。
 func Migrate(dsn string) error {
+	ctx := context.Background() // 启动关键路径无超时约束
 	db, err := sql.Open("pgx", dsn)
 	if err != nil {
 		return fmt.Errorf("打开数据库连接: %w", err)
@@ -57,7 +59,7 @@ func Migrate(dsn string) error {
 		if err != nil {
 			return fmt.Errorf("读取迁移 %s: %w", name, err)
 		}
-		applied, err := applyMigration(db, name, string(content))
+		applied, err := applyMigration(ctx, db, name, string(content))
 		if err != nil {
 			return fmt.Errorf("执行迁移 %s: %w", name, err)
 		}
@@ -72,26 +74,26 @@ func Migrate(dsn string) error {
 // applyMigration 单事务内原子抢占并执行一个迁移文件：
 // advisory lock（按库名散列，实例内各库互不影响）串行化并发进程；
 // INSERT ... ON CONFLICT 抢占记录，抢到者执行文件内容，未抢到说明其他进程已应用，跳过。
-func applyMigration(db *sql.DB, name, content string) (bool, error) {
-	tx, err := db.Begin()
+func applyMigration(ctx context.Context, db *sql.DB, name, content string) (bool, error) {
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return false, err
 	}
 	defer func() { _ = tx.Rollback() }() // Commit 后 Rollback 返回 ErrTxDone，无害
 
-	if _, err := tx.Exec("SELECT pg_advisory_xact_lock(hashtext(current_database()))"); err != nil {
+	if _, err := tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock(hashtext(current_database()))"); err != nil {
 		return false, err
 	}
 	// 记录表独立于业务 schema（不进业务基线文件）；建表须在 advisory lock 内——
 	// 并发 CREATE TABLE IF NOT EXISTS 各自快照判定会撞 pg_type 唯一键
-	if _, err := tx.Exec(`CREATE TABLE IF NOT EXISTS applied_migrations (
+	if _, err := tx.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS applied_migrations (
 	name       TEXT PRIMARY KEY,
 	applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
 )`); err != nil {
 		return false, err
 	}
 	var claimed bool
-	err = tx.QueryRow(
+	err = tx.QueryRowContext(ctx,
 		`INSERT INTO applied_migrations (name) VALUES ($1) ON CONFLICT (name) DO NOTHING RETURNING true`,
 		name,
 	).Scan(&claimed)
@@ -101,7 +103,7 @@ func applyMigration(db *sql.DB, name, content string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if _, err := tx.Exec(content); err != nil {
+	if _, err := tx.ExecContext(ctx, content); err != nil {
 		return false, err
 	}
 	if err := tx.Commit(); err != nil {

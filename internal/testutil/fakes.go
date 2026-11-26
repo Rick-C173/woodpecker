@@ -401,6 +401,124 @@ func (f *FakeFeedbackRepo) ListFeedbacks(_ context.Context, q repo.FeedbackQuery
 	return all[lo:hi], total, nil
 }
 
+// ---- API Token 替身（M15 / FR-20）----
+
+type FakeAPITokenRepo struct {
+	mu     sync.Mutex
+	byID   map[int64]*model.APIToken
+	nextID int64
+	Err    error
+}
+
+func NewFakeAPITokens() *FakeAPITokenRepo {
+	return &FakeAPITokenRepo{byID: map[int64]*model.APIToken{}, nextID: 1}
+}
+
+func (f *FakeAPITokenRepo) Create(_ context.Context, m *model.APIToken) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.Err != nil {
+		return f.Err
+	}
+	m.ID = f.nextID
+	f.nextID++
+	cp := *m
+	f.byID[cp.ID] = &cp
+	return nil
+}
+
+func (f *FakeAPITokenRepo) CountByUser(_ context.Context, userID int64) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.Err != nil {
+		return 0, f.Err
+	}
+	var n int64
+	for _, t := range f.byID {
+		if t.UserID == userID && t.RevokedAt == nil {
+			n++
+		}
+	}
+	return n, nil
+}
+
+func (f *FakeAPITokenRepo) ListByUser(_ context.Context, userID int64) ([]model.APIToken, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var rows []model.APIToken
+	for _, t := range f.byID {
+		if t.UserID == userID {
+			rows = append(rows, *t)
+		}
+	}
+	// created_at 倒序（与真实现一致）
+	for i := 0; i < len(rows); i++ {
+		for j := i + 1; j < len(rows); j++ {
+			if rows[j].CreatedAt.After(rows[i].CreatedAt) {
+				rows[i], rows[j] = rows[j], rows[i]
+			}
+		}
+	}
+	return rows, nil
+}
+
+func (f *FakeAPITokenRepo) GetByHash(_ context.Context, tokenHash string) (*model.APIToken, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, t := range f.byID {
+		if t.TokenHash == tokenHash {
+			cp := *t
+			return &cp, nil
+		}
+	}
+	return nil, repo.ErrNotFound
+}
+
+func (f *FakeAPITokenRepo) Revoke(_ context.Context, id, userID int64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.Err != nil {
+		return f.Err
+	}
+	t, ok := f.byID[id]
+	if !ok || t.UserID != userID || t.RevokedAt != nil {
+		return repo.ErrNotFound
+	}
+	now := time.Now()
+	t.RevokedAt = &now
+	return nil
+}
+
+func (f *FakeAPITokenRepo) TouchLastUsed(_ context.Context, id int64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if t, ok := f.byID[id]; ok {
+		now := time.Now()
+		t.LastUsedAt = &now
+	}
+	return nil
+}
+
+// Snapshot 按 ID 取副本（断言用）。
+func (f *FakeAPITokenRepo) Snapshot(id int64) *model.APIToken {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if t, ok := f.byID[id]; ok {
+		cp := *t
+		return &cp
+	}
+	return nil
+}
+
+// Mutate 原位修改 token 字段（模拟过期时间流逝等场景）。
+func (f *FakeAPITokenRepo) Mutate(id int64, fn func(t *model.APIToken)) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if t, ok := f.byID[id]; ok {
+		fn(t)
+	}
+}
+
 // ---- 环境组装 ----
 
 type TestEnv struct {

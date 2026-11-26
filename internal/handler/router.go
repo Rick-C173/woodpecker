@@ -55,6 +55,9 @@ type Deps struct {
 	// M13：企业单点登录 SSO / OIDC（FR-19）
 	OIDC *OIDCHandler
 
+	// M15：个人 API Token（FR-20）；nil=不注册路由（最小组装兼容）
+	Tokens *APITokenHandler
+
 	KBLookup middleware.KBLookup
 	// OnAdminKBAccess 管理员以非成员身份访问库时回调（审计）
 	OnAdminKBAccess func(ctx context.Context, userID, kbID int64, method, path, ip string)
@@ -117,13 +120,21 @@ func NewRouter(d Deps) *gin.Engine {
 
 	// auth（登录态）：全局限流（API 设计 §1，阈值可配 RATE_LIMIT_PER_MIN，<=0 关闭）
 	limiter := middleware.NewRateLimiter(cfg.RateLimitPerMin, time.Minute)
-	authed := v1.Group("", middleware.Auth(d.Issuer, userLookup(d.UserRepo)), limiter.Handler(middleware.UserKey))
+	authed := v1.Group("", middleware.Auth(d.Issuer, userLookup(d.UserRepo), apiTokenLookup(d.Tokens)), limiter.Handler(middleware.UserKey))
 	// 改密接口本身（含首登强制改密）不受强制改密拦截；成功后 token_version+1 需重新登录。
 	authed.POST("/auth/password", d.Auth.ChangePassword)
 
 	// 首登强制改密（PRD FR-01 / 审计 P1-4）：除改密白名单外，带 must_change_password 的会话一律 403 AUTH_07。
 	// mustChangeOK 与 authed 权限完全一致，只是多一层状态拦截。
 	mustChangeOK := authed.Group("", middleware.RequirePasswordChanged())
+
+	// 个人 API Token（M15 / FR-20）：仅本人管理；首登未改密的 JWT 会话不可创建
+	// （机器凭证路径 must_change_password 恒为 false，不受此拦截）。
+	if d.Tokens != nil {
+		mustChangeOK.GET("/tokens", d.Tokens.List)
+		mustChangeOK.POST("/tokens", d.Tokens.Create)
+		mustChangeOK.DELETE("/tokens/:id", d.Tokens.Revoke)
+	}
 
 	// 知识库（FR-02）：建/改/删与成员授权仅管理员；库内读取需成员资格（R6 不可见原则）
 	var adminBypass func(*gin.Context, int64, int64)
@@ -206,7 +217,7 @@ func NewRouter(d Deps) *gin.Engine {
 	// 越权优先返回 FORBIDDEN（不向无权限者泄露账号改密状态），
 	// 管理员一旦被标记改密仍会被 AUTH_07 拦在业务接口之外。
 	admin := v1.Group("/admin",
-		middleware.Auth(d.Issuer, userLookup(d.UserRepo)),
+		middleware.Auth(d.Issuer, userLookup(d.UserRepo), apiTokenLookup(d.Tokens)),
 		limiter.Handler(middleware.UserKey),
 		middleware.Admin(),
 		middleware.RequirePasswordChanged(),
@@ -291,7 +302,21 @@ func userLookup(users UserLookupRepo) middleware.UserLookup {
 			Status:             u.Status,
 			TokenVersion:       u.TokenVersion,
 			MustChangePassword: u.MustChangePassword,
+			IsAdmin:            u.IsAdmin,
 		}, nil
+	}
+}
+
+// apiTokenLookup Auth 中间件的 API Token 校验闭包（M15 / FR-20）：
+// 明文 wpk_ 串 → service 校验（无效/吊销/过期统一 TOK_002）→ 返回所属用户 ID。
+// 用户状态（禁用即时失效 / CtxIsAdmin）由 Auth 内既有 lookup 回查覆盖。
+// handler 为 nil 时返回 nil（Auth 跳过 token 分流，最小组装兼容）。
+func apiTokenLookup(h *APITokenHandler) middleware.TokenLookup {
+	if h == nil {
+		return nil
+	}
+	return func(c *gin.Context, bearer string) (int64, error) {
+		return h.svc.Validate(c.Request.Context(), bearer)
 	}
 }
 

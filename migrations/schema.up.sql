@@ -1,9 +1,9 @@
--- Woodpecker 初始表结构（v1 合并基线，2026-11-26 由 000001~000006 squash 而成，终态 schema）。
--- ⚠ 迁移纪律（开发计划 §4 / migrations.go）：
---   1. 本文件之后的新表/新列一律新增 00000X_*.sql 增量迁移，禁止改写本文件——
---      已部署库的 schema_migrations 记录着版本号与校验和，改写会导致 dirty 拒绝启动或列缺失；
---   2. 下次可 squash 的唯一条件：所有部署环境均可 DROP 重建（即再次出现"无生产数据"窗口期），
---      由人工决策执行，届时将全部增量合并回本文件并升级 vN 基线号；
+-- Woodpecker 初始表结构（v1 合并基线，2026-11-26 终态 schema，含 M15 API Token）。
+-- ⚠ 迁移纪律（migrations.go / 数据库设计.md 头部）：
+--   1. 本文件为基线：功能开发期可临时新增 schema_patch_<feature>.up.sql（"." 字典序小于
+--      "_"，保证基线先执行），功能验证完毕把 patch 内容合并回本文件并删除 patch 文件；
+--   2. 再次合并的唯一条件：所有部署环境均可 DROP 重建（无生产数据窗口期），人工决策执行；
+--      一旦出现生产数据，合并窗口永久关闭，转为只增不改；
 --   3. chunks 引用 document_files、messages 引用 model_entries，建表顺序不可调换。
 
 CREATE EXTENSION IF NOT EXISTS vector;
@@ -288,3 +288,20 @@ CREATE TABLE settings (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_by BIGINT REFERENCES users(id)
 );
+-- 个人 API Token（机器访问凭证，脚本/CI/CLI 鉴权；MCP Server 前置依赖）：
+-- 仅存 SHA-256 哈希（明文 wpk_<64hex> 仅创建响应返回一次）；prefix 为 64hex 前 8 字符
+-- （列表展示时拼 wpk_ 前缀）；token 权限=所属用户本人权限，禁用即时失效；
+-- 不受 users.token_version 影响（改密不使机器凭证失效）。MVP 无细粒度 scope（二期扩展）。
+CREATE TABLE api_tokens (
+    id           BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id      BIGINT       NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name         VARCHAR(100) NOT NULL,
+    token_hash   CHAR(64)     NOT NULL UNIQUE,
+    prefix       CHAR(8)      NOT NULL,
+    last_used_at TIMESTAMPTZ,
+    expires_at   TIMESTAMPTZ,                 -- NULL=永久
+    created_at   TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    revoked_at   TIMESTAMPTZ                  -- NULL=有效；软吊销
+);
+CREATE INDEX idx_api_tokens_user ON api_tokens(user_id, created_at DESC);
+

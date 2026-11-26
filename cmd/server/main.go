@@ -253,6 +253,9 @@ func runAPI(ctx context.Context, cfg *config.Config) error {
 	inviteSvc := service.NewInviteService(inviteRepo, users, smtpSender, smtpStore, cfg.InviteBaseURL, auditSvc)
 	authSvc.SetInvites(inviteRepo)
 
+	// M15：个人 API Token（FR-20）——机器访问凭证（脚本/CI/CLI，MCP 前置依赖）
+	tokenSvc := service.NewAPITokenService(repo.NewAPITokenRepo(db), auditSvc)
+
 	router := handler.NewRouter(handler.Deps{
 		Cfg:           cfg,
 		DB:            db,
@@ -267,6 +270,7 @@ func runAPI(ctx context.Context, cfg *config.Config) error {
 		Invite:        handler.NewInviteHandler(inviteSvc, authSvc, smtpStore, smtpSender),
 		Groups:        handler.NewGroupHandler(groupSvc),
 		OIDC:          handler.NewOIDCHandler(oidcSvc),
+		Tokens:        handler.NewAPITokenHandler(tokenSvc),
 		UserRepo:      users,
 		Issuer:        issuer,
 		KBLookup:      kbs,

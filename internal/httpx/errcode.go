@@ -4,6 +4,10 @@ package httpx
 
 import "net/http"
 
+// TokenPrefix 个人 API Token 明文前缀（M15 / FR-20）：完整明文 = TokenPrefix + 64 hex。
+// middleware（分流判定）与 service（签发/校验）共用，放在中性基础件避免依赖穿透。
+const TokenPrefix = "wpk_"
+
 // 业务错误码，与 md/API设计.md §2 保持一一对应，新增码先改文档再改这里。
 const (
 	CodeAuthInvalid    = "AUTH_001" // 401 用户名或密码错误
@@ -35,11 +39,15 @@ const (
 	CodeDocCredInvalid     = "DOC_003"           // 422 仓库凭证无效或地址不可达
 	CodeDocSyncFailed      = "DOC_004"           // 422 同步失败（远端不可达）
 	// CodeDocWebhookAuth webhook 验签 token 无效（M14）。
-	CodeDocWebhookAuth     = "DOC_005"          // 401 webhook 验签 token 无效
-	CodeDocTaskRunning     = "DOC_TASK_RUNNING" // 409 已有运行中任务
-	CodeModelNoDefault     = "MODEL_001"        // 422 该用途缺少默认条目
-	CodeModelDefaultLocked = "MODEL_002"        // 422 默认条目不可删除
-	CodeModelHasEntries    = "MODEL_003"        // 409 模型服务下存在条目，不可删除
+	CodeDocWebhookAuth = "DOC_005"          // 401 webhook 验签 token 无效
+	CodeDocTaskRunning = "DOC_TASK_RUNNING" // 409 已有运行中任务
+	// CodeTokenLimit 个人 API Token 数量超出上限（M15 / FR-20）。
+	CodeTokenLimit = "TOK_001" // 422 API Token 数量超出上限
+	// CodeTokenInvalid API Token 无效/已吊销/已过期（仅机器凭证路径产生）。
+	CodeTokenInvalid       = "TOK_002"   // 401 API Token 无效或已吊销/过期
+	CodeModelNoDefault     = "MODEL_001" // 422 该用途缺少默认条目
+	CodeModelDefaultLocked = "MODEL_002" // 422 默认条目不可删除
+	CodeModelHasEntries    = "MODEL_003" // 409 模型服务下存在条目，不可删除
 	// CodeModelHasDefaultEntry 停用持有默认条目的服务（审计 P1-6）。
 	CodeModelHasDefaultEntry = "MODEL_004"    // 422 服务下存在默认条目，不可停用
 	CodeLLMUnavailable       = "LLM_001"      // 502 模型服务不可用
@@ -77,6 +85,8 @@ var httpStatusByCode = map[string]int{
 	CodeDocSyncFailed:          http.StatusUnprocessableEntity,
 	CodeDocWebhookAuth:         http.StatusUnauthorized,
 	CodeDocTaskRunning:         http.StatusConflict,
+	CodeTokenLimit:             http.StatusUnprocessableEntity,
+	CodeTokenInvalid:           http.StatusUnauthorized,
 	CodeModelNoDefault:         http.StatusUnprocessableEntity,
 	CodeModelDefaultLocked:     http.StatusUnprocessableEntity,
 	CodeModelHasEntries:        http.StatusConflict,

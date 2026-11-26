@@ -112,7 +112,7 @@ func TestAuthMiddleware(t *testing.T) {
 	}
 
 	r := gin.New()
-	r.GET("/p", Auth(issuer, lookup), func(c *gin.Context) {
+	r.GET("/p", Auth(issuer, lookup, nil), func(c *gin.Context) {
 		adm, _ := c.Get(CtxIsAdmin)
 		c.JSON(200, gin.H{"uid": UserID(c), "adm": adm})
 	})
@@ -195,7 +195,7 @@ func TestRequirePasswordChanged(t *testing.T) {
 	require.NoError(t, err)
 
 	r := gin.New()
-	g := r.Group("/api/v1", Auth(issuer, lookup))
+	g := r.Group("/api/v1", Auth(issuer, lookup, nil))
 	g.POST("/auth/password", func(c *gin.Context) { c.Status(200) })
 	guarded := g.Group("", RequirePasswordChanged())
 	guarded.GET("/kbs", func(c *gin.Context) { c.Status(200) })
@@ -227,7 +227,7 @@ func TestRequirePasswordChanged(t *testing.T) {
 		return UserState{Status: model.UserStatusActive, TokenVersion: 9, MustChangePassword: true}, nil
 	}
 	r2 := gin.New()
-	r2.GET("/api/v1/kbs", Auth(issuer, stale), RequirePasswordChanged(), func(c *gin.Context) { c.Status(200) })
+	r2.GET("/api/v1/kbs", Auth(issuer, stale, nil), RequirePasswordChanged(), func(c *gin.Context) { c.Status(200) })
 	w = httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/api/v1/kbs", nil)
 	req.Header.Set("Authorization", "Bearer "+token)

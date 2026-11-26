@@ -65,6 +65,8 @@ func setup(t *testing.T) *env {
 	// M13：SSO / OIDC（FR-19）
 	oidcStore := &oidcpkg.SettingStore{Store: settings, Encrypt: cipher.Encrypt, Decrypt: cipher.Decrypt}
 	oidcSvc := service.NewOIDCService(oidcStore, users, groupRepo, issuer, auditSvc)
+	// M15：个人 API Token（FR-20）
+	tokenSvc := service.NewAPITokenService(repo.NewAPITokenRepo(db), auditSvc)
 
 	router := handler.NewRouter(handler.Deps{
 		Cfg:      cfg,
@@ -76,6 +78,7 @@ func setup(t *testing.T) *env {
 		Invite:   handler.NewInviteHandler(inviteSvc, authSvc, smtpStore, mail.NewSMTPSender(smtpStore)),
 		Groups:   handler.NewGroupHandler(groupSvc),
 		OIDC:     handler.NewOIDCHandler(oidcSvc),
+		Tokens:   handler.NewAPITokenHandler(tokenSvc),
 		UserRepo: users,
 		Issuer:   issuer,
 		KBLookup: kbs,

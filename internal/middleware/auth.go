@@ -10,8 +10,8 @@ import (
 	"woodpecker/internal/jwt"
 )
 
-// TODO(方向待办-1): API Token——机器访问凭证（长期 token + scope 控制），是 MCP Server 与 CLI
-// 的前置依赖；落地后 JWT 仅服务交互式会话。见 md/产品与后端规划.md。（2026-11-26 规划）
+// M15（FR-20）双凭证：JWT 服务交互式会话；个人 API Token（wpk_ 前缀）服务机器客户端
+// （脚本/CI/CLI，MCP Server 前置）。管理页随前端整体重构落地（方向待办-3）。
 const (
 	CtxUserID  = "user_id"
 	CtxIsAdmin = "is_admin"
@@ -20,28 +20,57 @@ const (
 )
 
 // UserState Auth 中间件所需的用户状态快照。
-// status/token_version/must_change_password 由**一次**查库取全，
+// status/token_version/must_change_password/is_admin 由**一次**查库取全，
 // 避免每个请求额外多一次查询（审计 P1-4 要求复用 userLookup 的既有回查）。
 type UserState struct {
 	Status             int16
 	TokenVersion       int
 	MustChangePassword bool
+	IsAdmin            bool // API Token 路径的 CtxIsAdmin 来源（JWT 路径仍取 claims）
 }
 
 // UserLookup 按 user_id 取用户状态；找不到/出错视为登录状态失效。
 type UserLookup func(c *gin.Context, userID int64) (UserState, error)
 
-// Auth JWT 鉴权（API 设计 §1）：
-//   - 解析失败 / token 过期 / 版本号不符 → 401 AUTH_004
-//   - 用户已被禁用 → 401 AUTH_003（禁用立即生效，PRD FR-13）
+// TokenLookup 校验 API Token 明文（wpk_ 前缀），返回所属用户 ID；
+// 无效/吊销/过期由实现返回 *service.ServiceError（TOK_002）。
+type TokenLookup func(c *gin.Context, bearer string) (int64, error)
+
+// Auth 双凭证鉴权（API 设计 §1）：
+//   - Bearer 串带 wpk_ 前缀 → API Token 路径：token 校验（TOK_002）→ 用户状态回查
+//     （禁用即 AUTH_003）；跳过 token_version 比对——改密/权限变更不使机器凭证失效，
+//     用户禁用仍即时失效（每请求查 Status）；CtxMustChangePassword 固定 false（机器凭证
+//     不受首登改密约束）；CtxIsAdmin 取 DB 实时值
+//   - 否则走 JWT：解析失败/过期/版本号不符 → 401 AUTH_004
 //
-// 注：不逐请求回查 is_admin——权限变更由 service 侧 bump token_version 生效（审计 P1-2），
-// 一次查询即可同时覆盖「禁用/改密/权限变更」三种失效场景。
-func Auth(issuer *jwt.Issuer, lookup UserLookup) gin.HandlerFunc {
+// 注：JWT 路径不逐请求回查 is_admin——权限变更由 service 侧 bump token_version 生效
+// （审计 P1-2），一次查询即可同时覆盖「禁用/改密/权限变更」三种失效场景。
+func Auth(issuer *jwt.Issuer, lookup UserLookup, tokens TokenLookup) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		tokenStr, ok := strings.CutPrefix(c.GetHeader("Authorization"), "Bearer ")
 		if !ok || tokenStr == "" {
 			httpx.AbortFailWith(c, http.StatusUnauthorized, httpx.CodeAuthStaleToken, "未登录或凭证无效")
+			return
+		}
+		if strings.HasPrefix(tokenStr, httpx.TokenPrefix) && tokens != nil {
+			userID, err := tokens(c, tokenStr)
+			if err != nil {
+				httpx.AbortFailWith(c, http.StatusUnauthorized, httpx.CodeTokenInvalid, "API Token 无效或已吊销/过期")
+				return
+			}
+			state, err := lookup(c, userID)
+			if err != nil {
+				httpx.AbortFailWith(c, http.StatusUnauthorized, httpx.CodeTokenInvalid, "API Token 无效")
+				return
+			}
+			if state.Status != 1 {
+				httpx.AbortFailWith(c, http.StatusUnauthorized, httpx.CodeAuthDisabled, "账号已被禁用，请联系管理员")
+				return
+			}
+			c.Set(CtxUserID, userID)
+			c.Set(CtxIsAdmin, state.IsAdmin)
+			c.Set(CtxMustChangePassword, false)
+			c.Next()
 			return
 		}
 		claims, err := issuer.Parse(tokenStr)
