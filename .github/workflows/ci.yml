@@ -62,18 +62,19 @@ jobs:
       - run: go run .
         working-directory: tools/cgo-smoke
 
-  # M8 起启用：web 目录落地后解除注释
-  # web:
-  #   runs-on: ubuntu-latest
-  #   defaults:
-  #     run:
-  #       working-directory: web
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: actions/setup-node@v4
-  #       with:
-  #         node-version: 22
-  #     - run: npm ci
-  #     - run: npm run lint
-  #     - run: npm run build
-# TODO 前端ci
+  # 前端：类型检查 + ESLint + 单测 + 生产构建（M8 起生效）
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
