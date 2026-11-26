@@ -19,9 +19,16 @@ type User struct {
 	FailedAttempts     int        `gorm:"column:failed_attempts"`
 	LockedUntil        *time.Time `gorm:"column:locked_until"`
 	Email              *string    `gorm:"column:email;size:255"` // FR-16：登录可用户名或邮箱；存量账号为空
+	AuthSource         int16      `gorm:"column:auth_source"`    // FR-19：1=本地密码（默认）2=OIDC
 	CreatedAt          time.Time  `gorm:"column:created_at"`
 	UpdatedAt          time.Time  `gorm:"column:updated_at"`
 }
+
+// 账号来源（FR-19）。
+const (
+	AuthSourceLocal int16 = 1
+	AuthSourceOIDC  int16 = 2
+)
 
 func (User) TableName() string { return "users" }
 

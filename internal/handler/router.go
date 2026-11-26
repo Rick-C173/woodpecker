@@ -49,6 +49,9 @@ type Deps struct {
 	// M12：用户组与组授权（FR-18）
 	Groups *GroupHandler
 
+	// M13：企业单点登录 SSO / OIDC（FR-19）
+	OIDC *OIDCHandler
+
 	KBLookup middleware.KBLookup
 	// OnAdminKBAccess 管理员以非成员身份访问库时回调（审计）
 	OnAdminKBAccess func(ctx context.Context, userID, kbID int64, method, path, ip string)
@@ -95,6 +98,14 @@ func NewRouter(d Deps) *gin.Engine {
 	if d.Invite != nil {
 		v1.GET("/auth/invitations/:token", d.Invite.ValidateInvitation)
 		v1.POST("/auth/register/invited", d.Invite.RegisterInvited)
+	}
+
+	// M13：SSO / OIDC（FR-19，公开；未启用时 login 404、前端按钮隐藏）
+	if d.OIDC != nil {
+		v1.GET("/auth/oidc/status", d.OIDC.Status)
+		v1.GET("/auth/oidc/login", d.OIDC.Login)
+		v1.GET("/auth/oidc/callback", d.OIDC.Callback)
+		v1.POST("/auth/oidc/token", d.OIDC.TokenExchange)
 	}
 
 	// auth（登录态）：全局限流（API 设计 §1，阈值可配 RATE_LIMIT_PER_MIN，<=0 关闭）
@@ -215,6 +226,13 @@ func NewRouter(d Deps) *gin.Engine {
 			admin.GET("/groups/:id/members", gp.ListMembers)
 			admin.POST("/groups/:id/members", gp.AddMember)
 			admin.DELETE("/groups/:id/members/:user", gp.RemoveMember)
+		}
+
+		// M13：OIDC 配置（FR-19，管理员）
+		if d.OIDC != nil {
+			admin.GET("/oidc-settings", d.OIDC.GetOidcSettings)
+			admin.PATCH("/oidc-settings", d.OIDC.PatchOidcSettings)
+			admin.POST("/oidc-settings/test", d.OIDC.TestOidcSettings)
 		}
 
 		// 模型服务配置（FR-12）

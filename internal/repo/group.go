@@ -43,7 +43,7 @@ func NewGroupRepo(db *gorm.DB) *GroupRepo { return &GroupRepo{db: db} }
 
 func (r *GroupRepo) dbx(ctx context.Context) *gorm.DB { return r.db.WithContext(ctx) }
 
-// Create 建组（name 唯一约束由调用方预查 + DB 兜底）。
+// Create 建组（name 唯一约束由调用方预查 + DB 兜底；Auto 标识 OIDC 自动组）。
 func (r *GroupRepo) Create(ctx context.Context, g *model.UserGroup) error {
 	return r.dbx(ctx).Create(g).Error
 }
@@ -135,6 +135,16 @@ func (r *GroupRepo) GetMemberByID(ctx context.Context, groupID, userID int64) (*
 		return nil, err
 	}
 	return &m, nil
+}
+
+// ListAutoGroupsByUser 用户当前所在且参与 OIDC 同步的组（FR-19 组同步对齐用）。
+func (r *GroupRepo) ListAutoGroupsByUser(ctx context.Context, userID int64) ([]model.UserGroup, error) {
+	var rows []model.UserGroup
+	err := r.dbx(ctx).
+		Joins("JOIN group_members m ON m.group_id = user_groups.id AND m.user_id = ?", userID).
+		Where("user_groups.auto = ?", true).
+		Find(&rows).Error
+	return rows, err
 }
 
 // Grant 组授权到库（UNIQUE 冲突交由调用方判 409；Upsert 覆盖由调用方决定）。

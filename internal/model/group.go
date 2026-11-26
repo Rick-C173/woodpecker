@@ -3,10 +3,13 @@ package model
 import "time"
 
 // UserGroup 用户组（FR-18）：按部门/项目组整组授权。
+// Auto（FR-19）：true=OIDC 组 claim 同步的自动组（登录时按 claim 双向对齐）；false=手动组不参与同步。
+// CreatedBy：创建者用户 ID；0=系统自动创建（OIDC 组同步，无 users 外键）。
 type UserGroup struct {
 	ID          int64     `gorm:"primaryKey;column:id"`
 	Name        string    `gorm:"column:name;size:50"`
 	Description string    `gorm:"column:description;size:500"`
+	Auto        bool      `gorm:"column:auto"`
 	CreatedBy   int64     `gorm:"column:created_by"`
 	CreatedAt   time.Time `gorm:"column:created_at"`
 	UpdatedAt   time.Time `gorm:"column:updated_at"`

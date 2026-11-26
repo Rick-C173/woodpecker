@@ -35,6 +35,7 @@ import (
 	"woodpecker/internal/jwt"
 	"woodpecker/internal/llm"
 	"woodpecker/internal/mail"
+	"woodpecker/internal/oidc"
 	"woodpecker/internal/repo"
 	"woodpecker/internal/service"
 	"woodpecker/internal/worker"
@@ -217,6 +218,10 @@ func runAPI(ctx context.Context, cfg *config.Config) error {
 
 	// M10：邮箱邀请制注册（FR-16）—— SMTP 配置（密码加密落 settings）+ 邀请生命周期
 	inviteRepo := repo.NewInviteRepo(db)
+	groupRepo := repo.NewGroupRepo(db)
+	groupSvc := service.NewGroupService(groupRepo, users, kbs, auditSvc)
+	oidcStore := &oidc.SettingStore{Store: repo.NewSettingRepo(db), Encrypt: cipher.Encrypt, Decrypt: cipher.Decrypt}
+	oidcSvc := service.NewOIDCService(oidcStore, users, groupRepo, issuer, auditSvc)
 	smtpStore := &mail.SMTPSettingStore{
 		Store:   repo.NewSettingRepo(db),
 		Encrypt: cipher.Encrypt,
@@ -238,6 +243,8 @@ func runAPI(ctx context.Context, cfg *config.Config) error {
 		Chat:          handler.NewChatHandler(chatSvc),
 		AdminSettings: handler.NewAdminSettingsHandler(settingsSvc, adminQuerySvc),
 		Invite:        handler.NewInviteHandler(inviteSvc, authSvc, smtpStore, smtpSender),
+		Groups:        handler.NewGroupHandler(groupSvc),
+		OIDC:          handler.NewOIDCHandler(oidcSvc),
 		UserRepo:      users,
 		Issuer:        issuer,
 		KBLookup:      kbs,
