@@ -417,8 +417,8 @@ export function KbDetailPage() {
         {(data) => (
           <>
             <Breadcrumbs items={[{ label: '知识库', to: '/kbs' }, { label: data.name ?? '' }]} className="mb-3" />
-            {/* 头部：库信息 + 动作 */}
-            <div className="kb-card mb-6 p-5">
+            {/* 头部：库信息 + 动作（GitHub 式开放布局，不再卡片嵌套） */}
+            <div className="mb-5">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">

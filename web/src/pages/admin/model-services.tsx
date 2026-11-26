@@ -13,6 +13,7 @@ import { CircleAlert, CircleCheck, KeyRound, LoaderCircle, Plus, Wrench } from '
 import { QueryBoundary } from '@/components/states/query-boundary';
 import { EmptyState } from '@/components/states/empty-state';
 import { Skeleton } from '@/components/ui/skeleton';
+import { PageHeader } from '@/components/shared/page-header';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -341,18 +342,16 @@ export function AdminModelServicesPage() {
     <div className="mx-auto w-full max-w-5xl space-y-8">
       {/* 服务列表 */}
       <section>
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h1 className="text-lg font-semibold">模型服务</h1>
-            <p className="text-sm text-[var(--muted)]">
-              OpenAI 兼容端点接入；API Key 加密落库、永不回显（仅 has_key 标记）。
-            </p>
-          </div>
-          <Button onClick={() => openServiceDialog('create')} data-testid="create-service">
-            <Plus aria-hidden="true" />
-            新建服务
-          </Button>
-        </div>
+        <PageHeader
+          title="模型服务"
+          description="OpenAI 兼容端点接入；API Key 加密落库、永不回显（仅 has_key 标记）。"
+          actions={
+            <Button onClick={() => openServiceDialog('create')} data-testid="create-service">
+              <Plus aria-hidden="true" />
+              新建服务
+            </Button>
+          }
+        />
 
         <QueryBoundary
           query={services}

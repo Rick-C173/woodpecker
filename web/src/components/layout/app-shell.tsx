@@ -74,15 +74,20 @@ export function AppShell() {
 
           {/* 管理员专属分区入口 */}
           {user?.is_admin ? (
-            <NavLink
-              to="/admin/users"
-              className={({ isActive }) =>
-                `nav-item mt-2${isActive || pathname.startsWith('/admin') ? ' active' : ''}`
-              }
-            >
-              <ShieldCheck aria-hidden="true" />
-              管理后台
-            </NavLink>
+            <>
+              <p className="mt-3 px-2 pb-1 text-[11px] font-semibold tracking-wide text-[var(--faint)]">
+                管理
+              </p>
+              <NavLink
+                to="/admin/users"
+                className={({ isActive }) =>
+                  `nav-item${isActive || pathname.startsWith('/admin') ? ' active' : ''}`
+                }
+              >
+                <ShieldCheck aria-hidden="true" />
+                管理后台
+              </NavLink>
+            </>
           ) : null}
         </nav>
 

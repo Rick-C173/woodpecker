@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 import { FolderKanban, Globe2, Pencil, Plus, Trash2 } from 'lucide-react';
 import { QueryBoundary } from '@/components/states/query-boundary';
 import { EmptyState } from '@/components/states/empty-state';
+import { PageHeader } from '@/components/shared/page-header';
 import { RoleBadge } from '@/components/shared/role-badge';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
 import { Button } from '@/components/ui/button';
@@ -190,18 +191,18 @@ export function KbsPage() {
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 py-8">
-      <div className="mb-6 flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-lg font-semibold">知识库</h1>
-          <p className="text-sm text-[var(--muted)]">按成员授权访问；管理员可见全部库。</p>
-        </div>
-        {isAdmin ? (
-          <Button onClick={openCreate}>
-            <Plus aria-hidden="true" />
-            新建知识库
-          </Button>
-        ) : null}
-      </div>
+      <PageHeader
+        title="知识库"
+        description="按成员授权访问；管理员可见全部库。"
+        actions={
+          isAdmin ? (
+            <Button onClick={openCreate}>
+              <Plus aria-hidden="true" />
+              新建知识库
+            </Button>
+          ) : null
+        }
+      />
 
       <QueryBoundary
         query={list}
@@ -228,7 +229,7 @@ export function KbsPage() {
         {(items) => (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             {items.map((kb) => (
-              <Link key={kb.id} to={`/kbs/${kb.id}`} className="kb-card block">
+              <Link key={kb.id} to={`/kbs/${kb.id}`} className="kb-card group block">
                 <div className="flex items-start justify-between gap-2">
                   <h2 className="truncate text-[15px] font-semibold" title={kb.name ?? ''}>
                     {kb.name}
@@ -254,7 +255,7 @@ export function KbsPage() {
                   <span>{fromNow(kb.updated_at) || '—'}</span>
                 </div>
                 {isAdmin ? (
-                  <div className="mt-3 flex justify-end gap-1 border-t border-[var(--border)] pt-2">
+                  <div className="mt-3 flex justify-end gap-1 border-t border-[var(--border)] pt-2 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                     <Button
                       variant="ghost"
                       size="sm"

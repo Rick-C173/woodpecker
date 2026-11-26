@@ -8,6 +8,7 @@ import { RotateCcw, Save } from 'lucide-react';
 import { toast } from 'sonner';
 import { QueryBoundary } from '@/components/states/query-boundary';
 import { Skeleton } from '@/components/ui/skeleton';
+import { PageHeader } from '@/components/shared/page-header';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { useAdminSettings, usePatchSettings } from '@/hooks/use-admin';
@@ -61,12 +62,10 @@ export function AdminSettingsPage() {
 
   return (
     <div className="mx-auto w-full max-w-3xl">
-      <div className="mb-4">
-        <h1 className="text-lg font-semibold">系统设置</h1>
-        <p className="text-sm text-[var(--muted)]">
-          外观偏好、摄取排除规则与自助注册开关；数据项每次保存均记录审计（setting.update）。
-        </p>
-      </div>
+      <PageHeader
+        title="系统设置"
+        description="外观偏好、摄取排除规则与自助注册开关；数据项每次保存均记录审计（setting.update）。"
+      />
 
       {/* 外观设置（主题/配色为本地浏览器偏好，不走服务端） */}
       <section className="kb-card mb-6">
