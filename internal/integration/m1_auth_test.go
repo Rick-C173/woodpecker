@@ -58,6 +58,8 @@ func setup(t *testing.T) *env {
 	smtpStore := &mail.SMTPSettingStore{Store: settings, Encrypt: cipher.Encrypt, Decrypt: cipher.Decrypt}
 	inviteSvc := service.NewInviteService(invites, users, mail.NewSMTPSender(smtpStore), smtpStore, cfg.InviteBaseURL, auditSvc)
 	authSvc.SetInvites(invites)
+	// M12：用户组与组授权（FR-18）
+	groupSvc := service.NewGroupService(repo.NewGroupRepo(db), users, kbs, auditSvc)
 
 	router := handler.NewRouter(handler.Deps{
 		Cfg:      cfg,
@@ -67,6 +69,7 @@ func setup(t *testing.T) *env {
 		KB:       handler.NewKBHandler(kbSvc),
 		ModelCfg: handler.NewModelCfgHandler(modelCfgSvc),
 		Invite:   handler.NewInviteHandler(inviteSvc, authSvc, smtpStore, mail.NewSMTPSender(smtpStore)),
+		Groups:   handler.NewGroupHandler(groupSvc),
 		UserRepo: users,
 		Issuer:   issuer,
 		KBLookup: kbs,

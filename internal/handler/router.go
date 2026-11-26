@@ -46,6 +46,9 @@ type Deps struct {
 	// M10：邮箱邀请制注册（FR-16）
 	Invite *InviteHandler
 
+	// M12：用户组与组授权（FR-18）
+	Groups *GroupHandler
+
 	KBLookup middleware.KBLookup
 	// OnAdminKBAccess 管理员以非成员身份访问库时回调（审计）
 	OnAdminKBAccess func(ctx context.Context, userID, kbID int64, method, path, ip string)
@@ -126,6 +129,15 @@ func NewRouter(d Deps) *gin.Engine {
 	members.PATCH("/:user", d.KB.UpdateMemberRole)
 	members.DELETE("/:user", d.KB.RemoveMember)
 
+	// 组授权（FR-18）：管理员或库内管理者
+	if d.Groups != nil {
+		gr := kb.Group("/group-roles", middleware.KBMemberManager())
+		gr.GET("", d.Groups.ListGrants)
+		gr.POST("", d.Groups.Grant)
+		gr.PATCH("/:group", d.Groups.UpdateGrant)
+		gr.DELETE("/:group", d.Groups.RevokeGrant)
+	}
+
 	// 检索（FR-10，API设计.md §3.7）：成员可用（KBAccess 已拦截）
 	if d.Search != nil {
 		kb.GET("/search", d.Search.Search)
@@ -191,6 +203,18 @@ func NewRouter(d Deps) *gin.Engine {
 			admin.GET("/email-settings", d.Invite.GetEmailSettings)
 			admin.PATCH("/email-settings", d.Invite.UpdateEmailSettings)
 			admin.POST("/email-settings/test", d.Invite.TestEmail)
+		}
+
+		// M12：用户组（FR-18，管理员）
+		if d.Groups != nil {
+			gp := d.Groups
+			admin.GET("/groups", gp.List)
+			admin.POST("/groups", gp.Create)
+			admin.PATCH("/groups/:id", gp.Update)
+			admin.DELETE("/groups/:id", gp.Delete)
+			admin.GET("/groups/:id/members", gp.ListMembers)
+			admin.POST("/groups/:id/members", gp.AddMember)
+			admin.DELETE("/groups/:id/members/:user", gp.RemoveMember)
 		}
 
 		// 模型服务配置（FR-12）

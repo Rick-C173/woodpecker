@@ -18,9 +18,10 @@ const (
 	CtxKBRole = "kb_role" // int16；0 表示管理员越过成员资格
 )
 
-// KBLookup 知识库查询（*repo.KBRepo 满足该接口）。
+// KBLookup 知识库有效角色查询（*repo.KBRepo 满足该接口）：
+// 直接授权与组授权取最高（FR-18），实时判定。
 type KBLookup interface {
-	GetMemberRole(ctx context.Context, kbID, userID int64) (int16, error)
+	GetEffectiveRole(ctx context.Context, kbID, userID int64) (int16, error)
 	GetVisibility(ctx context.Context, kbID int64) (int16, error)
 }
 
@@ -36,7 +37,7 @@ func KBAccess(lookup KBLookup, onAdminBypass func(c *gin.Context, userID, kbID i
 		}
 		userID := UserID(c)
 		isAdmin, _ := c.Get(CtxIsAdmin)
-		role, err := lookup.GetMemberRole(c.Request.Context(), kbID, userID)
+		role, err := lookup.GetEffectiveRole(c.Request.Context(), kbID, userID)
 		if err != nil && !errors.Is(err, repo.ErrNotFound) {
 			httpx.AbortFailWith(c, http.StatusInternalServerError, "INTERNAL", "服务内部错误")
 			return

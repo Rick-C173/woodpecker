@@ -25,6 +25,9 @@ const (
 	CodeUserSelfDisable    = "USER_002"          // 422 不能禁用自己
 	CodeUserLastAdmin      = "USER_003"          // 422 最后一个管理员保护
 	CodeKBNameExists       = "KB_001"            // 409 知识库名称重复
+	CodeGroupNameExists    = "GROUP_001"         // 409 用户组名已存在
+	CodeGroupUserExists    = "GROUP_002"         // 409 用户已在组内
+	CodeGroupKBGranted     = "GROUP_003"         // 409 组已授权到该知识库
 	CodeDocRepoTooLarge    = "DOC_001"           // 422 仓库超过大小/文件数限制
 	CodeDocFormatNoSupport = "DOC_002"           // 422 文件格式不支持
 	CodeDocCredInvalid     = "DOC_003"           // 422 仓库凭证无效或地址不可达
@@ -60,6 +63,9 @@ var httpStatusByCode = map[string]int{
 	CodeUserSelfDisable:        http.StatusUnprocessableEntity,
 	CodeUserLastAdmin:          http.StatusUnprocessableEntity,
 	CodeKBNameExists:           http.StatusConflict,
+	CodeGroupNameExists:        http.StatusConflict,
+	CodeGroupUserExists:        http.StatusConflict,
+	CodeGroupKBGranted:         http.StatusConflict,
 	CodeDocRepoTooLarge:        http.StatusUnprocessableEntity,
 	CodeDocFormatNoSupport:     http.StatusUnprocessableEntity,
 	CodeDocCredInvalid:         http.StatusUnprocessableEntity,

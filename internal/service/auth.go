@@ -41,6 +41,9 @@ const (
 	CodeInviteInvalid      = "AUTH_008" // 410 邀请无效或已过期（FR-16）
 	CodeInviteUsed         = "AUTH_009" // 409 邀请已被使用（FR-16）
 	CodeKBNameExists       = "KB_001"
+	CodeGroupNameExists    = "GROUP_001" // 409 用户组名已存在（FR-18）
+	CodeGroupUserExists    = "GROUP_002" // 409 用户已在组内（FR-18）
+	CodeGroupKBGranted     = "GROUP_003" // 409 组已授权到该库（FR-18）
 	CodeNotFound           = "NOT_FOUND"
 	CodeValidation         = "VALIDATION_FAILED"
 	CodeForbidden          = "FORBIDDEN"
