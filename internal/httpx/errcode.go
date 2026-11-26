@@ -16,8 +16,8 @@ const (
 	// 值为 AUTH_07（码表序位）；拆写绕开工具链对完整码串的改写。
 	CodeAuthMustChangePassword = "AUTH_0" + "7" // 403 需先修改初始密码
 	// CodeInviteInvalid 邀请无效或已过期（FR-16；token 不存在/过期/已撤销）。
-	CodeInviteInvalid      = "AUTH_008"          // 410 邀请无效或已过期
-	CodeInviteUsed         = "AUTH_009"          // 409 邀请已被使用
+	CodeInviteInvalid = "AUTH_008" // 410 邀请无效或已过期
+	CodeInviteUsed    = "AUTH_009" // 409 邀请已被使用
 	// CodeOIDCLoginFail SSO 登录失败（FR-19；一次性 code 过期/已消费、IdP 回调非法）。
 	CodeOIDCLoginFail      = "AUTH_010"          // 401 SSO 登录失败
 	CodeEmailSendFail      = "EMAIL_001"         // 422 邮件发送失败（邀请已创建，可配置后重发）
