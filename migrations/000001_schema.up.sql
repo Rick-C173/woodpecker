@@ -1,23 +1,32 @@
--- Woodpecker 初始表结构（合并版，最终形态），来源：md/数据库设计.md §3
--- 注意：chunks 引用 document_files，messages 引用 model_entries，故建表顺序不可调换。
+-- Woodpecker 初始表结构（v1 合并基线，2026-11-26 由 000001~000006 squash 而成，终态 schema）。
+-- ⚠ 迁移纪律（开发计划 §4 / migrations.go）：
+--   1. 本文件之后的新表/新列一律新增 00000X_*.sql 增量迁移，禁止改写本文件——
+--      已部署库的 schema_migrations 记录着版本号与校验和，改写会导致 dirty 拒绝启动或列缺失；
+--   2. 下次可 squash 的唯一条件：所有部署环境均可 DROP 重建（即再次出现"无生产数据"窗口期），
+--      由人工决策执行，届时将全部增量合并回本文件并升级 vN 基线号；
+--   3. chunks 引用 document_files、messages 引用 model_entries，建表顺序不可调换。
 
 CREATE EXTENSION IF NOT EXISTS vector;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
--- 用户与权限（PRD R6）
+-- 用户与权限（PRD R6）：email 为登录身份之一（FR-16）与 OIDC 身份锚点（FR-19）；
+-- auth_source 1=本地密码 2=OIDC（OIDC 建号账号无本地密码，密码位为随机不可登录哈希）
 CREATE TABLE users (
     id                   BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     username             VARCHAR(64)  NOT NULL UNIQUE,
     password_hash        VARCHAR(255) NOT NULL,
+    email                VARCHAR(255),                    -- 唯一（部分索引），可空
     is_admin             BOOLEAN      NOT NULL DEFAULT FALSE,
     status               SMALLINT     NOT NULL DEFAULT 1,  -- 1=启用 2=禁用
     must_change_password BOOLEAN      NOT NULL DEFAULT FALSE,
     token_version        INT          NOT NULL DEFAULT 0,
     failed_attempts      INT          NOT NULL DEFAULT 0,
     locked_until         TIMESTAMPTZ,
+    auth_source          SMALLINT     NOT NULL DEFAULT 1,  -- 1=本地密码 2=OIDC
     created_at           TIMESTAMPTZ  NOT NULL DEFAULT now(),
     updated_at           TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
+CREATE UNIQUE INDEX uq_users_email ON users(email) WHERE email IS NOT NULL;
 
 -- 模型服务配置（PRD FR-12），先于 messages 建表
 CREATE TABLE model_services (
@@ -43,10 +52,12 @@ CREATE TABLE model_entries (
 
 CREATE UNIQUE INDEX uq_model_entries_default ON model_entries(purpose) WHERE is_default;
 
+-- 知识库：visibility 1=私有（仅成员）2=全员可见（登录用户等效只读成员，FR-17）
 CREATE TABLE knowledge_bases (
     id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     name        VARCHAR(50)  NOT NULL,
     description VARCHAR(500),
+    visibility  SMALLINT     NOT NULL DEFAULT 1,
     created_by  BIGINT       NOT NULL REFERENCES users(id),
     created_at  TIMESTAMPTZ  NOT NULL DEFAULT now(),
     updated_at  TIMESTAMPTZ  NOT NULL DEFAULT now()
@@ -62,6 +73,61 @@ CREATE TABLE kb_members (
 );
 CREATE INDEX idx_kb_members_user ON kb_members(user_id);
 
+-- 用户组（FR-18）：auto=true 的组由 OIDC groups claim 同步（FR-19）；
+-- created_by 无 users 外键（仅审计信息）：0=系统自动创建（OIDC 组同步）
+CREATE TABLE user_groups (
+    id          BIGSERIAL PRIMARY KEY,
+    name        VARCHAR(50) NOT NULL,
+    description VARCHAR(500) NOT NULL DEFAULT '',
+    auto        BOOLEAN NOT NULL DEFAULT FALSE,
+    created_by  BIGINT NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT uq_user_groups_name UNIQUE (name)
+);
+
+CREATE TABLE group_members (
+    id         BIGSERIAL PRIMARY KEY,
+    group_id   BIGINT NOT NULL REFERENCES user_groups(id) ON DELETE CASCADE,
+    user_id    BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT uq_group_members UNIQUE (group_id, user_id)
+);
+CREATE INDEX idx_group_members_user ON group_members(user_id);
+
+-- 组 → 库的角色授权（role 与 kb_members 同枚举）；有效角色 = max(直授, 组授)
+CREATE TABLE kb_group_roles (
+    id         BIGSERIAL PRIMARY KEY,
+    kb_id      BIGINT NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+    group_id   BIGINT NOT NULL REFERENCES user_groups(id) ON DELETE CASCADE,
+    role       SMALLINT NOT NULL, -- 1=管理者(owner) 2=编辑者(editor) 3=成员(member)
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT uq_kb_group_roles UNIQUE (kb_id, group_id)
+);
+CREATE INDEX idx_kb_group_roles_group ON kb_group_roles(group_id);
+
+-- 邀请注册（FR-16）：每邮箱一条，重复邀请覆盖 token（重发）；
+-- token 只存 sha256 哈希（URL 明文仅出现在邮件与创建响应中，库泄漏不泄露可用链接）
+CREATE TABLE invites (
+    id           BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    email        VARCHAR(255) NOT NULL UNIQUE,          -- 统一小写
+    token_hash   VARCHAR(64)  NOT NULL UNIQUE,          -- sha256 hex(token)
+    status       SMALLINT     NOT NULL DEFAULT 1,       -- 1=待接受 2=已接受 3=已撤销
+    expires_at   TIMESTAMPTZ  NOT NULL,                 -- 7 天有效期（重发时重置）
+    accepted_at  TIMESTAMPTZ,
+    accepted_by  BIGINT REFERENCES users(id),
+    send_status  SMALLINT     NOT NULL DEFAULT 3,       -- 1=已发送 2=发送失败 3=未发送（SMTP 未配置）
+    send_error   TEXT,
+    send_count   INT          NOT NULL DEFAULT 0,       -- 实际发送尝试次数
+    created_by   BIGINT       NOT NULL REFERENCES users(id),
+    created_at   TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    updated_at   TIMESTAMPTZ  NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_invites_status ON invites(status, created_at DESC);
+
+-- M14 Git 自动同步（FR-03 增强）：auto_sync=true 时 worker 周期扫描入队增量 sync
+-- （间隔 GIT_AUTO_SYNC_MINUTES）；webhook_secret 为 AES-GCM 加密验签 token
+-- （Git 平台自定义 header X-Woodpecker-Token 比对，NULL=未启用）
 CREATE TABLE documents (
     id             BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     kb_id          BIGINT   NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
@@ -76,6 +142,8 @@ CREATE TABLE documents (
     ignore_rules   TEXT[]       DEFAULT '{}',
     last_commit    VARCHAR(40),
     last_synced_at TIMESTAMPTZ,
+    auto_sync      BOOLEAN NOT NULL DEFAULT false,
+    webhook_secret BYTEA,
     source_url     VARCHAR(2000),
     file_count     INT,
     total_size     BIGINT,
