@@ -132,14 +132,16 @@ func (f *FakeKBRepo) ListForUser(_ context.Context, userID int64) ([]repo.KBRow,
 		return nil, f.ErrOnList
 	}
 	var rows []repo.KBRow
-	for kbID, roles := range f.members {
-		role, ok := roles[userID]
-		if !ok {
+	// FR-17：成员库 ∪ 全员可见库（非成员 role=0，service 层映射 my_role=org）
+	for _, kb := range f.kbs {
+		role, isMember := f.members[kb.ID][userID]
+		if !isMember && kb.Visibility != model.KBVisibilityOrg {
 			continue
 		}
-		if kb, ok := f.kbs[kbID]; ok {
-			rows = append(rows, f.row(kb, role))
+		if !isMember {
+			role = 0
 		}
+		rows = append(rows, f.row(kb, role))
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].ID < rows[j].ID })
 	return rows, nil
@@ -165,6 +167,7 @@ func (f *FakeKBRepo) row(kb *model.KnowledgeBase, role int16) repo.KBRow {
 		ID:          kb.ID,
 		Name:        kb.Name,
 		Description: kb.Description,
+		Visibility:  kb.Visibility,
 		CreatedBy:   kb.CreatedBy,
 		CreatedAt:   kb.CreatedAt,
 		UpdatedAt:   kb.UpdatedAt,
@@ -188,6 +191,23 @@ func (f *FakeKBRepo) GetMemberRole(_ context.Context, kbID, userID int64) (int16
 		return 0, repo.ErrNotFound
 	}
 	return role, nil
+}
+
+// GetVisibility 库可见性（FR-17）：0 值视为私有（SeedKB 建的库未显式设置）。
+func (f *FakeKBRepo) GetVisibility(_ context.Context, kbID int64) (int16, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.ErrOnGet != nil {
+		return 0, f.ErrOnGet
+	}
+	kb, ok := f.kbs[kbID]
+	if !ok {
+		return 0, repo.ErrNotFound
+	}
+	if kb.Visibility == 0 {
+		return model.KBVisibilityPrivate, nil
+	}
+	return kb.Visibility, nil
 }
 
 func (f *FakeKBRepo) ListMembers(_ context.Context, kbID int64) ([]repo.KBMemberRow, error) {

@@ -9,6 +9,12 @@ const (
 	KBRoleMember int16 = 3
 )
 
+// 知识库可见性（PRD FR-17）：1=私有（默认，仅成员可见）；2=全员可见（登录用户只读）。
+const (
+	KBVisibilityPrivate int16 = 1
+	KBVisibilityOrg     int16 = 2
+)
+
 // KBRoleName 角色对外名称（API `my_role` 字段）。
 func KBRoleName(role int16) string {
 	switch role {
@@ -41,6 +47,7 @@ type KnowledgeBase struct {
 	ID          int64     `gorm:"primaryKey;column:id"`
 	Name        string    `gorm:"column:name;size:50"`
 	Description string    `gorm:"column:description;size:500"`
+	Visibility  int16     `gorm:"column:visibility"` // 1=私有 2=全员可见（FR-17）
 	CreatedBy   int64     `gorm:"column:created_by"`
 	CreatedAt   time.Time `gorm:"column:created_at"`
 	UpdatedAt   time.Time `gorm:"column:updated_at"`
