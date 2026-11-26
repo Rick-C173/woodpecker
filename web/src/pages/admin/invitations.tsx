@@ -53,7 +53,7 @@ function StatusBadge({ status }: { status: string }) {
       ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
       : status === 'revoked'
         ? 'bg-[var(--destructive-soft)] text-[var(--destructive)]'
-        : 'bg-[var(--muted)] text-[var(--fg)]';
+        : 'bg-[var(--muted-bg)] text-[var(--muted-foreground)]';
   return (
     <span className={cn('inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium', cls)}>
       {STATUS_LABEL[status] ?? status}

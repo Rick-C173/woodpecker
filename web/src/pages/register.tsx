@@ -9,7 +9,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { ThemeControls } from '@/components/theme/theme-controls';
+import { ThemeToggleButton } from '@/components/theme/theme-controls';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -87,7 +87,7 @@ export function RegisterPage() {
   return (
     <div className="relative flex min-h-svh items-center justify-center px-4">
       <div className="absolute right-4 top-4">
-        <ThemeControls />
+        <ThemeToggleButton />
       </div>
       <div className="w-full max-w-sm rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-sm">
         <h1 className="text-lg font-semibold">完成注册</h1>
