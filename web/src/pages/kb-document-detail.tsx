@@ -12,6 +12,7 @@ import { QueryBoundary } from '@/components/states/query-boundary';
 import { EmptyState } from '@/components/states/empty-state';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
+import { Breadcrumbs } from '@/components/shared/breadcrumbs';
 import { StatusBadge, TaskStatusBadge, TypeBadge } from '@/components/shared/status-badge';
 import { FileList } from '@/components/documents/file-list';
 import { Button, buttonVariants } from '@/components/ui/button';
@@ -81,13 +82,14 @@ export function KbDocumentDetailPage() {
       <QueryBoundary query={query} skeleton={<Skeleton className="h-64 w-full" />}>
         {(doc: DocumentDetail) => (
           <>
-            <div className="mb-4 flex items-center gap-2 text-sm text-[var(--muted)]">
-              <Link to={`/kbs/${kbIdNum}`} className="hover:text-[var(--primary)]">
-                知识库
-              </Link>
-              <span>/</span>
-              <span className="truncate">{doc.name}</span>
-            </div>
+            <Breadcrumbs
+              items={[
+                { label: '知识库', to: '/kbs' },
+                { label: '库详情', to: `/kbs/${kbIdNum}` },
+                { label: doc.name ?? '' },
+              ]}
+              className="mb-4"
+            />
 
             {/* 状态与错误信息 */}
             <div className="kb-card mb-6 p-5">

@@ -7,14 +7,23 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
-import { MessageSquarePlus, MessagesSquare, Pencil, Trash2, X } from 'lucide-react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import {
+  ArrowLeft,
+  ChevronRight,
+  MessageSquarePlus,
+  MessagesSquare,
+  Pencil,
+  Trash2,
+  X,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { ChatInput } from '@/components/chat/chat-input';
 import { ChatWindow } from '@/components/chat/chat-window';
 import { CitationsDrawer } from '@/components/chat/citations-drawer';
 import { FeedbackDialog } from '@/components/chat/feedback-dialog';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
+import { useKbDetail } from '@/hooks/use-kbs';
 import { QueryBoundary } from '@/components/states/query-boundary';
 import { EmptyState } from '@/components/states/empty-state';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -155,6 +164,7 @@ export function KbChatPage() {
   const openCitation = useUiStore((s) => s.openCitation);
   const closeCitationsDrawer = useUiStore((s) => s.closeCitationsDrawer);
 
+  const kbDetail = useKbDetail(kbIdNum);
   const conversations = useConversations(kbIdNum, kbValid);
   const detail = useConversationDetail(cIdNum, convSelected);
 
@@ -336,8 +346,23 @@ export function KbChatPage() {
         ) : (
           <>
             <div className="topbar flex-none">
+              <Link
+                to={`/kbs/${kbIdNum}`}
+                className="flex-none rounded-[var(--radius)] p-1.5 text-[var(--muted)] transition-colors hover:bg-[var(--primary-soft)] hover:text-[var(--primary)]"
+                aria-label="返回知识库详情"
+                title="返回知识库详情"
+              >
+                <ArrowLeft className="size-4" aria-hidden="true" />
+              </Link>
+              <span
+                className="max-w-40 flex-none truncate text-sm text-[var(--muted)]"
+                title={kbDetail.data?.name ?? ''}
+              >
+                {kbDetail.data?.name ?? ''}
+              </span>
+              <ChevronRight className="size-3.5 flex-none text-[var(--faint)]" aria-hidden="true" />
               <div className="min-w-0 flex-1 truncate text-sm font-semibold">
-                  {detail.data?.title ?? '会话'}
+                {detail.data?.title ?? '会话'}
               </div>
               {view.status === 'streaming' ? (
                 <span className="flex-none text-xs text-[var(--primary)]">回答生成中…</span>
