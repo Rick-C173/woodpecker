@@ -1483,6 +1483,152 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/oidc-settings": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "oidc"
+                ],
+                "summary": "读取 OIDC 配置（管理员）",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "admin_claim": {
+                                    "type": "string"
+                                },
+                                "admin_claim_value": {
+                                    "type": "string"
+                                },
+                                "client_id": {
+                                    "type": "string"
+                                },
+                                "configured": {
+                                    "type": "boolean"
+                                },
+                                "enabled": {
+                                    "type": "boolean"
+                                },
+                                "frontend_uri": {
+                                    "type": "string"
+                                },
+                                "groups_claim": {
+                                    "type": "string"
+                                },
+                                "issuer": {
+                                    "type": "string"
+                                },
+                                "redirect_uri": {
+                                    "type": "string"
+                                },
+                                "scopes": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "client_secret 空=不修改；保存记审计。",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "oidc"
+                ],
+                "summary": "保存 OIDC 配置（管理员）",
+                "parameters": [
+                    {
+                        "description": "OIDC 配置",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.oidcSettingsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "message": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/oidc-settings/test": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "拉取 IdP 发现文档并报告可达性与关键端点。",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "oidc"
+                ],
+                "summary": "OIDC 连接测试（管理员）",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "authorization_endpoint": {
+                                    "type": "string"
+                                },
+                                "issuer": {
+                                    "type": "string"
+                                },
+                                "token_endpoint": {
+                                    "type": "string"
+                                },
+                                "userinfo_endpoint": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorBody"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/settings": {
             "get": {
                 "description": "系统设置当前值（FR-13）：排除规则与自助注册开关。exclusion_rules 为 null 表示未自定义、使用内置默认清单（README/锁文件等）。\n\n权限：管理员。缺省值直接展示，前端一次拉全。",
@@ -1800,6 +1946,116 @@ const docTemplate = `{
                                     "type": "string"
                                 }
                             }
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/oidc/callback": {
+            "get": {
+                "description": "校验 state/cookie → 换 token、JIT 建号、组同步 → 302 前端 ` + "`" + `/?oidc=\u003c一次性code\u003e` + "`" + `；失败 302 ` + "`" + `/?oidc_error=\u003c原因\u003e` + "`" + `。",
+                "tags": [
+                    "auth"
+                ],
+                "summary": "IdP 回调（公开）",
+                "responses": {
+                    "302": {
+                        "description": "Location: 前端地址",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/oidc/login": {
+            "get": {
+                "description": "state+nonce+PKCE verifier 存 HttpOnly cookie（10 分钟）；未启用 404。",
+                "tags": [
+                    "auth"
+                ],
+                "summary": "发起 SSO（公开）",
+                "responses": {
+                    "302": {
+                        "description": "Location: IdP 授权端点",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorBody"
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/oidc/status": {
+            "get": {
+                "description": "` + "`" + `{enabled}` + "`" + `，登录页据此显隐「企业账号登录」。",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "SSO 状态（公开）",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "enabled": {
+                                    "type": "boolean"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/oidc/token": {
+            "post": {
+                "description": "` + "`" + `{code}` + "`" + ` 一次性 60s；响应与密码登录同构 AuthResult。",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "SSO 登录兑换（公开，FR-19）",
+                "parameters": [
+                    {
+                        "description": "一次性 code",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "code": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/service.AuthResult"
+                        }
+                    },
+                    "401": {
+                        "description": "AUTH_010 登录已过期",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorBody"
                         }
                     }
                 }
@@ -4047,6 +4303,45 @@ const docTemplate = `{
                 },
                 "username": {
                     "type": "string"
+                }
+            }
+        },
+        "handler.oidcSettingsRequest": {
+            "type": "object",
+            "properties": {
+                "admin_claim": {
+                    "type": "string"
+                },
+                "admin_claim_value": {
+                    "type": "string"
+                },
+                "client_id": {
+                    "type": "string"
+                },
+                "client_secret": {
+                    "description": "明文仅传入；空=不修改",
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "frontend_uri": {
+                    "type": "string"
+                },
+                "groups_claim": {
+                    "type": "string"
+                },
+                "issuer": {
+                    "type": "string"
+                },
+                "redirect_uri": {
+                    "type": "string"
+                },
+                "scopes": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },
