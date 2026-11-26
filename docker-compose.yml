@@ -1,11 +1,11 @@
-# Woodpecker 生产编排：postgres(pgvector) + redis + migrate(一次性) + api + worker + nginx
+# Woodpecker 生产编排：postgres(pgvector) + redis + api + worker + nginx
 # 用法：
 #   cp deploy/.env.production.example .env && vim .env   # 必改全部 CHANGE_ME
 #   docker compose up -d
 #   浏览器打开 http://<host>/ → 注册首个账号（自动成为管理员）
 #
 # 依赖说明：
-#   - migrate 一次性任务先行，api/worker 以 service_completed_successfully 等待其完成
+#   - 迁移由 api/worker 启动时自动执行（自研 runner：幂等 + advisory lock 并发安全）
 #   - api 与 worker 挂同一 uploads 卷（上传暂存 + 摄取读取必须共享）
 #   - WORKER_ID 多 worker 必须唯一（缺省主机名，k8s 重建 Pod 场景见运行手册）
 
@@ -40,19 +40,9 @@ services:
       timeout: 3s
       retries: 12
 
-  # 一次性迁移任务（golang-migrate CLI + 仓库内 migrations 目录）
-  migrate:
-    image: migrate/migrate:v4.18.1
-    volumes:
-      - ./migrations:/migrations
-    command:
-      - "-path=/migrations/"
-      - "-database=postgres://${POSTGRES_USER:-woodpecker}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-woodpecker}?sslmode=disable"
-      - "up"
-    depends_on:
-      postgres:
-        condition: service_healthy
-    restart: "no"
+  # 一次性迁移服务已移除（2026-11-26 迁移改自研 runner）：api/worker 启动时自动执行嵌入迁移，
+  # 幂等 + advisory lock 多进程并发安全（internal/database），无需独立迁移任务。
+  # （历史方案 migrate/migrate CLI 镜像按数字版本号解析文件，无法识别现 schema.up.sql 命名。）
 
   api:
     build: .
@@ -68,8 +58,8 @@ services:
     volumes:
       - uploads_data:/data/uploads
     depends_on:
-      migrate:
-        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
     # api 不直接暴露宿主机端口：统一经 nginx（/api 反代 + 健康检查直通）
@@ -90,8 +80,8 @@ services:
     volumes:
       - uploads_data:/data/uploads
     depends_on:
-      migrate:
-        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
     deploy:
