@@ -8,6 +8,7 @@ import { ClipboardList } from 'lucide-react';
 import { QueryBoundary } from '@/components/states/query-boundary';
 import { EmptyState } from '@/components/states/empty-state';
 import { Skeleton } from '@/components/ui/skeleton';
+import { PageHeader } from '@/components/shared/page-header';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -68,12 +69,10 @@ export function AdminAuditLogsPage() {
 
   return (
     <div className="mx-auto w-full max-w-5xl">
-      <div className="mb-4">
-        <h1 className="text-lg font-semibold">审计日志</h1>
-        <p className="text-sm text-[var(--muted)]">
-          所有写操作与越权尝试均记录（FR-15）；支持按操作者、动作、对象与时间窗筛选。
-        </p>
-      </div>
+      <PageHeader
+        title="审计日志"
+        description="所有写操作与越权尝试均记录（FR-15）；支持按操作者、动作、对象与时间窗筛选。"
+      />
 
       {/* 筛选表单 */}
       <div className="kb-card mb-4">

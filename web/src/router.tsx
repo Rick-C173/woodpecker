@@ -11,6 +11,7 @@ import { Navigate, createBrowserRouter, useLocation, useNavigate } from 'react-r
 import type { ReactElement } from 'react';
 import { useEffect } from 'react';
 import { AppShell } from '@/components/layout/app-shell';
+import { CommandPaletteHost } from '@/components/layout/command-palette';
 import { AdminShell } from '@/components/layout/admin-shell';
 import { useAuth } from '@/hooks/use-auth';
 import { onAuthEvent } from '@/lib/auth';
@@ -108,6 +109,7 @@ export const router = createBrowserRouter([
     element: (
       <>
         <AuthEventBridge />
+        <CommandPaletteHost />
         <AppShell />
       </>
     ),

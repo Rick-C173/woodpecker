@@ -15,6 +15,7 @@ import { toast } from 'sonner';
 import { FolderOpen, Globe2, MessageCircle, Plus, Search, Trash2, Users } from 'lucide-react';
 import { QueryBoundary } from '@/components/states/query-boundary';
 import { EmptyState } from '@/components/states/empty-state';
+import { Breadcrumbs } from '@/components/shared/breadcrumbs';
 import { Skeleton } from '@/components/ui/skeleton';
 import { RoleBadge } from '@/components/shared/role-badge';
 import { useAuth } from '@/hooks/use-auth';
@@ -564,8 +565,9 @@ export function KbDetailPage() {
       <QueryBoundary query={detail} skeleton={<Skeleton className="h-28 w-full" />}>
         {(data) => (
           <>
-            {/* 头部：库信息 + 动作 */}
-            <div className="kb-card mb-6 p-5">
+            <Breadcrumbs items={[{ label: '知识库', to: '/kbs' }, { label: data.name ?? '' }]} className="mb-3" />
+            {/* 头部：库信息 + 动作（GitHub 式开放布局，不再卡片嵌套） */}
+            <div className="mb-5">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">

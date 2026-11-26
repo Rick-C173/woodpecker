@@ -5,9 +5,10 @@
  */
 
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { FolderKanban, LogOut, ShieldCheck } from 'lucide-react';
+import { FolderKanban, LogOut, Search, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { ThemeToggleButton } from '@/components/theme/theme-controls';
+import { useUiStore } from '@/stores/ui-store';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/use-auth';
 import { useKbsList } from '@/hooks/use-kbs';
@@ -18,6 +19,7 @@ const SIDEBAR_KB_LIMIT = 8;
 
 export function AppShell() {
   const { user, logout } = useAuth();
+  const setCommandOpen = useUiStore((s) => s.setCommandOpen);
   const { pathname } = useLocation();
   const navigate = useNavigate();
 
@@ -34,12 +36,23 @@ export function AppShell() {
   return (
     <div className="relative z-[1] flex h-screen">
       <aside className="sidebar flex w-60 flex-none flex-col px-2.5 py-4">
-        <div className="flex items-center gap-2 px-2 pb-4 font-bold">
+        <div className="flex items-center gap-2 px-2 pb-3 font-bold">
           <span className="flex size-8 items-center justify-center rounded-[var(--radius)] bg-[var(--grad)] text-white shadow-[var(--btn-shadow)]">
             🐦
           </span>
           啄木鸟 Woodpecker
         </div>
+        <button
+          type="button"
+          onClick={() => setCommandOpen(true)}
+          className="mb-3 flex w-full cursor-pointer items-center gap-2 rounded-[var(--radius)] border border-[var(--border)] px-2.5 text-[13px] text-[var(--muted)] transition-colors hover:border-[var(--border-strong)] hover:text-[var(--foreground)]"
+          data-testid="command-palette-trigger"
+          aria-label="打开命令面板（Ctrl+K）"
+        >
+          <Search className="size-3.5" aria-hidden="true" />
+          <span className="flex-1 text-left">搜索或跳转…</span>
+          <kbd className="rounded border border-[var(--border)] px-1 text-[10px] text-[var(--faint)]">Ctrl K</kbd>
+        </button>
 
         <nav className="mt-1 flex flex-1 flex-col gap-1 overflow-y-auto">
           <NavLink to="/kbs" className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}>
@@ -74,15 +87,20 @@ export function AppShell() {
 
           {/* 管理员专属分区入口 */}
           {user?.is_admin ? (
-            <NavLink
-              to="/admin/users"
-              className={({ isActive }) =>
-                `nav-item mt-2${isActive || pathname.startsWith('/admin') ? ' active' : ''}`
-              }
-            >
-              <ShieldCheck aria-hidden="true" />
-              管理后台
-            </NavLink>
+            <>
+              <p className="mt-3 px-2 pb-1 text-[11px] font-semibold tracking-wide text-[var(--faint)]">
+                管理
+              </p>
+              <NavLink
+                to="/admin/users"
+                className={({ isActive }) =>
+                  `nav-item${isActive || pathname.startsWith('/admin') ? ' active' : ''}`
+                }
+              >
+                <ShieldCheck aria-hidden="true" />
+                管理后台
+              </NavLink>
+            </>
           ) : null}
         </nav>
 

@@ -5,6 +5,7 @@
 
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
+import { PageHeader } from '@/components/shared/page-header';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -87,12 +88,10 @@ export function AdminEmailSettingsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold">邮件配置</h1>
-        <p className="mt-1 text-sm text-[var(--faint)]">
-          配置 SMTP 发件服务器后即可发送邀请邮件。端口 465 使用隐式 TLS，587/25 自动升级 STARTTLS。
-        </p>
-      </div>
+      <PageHeader
+        title="邮件配置"
+        description="配置 SMTP 发件服务器后即可发送邀请邮件。端口 465 使用隐式 TLS，587/25 自动升级 STARTTLS。"
+      />
 
       <section className="max-w-xl space-y-4 rounded-lg border border-[var(--border)] p-4">
         <div className="grid gap-2">

@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Copy, Mail, RotateCw, Trash2 } from 'lucide-react';
+import { PageHeader } from '@/components/shared/page-header';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -165,13 +166,15 @@ export function AdminInvitationsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold">邀请管理</h1>
-        <p className="mt-1 text-sm text-[var(--faint)]">
-          通过邮箱邀请成员加入；被邀请人点击邮件中的链接自设密码完成注册。
-          <Link to="/admin/email" className="ml-1 underline">配置邮件服务器 →</Link>
-        </p>
-      </div>
+      <PageHeader
+        title="邀请管理"
+        description={
+          <>
+            通过邮箱邀请成员加入；被邀请人点击邮件中的链接自设密码完成注册。
+            <Link to="/admin/email" className="ml-1 underline">配置邮件服务器 →</Link>
+          </>
+        }
+      />
 
       {/* 批量邀请 */}
       <section className="rounded-lg border border-[var(--border)] p-4">

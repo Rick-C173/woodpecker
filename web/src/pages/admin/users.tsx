@@ -12,6 +12,7 @@ import { KeyRound, ShieldCheck, ShieldOff, UserPlus, Users } from 'lucide-react'
 import { QueryBoundary } from '@/components/states/query-boundary';
 import { EmptyState } from '@/components/states/empty-state';
 import { Skeleton } from '@/components/ui/skeleton';
+import { PageHeader } from '@/components/shared/page-header';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -155,18 +156,16 @@ export function AdminUsersPage() {
 
   return (
     <div className="mx-auto w-full max-w-5xl">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-semibold">用户管理</h1>
-          <p className="text-sm text-[var(--muted)]">
-            创建账号、禁用/启用、分配管理员；初始密码仅创建/重置时展示一次。
-          </p>
-        </div>
-        <Button onClick={() => setCreateOpen(true)} data-testid="create-user">
-          <UserPlus aria-hidden="true" />
-          创建用户
-        </Button>
-      </div>
+      <PageHeader
+        title="用户管理"
+        description="创建账号、禁用/启用、分配管理员；初始密码仅创建/重置时展示一次。"
+        actions={
+          <Button onClick={() => setCreateOpen(true)} data-testid="create-user">
+            <UserPlus aria-hidden="true" />
+            创建用户
+          </Button>
+        }
+      />
 
       {/* 筛选：q + status */}
       <div className="mb-3 flex flex-wrap items-center gap-2">
