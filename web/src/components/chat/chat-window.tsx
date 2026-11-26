@@ -190,7 +190,7 @@ export function ChatWindow({
                       <button
                         key={c.seq}
                         type="button"
-                        className="inline-flex min-w-0 max-w-full cursor-pointer items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--primary-soft)] px-2 py-0.5 text-xs text-[var(--primary)]"
+                        className="inline-flex min-w-0 max-w-full cursor-pointer items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--primary-soft)] px-2 py-0.5 text-xs text-[var(--primary)] transition-colors hover:border-[var(--border-strong)] hover:bg-[var(--accent-soft)] hover:text-[var(--accent)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--primary)]"
                         onClick={() => onCitationClick(c.seq)}
                       >
                         <span className="font-mono font-semibold">[{c.seq}]</span>

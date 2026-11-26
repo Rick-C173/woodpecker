@@ -16,6 +16,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { onAuthEvent } from '@/lib/auth';
 
 import { LoginPage } from '@/pages/login';
+import { RegisterPage } from '@/pages/register';
 import { ChangePasswordPage } from '@/pages/change-password';
 import { KbsPage } from '@/pages/kbs';
 import { KbDetailPage } from '@/pages/kb-detail';
@@ -23,6 +24,8 @@ import { KbDocumentDetailPage } from '@/pages/kb-document-detail';
 import { KbSearchPage } from '@/pages/kb-search';
 import { KbChatPage } from '@/pages/kb-chat';
 import { AdminUsersPage } from '@/pages/admin/users';
+import { AdminInvitationsPage } from '@/pages/admin/invitations';
+import { AdminEmailSettingsPage } from '@/pages/admin/email-settings';
 import { AdminModelServicesPage } from '@/pages/admin/model-services';
 import { AdminAuditLogsPage } from '@/pages/admin/audit-logs';
 import { AdminSettingsPage } from '@/pages/admin/settings';
@@ -79,6 +82,7 @@ function AuthEventBridge() {
 
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginGuard><LoginPage /></LoginGuard> },
+  { path: '/register', element: <RegisterPage /> }, // FR-16 持邀注册（公开）
   { path: '/change-password', element: <ChangePasswordPage /> },
   {
     path: '/',
@@ -109,6 +113,22 @@ export const router = createBrowserRouter([
             element: (
               <AuthGuard>
                 <AdminGuard><AdminUsersPage /></AdminGuard>
+              </AuthGuard>
+            ),
+          },
+          {
+            path: 'invitations',
+            element: (
+              <AuthGuard>
+                <AdminGuard><AdminInvitationsPage /></AdminGuard>
+              </AuthGuard>
+            ),
+          },
+          {
+            path: 'email',
+            element: (
+              <AuthGuard>
+                <AdminGuard><AdminEmailSettingsPage /></AdminGuard>
               </AuthGuard>
             ),
           },

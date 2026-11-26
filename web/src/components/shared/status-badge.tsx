@@ -26,7 +26,7 @@ export const DOC_STAGE_LABELS: Record<string, string> = {
 
 /** 状态四态色（token 化：pending=muted / processing=primary / ready=accent / failed=destructive）。 */
 const STATUS_CLASSES: Record<string, string> = {
-  pending: 'bg-[var(--muted)] text-[var(--muted-foreground)]',
+  pending: 'bg-[var(--muted-bg)] text-[var(--muted-foreground)] border border-[var(--border)]',
   processing: 'bg-[var(--primary-soft)] text-[var(--primary)]',
   ready: 'bg-[var(--accent-soft)] text-[var(--accent)]',
   failed: 'bg-[var(--destructive-soft)] text-[var(--destructive)]',
@@ -49,7 +49,7 @@ export function StatusBadge({
     <span
       className={cn(
         'inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium',
-        STATUS_CLASSES[s] ?? 'bg-[var(--muted)] text-[var(--muted-foreground)]',
+        STATUS_CLASSES[s] ?? 'bg-[var(--muted-bg)] text-[var(--muted-foreground)] border border-[var(--border)]',
         className,
       )}
     >
@@ -86,7 +86,7 @@ export function TypeBadge({ type, className }: { type?: string | null; className
 export function FileStatusBadge({ status, className }: { status?: string | null; className?: string }) {
   const map: Record<string, { label: string; cls: string }> = {
     indexed: { label: '已入库', cls: 'bg-[var(--accent-soft)] text-[var(--accent)]' },
-    excluded: { label: '已排除', cls: 'bg-[var(--muted)] text-[var(--muted-foreground)]' },
+    excluded: { label: '已排除', cls: 'bg-[var(--muted-bg)] text-[var(--muted-foreground)]' },
     failed: { label: '失败', cls: 'bg-[var(--destructive-soft)] text-[var(--destructive)]' },
   };
   const item = map[status ?? ''];
@@ -107,7 +107,7 @@ export function FileStatusBadge({ status, className }: { status?: string | null;
 /** 任务历史状态徽标（queued/running/success/failed）。 */
 export function TaskStatusBadge({ status, className }: { status?: string | null; className?: string }) {
   const map: Record<string, { label: string; cls: string }> = {
-    queued: { label: '排队中', cls: 'bg-[var(--muted)] text-[var(--muted-foreground)]' },
+    queued: { label: '排队中', cls: 'bg-[var(--muted-bg)] text-[var(--muted-foreground)]' },
     running: { label: '运行中', cls: 'bg-[var(--primary-soft)] text-[var(--primary)]' },
     success: { label: '成功', cls: 'bg-[var(--accent-soft)] text-[var(--accent)]' },
     failed: { label: '失败', cls: 'bg-[var(--destructive-soft)] text-[var(--destructive)]' },

@@ -127,7 +127,7 @@ export function MessageBubble({
                 onCite={citations.length > 0 ? onCitationClick : undefined}
               />
               {interrupted ? (
-                <p className="mt-1.5 inline-flex items-center rounded-[var(--radius)] bg-[var(--muted)] px-2 py-0.5 text-xs text-[var(--muted-foreground)]" data-testid="interrupted-tag">
+                <p className="mt-1.5 inline-flex items-center rounded-[var(--radius)] bg-[var(--muted-bg)] border border-[var(--border)] px-2 py-0.5 text-xs text-[var(--muted-foreground)]" data-testid="interrupted-tag">
                   已停止，部分回答已保留
                 </p>
               ) : null}
@@ -177,7 +177,7 @@ export function MessageBubble({
                 </span>
                 <button
                   type="button"
-                  className="inline-flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 hover:bg-[var(--primary-soft)] hover:text-[var(--primary)]"
+                  className="inline-flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 transition-colors hover:bg-[var(--primary-soft)] hover:text-[var(--primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--primary)]"
                   onClick={() => onRevokeFeedback(message.id ?? 0)}
                   title="撤销点踩"
                 >
@@ -186,7 +186,7 @@ export function MessageBubble({
                 </button>
                 <button
                   type="button"
-                  className="inline-flex cursor-pointer items-center rounded px-1.5 py-0.5 hover:bg-[var(--primary-soft)] hover:text-[var(--primary)]"
+                  className="inline-flex cursor-pointer items-center rounded px-1.5 py-0.5 transition-colors hover:bg-[var(--primary-soft)] hover:text-[var(--primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--primary)]"
                   onClick={() => onFeedback(message)}
                   title="重新选择原因（覆盖上次反馈）"
                 >
@@ -196,7 +196,7 @@ export function MessageBubble({
             ) : (
               <button
                 type="button"
-                className="inline-flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 hover:bg-[var(--primary-soft)] hover:text-[var(--primary)]"
+                className="inline-flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 transition-colors hover:bg-[var(--primary-soft)] hover:text-[var(--primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--primary)]"
                 onClick={() => onFeedback(message)}
                 title="点踩（4 原因单选，可撤销）"
                 data-testid="feedback-button"
@@ -207,7 +207,7 @@ export function MessageBubble({
             )}
             <button
               type="button"
-              className="inline-flex cursor-pointer items-center rounded px-1.5 py-0.5 hover:bg-[var(--primary-soft)] hover:text-[var(--primary)] disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex cursor-pointer items-center rounded px-1.5 py-0.5 transition-colors hover:bg-[var(--primary-soft)] hover:text-[var(--primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--primary)] disabled:cursor-not-allowed disabled:opacity-50"
               disabled={busy || (message.id ?? 0) <= 0}
               onClick={() => onRegenerate(message.id ?? 0)}
               title="重新生成（替换该回答）"

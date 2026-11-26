@@ -83,6 +83,126 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/email-settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 读取邮件配置（管理员） */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["mail.Config"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * 保存邮件配置（管理员）
+         * @description password 为空表示不修改现有密码；保存记审计。
+         */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /** @description SMTP 配置 */
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["handler.emailSettingsUpdateRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message?: string;
+                        };
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/admin/email-settings/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 测试邮件发送（管理员） */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /** @description 收件邮箱 */
+            requestBody: {
+                content: {
+                    "application/json": {
+                        to?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message?: string;
+                        };
+                    };
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["httpx.ErrorBody"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/feedbacks": {
         parameters: {
             query?: never;
@@ -154,6 +274,193 @@ export interface paths {
         };
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/invitations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 邀请列表（管理员）
+         * @description 按状态/时间筛选，created_at 倒序分页。
+         */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description pending|accepted|revoked */
+                    status?: string;
+                    /** @description 页码（默认 1） */
+                    page?: number;
+                    /** @description 页大小（默认 20） */
+                    page_size?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items?: components["schemas"]["service.InviteItem"][];
+                            page?: number;
+                            page_size?: number;
+                            total?: number;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        /**
+         * 发起邀请（管理员）
+         * @description 邮箱小写化去重后逐个发送；已注册邮箱拒绝；SMTP 未配置或发送失败不阻断创建（invite.send_status 标记，降级返回明文链接）。
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /** @description 邮箱列表（单次 ≤50） */
+            requestBody: {
+                content: {
+                    "application/json": {
+                        emails?: string[];
+                    };
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            results?: components["schemas"]["service.InviteResult"][];
+                        };
+                    };
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["httpx.ErrorBody"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/invitations/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * 撤销邀请（管理员）
+         * @description 已接受邀请不可撤销（409 AUTH_009）。
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description 邀请 ID */
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message?: string;
+                        };
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/invitations/{id}/resend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 重发邀请（管理员）
+         * @description 覆盖 token、重置 7 天有效期与发送状态；已接受邀请 409 AUTH_009。
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description 邀请 ID */
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["service.InviteItem"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["httpx.ErrorBody"];
+                    };
+                };
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
@@ -1055,6 +1362,51 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/invitations/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 邀请校验（公开）
+         * @description 返回邀请邮箱（只读展示）与过期时间；无效/过期 410 AUTH_008，已使用 409 AUTH_009。
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description 邀请 token */
+                    token: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            email?: string;
+                            expires_at?: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/login": {
         parameters: {
             query?: never;
@@ -1068,7 +1420,7 @@ export interface paths {
          * 登录
          * @description 登录，返回 JWT token 与 must_change_password / is_admin 标记。
          *
-         *     连续 5 次密码错误锁定 10 分钟（AUTH_002）。首登未改密（must_change_password=true）时，除本接口与 /healthz 外所有接口返回 403 AUTH_007。
+         *     连续 5 次密码错误锁定 10 分钟（AUTH_002）。首登未改密（must_change_password=true）时，除本接口与 /healthz 外所有接口返回 403 AUTH_07。
          *
          *     权限：公开。
          */
@@ -1124,7 +1476,7 @@ export interface paths {
          * 修改自己密码（含首登强制改密）
          * @description 修改自己密码（含首登强制改密）。成功后 token_version+1，**所有旧 token 立即失效**，需重新登录。
          *
-         *     must_change_password=true 时仅本接口可用（其余接口 403 AUTH_007）。
+         *     must_change_password=true 时仅本接口可用（其余接口 403 AUTH_07）。
          *
          *     错误：401 原密码错误（AUTH_001）；422 AUTH_006 新密码不符合规则（至少 8 位）。
          *
@@ -1200,8 +1552,8 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description OK */
-                200: {
+                /** @description 注册成功，直接返回登录态 */
+                201: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -1229,6 +1581,63 @@ export interface paths {
                 };
                 /** @description 密码过短 AUTH_006 */
                 422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["httpx.ErrorBody"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/register/invited": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 持邀注册（公开，FR-16）
+         * @description token 一次性且 7 天有效；注册成功即作废邀请；一律普通用户（管理员由提升产生）。
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /** @description 邀请 token + 账号信息 */
+            requestBody: {
+                content: {
+                    "application/json": {
+                        password?: string;
+                        token?: string;
+                        username?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["service.AuthResult"];
+                    };
+                };
+                /** @description Gone */
+                410: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -1615,12 +2024,13 @@ export interface paths {
                 path?: never;
                 cookie?: never;
             };
-            /** @description 知识库名称与描述 */
+            /** @description 名称/描述/可见性（1=私有 2=全员可见，缺省私有） */
             requestBody: {
                 content: {
                     "application/json": {
                         description?: string;
                         name?: string;
+                        visibility?: number;
                     };
                 };
             };
@@ -1807,6 +2217,7 @@ export interface paths {
                     "application/json": {
                         description?: string;
                         name?: string;
+                        visibility?: number;
                     };
                 };
             };
@@ -2622,12 +3033,12 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * 成员列表（管理员）
+         * 成员列表（管理员/管理者）
          * @description 成员列表（user_id/username/role/加入时间）。
          *
-         *     角色定义（PRD R6）：owner=管理者（可删改内容）editor=编辑者（可补充内容）member=成员（只读）。
+         *     角色定义（PRD R6）：owner=管理者（可删改内容、授权成员）editor=编辑者（可补充内容）member=成员（只读）。
          *
-         *     权限：管理员。
+         *     权限：管理员或库内管理者。
          */
         get: {
             parameters: {
@@ -2678,12 +3089,12 @@ export interface paths {
         };
         put?: never;
         /**
-         * 添加成员（管理员）
+         * 添加成员（管理员/管理者）
          * @description 添加成员并指派角色：{user_id, role: owner|editor|member}。
          *
          *     错误：404 目标用户不存在；409 已是成员。
          *
-         *     权限：管理员。
+         *     权限：管理员或库内管理者（R6）。
          */
         post: {
             parameters: {
@@ -2768,10 +3179,10 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * 移除成员（管理员）
-         * @description 移除成员，**其历史会话保留但立即失访**（后续访问会话 404）。
+         * 移除成员（管理员/管理者）
+         * @description 移除成员，**其历史会话保留但立即失访**（后续访问会话 404）；管理者不能移除自己（403，需管理员处理）。
          *
-         *     权限：管理员。
+         *     权限：管理员或库内管理者（R6）。
          */
         delete: {
             parameters: {
@@ -2795,6 +3206,19 @@ export interface paths {
                     content: {
                         "application/json": {
                             message?: string;
+                        };
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code?: string;
+                            message?: string;
+                            request_id?: string;
                         };
                     };
                 };
@@ -2829,10 +3253,10 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * 修改成员角色（管理员）
-         * @description 变更成员角色（owner|editor|member）。
+         * 修改成员角色（管理员/管理者）
+         * @description 变更成员角色（owner|editor|member）；管理者不能变更自己的角色（403，需管理员处理）。
          *
-         *     权限：管理员。
+         *     权限：管理员或库内管理者（R6）。
          */
         patch: {
             parameters: {
@@ -2863,6 +3287,19 @@ export interface paths {
                     content: {
                         "application/json": {
                             message?: string;
+                        };
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            code?: string;
+                            message?: string;
+                            request_id?: string;
                         };
                     };
                 };
@@ -3243,6 +3680,13 @@ export interface components {
             /** @description 用户名 */
             username?: string;
         };
+        "handler.emailSettingsUpdateRequest": {
+            from?: string;
+            host?: string;
+            password?: string;
+            port?: number;
+            username?: string;
+        };
         "handler.patchUserResp": {
             /** @description 用户 ID */
             id?: number;
@@ -3260,6 +3704,18 @@ export interface components {
             message?: string;
             /** @example req_01HXXXXXXX */
             request_id?: string;
+        };
+        "mail.Config": {
+            /** @description 发件人（如 "Woodpecker <noreply@corp.com>"） */
+            from?: string;
+            /** @description SMTP 服务器 */
+            host?: string;
+            /** @description AESGCM 加密后的密码（base64） */
+            password_enc?: string;
+            /** @description 465=隐式 TLS；587/25=STARTTLS */
+            port?: number;
+            /** @description 认证账号（可空=匿名） */
+            username?: string;
         };
         "repo.AuditRow": {
             /** @description 动作（枚举见数据库设计 §5，如 user.create、kb.delete、document.git_add、setting.update、kb.access.denied_admin_bypass 等） */
@@ -3322,7 +3778,7 @@ export interface components {
         "service.AuthResult": {
             /** @description 是否管理员 */
             is_admin?: boolean;
-            /** @description 首登强制改密标记：true 时除改密接口外一律 403 AUTH_007 */
+            /** @description 首登强制改密标记：true 时除改密接口外一律 403 AUTH_07 */
             must_change_password?: boolean;
             /** @description JWT，后续请求以 Authorization: Bearer <token> 携带 */
             token?: string;
@@ -3485,6 +3941,30 @@ export interface components {
             /** @description 点踩原因 1-4：1 答案不相关 / 2 引用错误 / 3 内容过时 / 4 其他 */
             reason?: number;
         };
+        "service.InviteItem": {
+            created_at?: string;
+            created_by?: number;
+            email?: string;
+            expires_at?: string;
+            id?: number;
+            /** @description 仅创建/重发响应携带（邮件丢失时手动转发）；列表为空 */
+            link?: string;
+            send_error?: string;
+            /** @description sent | failed | not_sent */
+            send_status?: string;
+            /** @description pending | accepted | revoked */
+            status?: string;
+        };
+        "service.InviteResult": {
+            email?: string;
+            error?: string;
+            invite?: components["schemas"]["service.InviteItem"];
+            /** @description 降级路径：未发出时返回明文链接 */
+            link?: string;
+            ok?: boolean;
+            /** @description 邮件是否已发出（false=SMTP 未配置/发送失败，链接可手动转发） */
+            sent?: boolean;
+        };
         "service.KBItem": {
             /** @description 创建时间 RFC3339 UTC */
             created_at?: string;
@@ -3496,12 +3976,14 @@ export interface components {
             document_count?: number;
             /** @description 知识库 ID */
             id?: number;
-            /** @description 请求者在库内的角色：owner=管理者 editor=编辑者 member=成员 */
+            /** @description 请求者在库内的角色：owner=管理者 editor=编辑者 member=成员 org=全员可见只读访客 admin=管理员 */
             my_role?: string;
             /** @description 名称（同账号内唯一，≤50 字符） */
             name?: string;
             /** @description 最近更新时间 RFC3339 UTC */
             updated_at?: string;
+            /** @description 可见性：1=私有 2=全员可见（FR-17） */
+            visibility?: number;
         };
         "service.KBMemberItem": {
             /** @description 加入时间 RFC3339 UTC */

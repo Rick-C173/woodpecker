@@ -86,7 +86,7 @@ function EnabledBadge({ enabled }: { enabled?: boolean }) {
         'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium',
         enabled
           ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
-          : 'bg-[var(--muted)] text-[var(--muted-foreground)]',
+          : 'bg-[var(--muted-bg)] text-[var(--muted-foreground)]',
       )}
     >
       {enabled ? '启用' : '停用'}
@@ -555,14 +555,14 @@ export function AdminModelServicesPage() {
                       <TableCell>
                         <PurposeBadge purpose={entry.purpose} />
                       </TableCell>
-                      <TableCell className="font-mono text-xs">{entry.model_name}</TableCell>
+                      <TableCell className="max-w-44 truncate font-mono text-xs" title={entry.model_name}>{entry.model_name}</TableCell>
                       <TableCell className="text-xs">{entry.service_name}</TableCell>
                       <TableCell className="max-w-56 truncate font-mono text-xs text-[var(--muted)]" title={entry.params}>
                         {entry.params || '—'}
                       </TableCell>
                       <TableCell>
                         {entry.is_default ? (
-                          <span className="badge role-editor">默认</span>
+                          <span className="badge flag">默认</span>
                         ) : (
                           <span className="text-xs text-[var(--faint)]">—</span>
                         )}

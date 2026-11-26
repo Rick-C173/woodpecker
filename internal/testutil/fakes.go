@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -70,6 +71,32 @@ func (f *FakeUserRepo) GetByUsername(_ context.Context, name string) (*model.Use
 		return &cp, nil
 	}
 	return nil, repo.ErrNotFound
+}
+
+// GetByEmail 按邮箱查找（FR-16）；邮箱统一小写比较。
+func (f *FakeUserRepo) GetByEmail(_ context.Context, email string) (*model.User, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, u := range f.byName {
+		if u.Email != nil && strings.EqualFold(*u.Email, email) {
+			cp := *u
+			return &cp, nil
+		}
+	}
+	return nil, repo.ErrNotFound
+}
+
+// CountByEmail 邮箱占用计数（FR-16 邀请查重）。
+func (f *FakeUserRepo) CountByEmail(_ context.Context, email string) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var n int64
+	for _, u := range f.byName {
+		if u.Email != nil && strings.EqualFold(*u.Email, email) {
+			n++
+		}
+	}
+	return n, nil
 }
 
 func (f *FakeUserRepo) GetByID(_ context.Context, id int64) (*model.User, error) {

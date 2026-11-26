@@ -159,7 +159,8 @@ h3 {
   }
 }
 
-/* ---------- 通用按钮：渐变主按钮 + 伪元素扫光（hover 触发，仅 transform） ---------- */
+/* ---------- 通用按钮：渐变主按钮 + 伪元素扫光（hover 触发，仅 transform） ----------
+   尺寸（height/padding/font-size）由 ui/button.tsx 的 cva size 变体控制，此处不再覆盖 */
 .btn-primary {
   position: relative;
   overflow: hidden;
@@ -167,9 +168,6 @@ h3 {
   color: #fff;
   border: none;
   border-radius: var(--radius);
-  padding: 0 18px;
-  height: var(--row);
-  font-size: 14px;
   font-weight: 600;
   display: inline-flex;
   align-items: center;
@@ -201,58 +199,34 @@ h3 {
   transform: translateX(260%) skewX(-18deg);
 }
 
-.btn-primary svg {
-  width: 15px;
-  height: 15px;
-}
-
 .btn-ghost {
   background: transparent;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--muted);
-  height: var(--row);
-  padding: 0 14px;
-  font-size: 13px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  transition: border-color var(--motion-fast), color var(--motion-fast);
+  transition: border-color var(--motion-fast), color var(--motion-fast),
+    background-color var(--motion-fast);
 }
 
 .btn-ghost:hover {
   border-color: var(--border-strong);
   color: var(--primary);
+  background: var(--primary-soft);
 }
 
-/* ---------- 输入框：focus 渐变 ring ---------- */
-.input {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  height: var(--row);
-  padding: 0 12px;
-  transition: border-color var(--motion-normal), box-shadow var(--motion-normal);
+/* icon 尺寸的 ghost：去边框观感，hover 时柔和底色（不再有双重边框方块感） */
+.btn-ghost.btn-icon {
+  border-color: transparent;
+  color: var(--muted);
 }
 
-.input:focus-within {
-  border-color: var(--border-strong);
-  box-shadow: var(--ring);
-}
-
-.input input {
-  border: none;
-  background: transparent;
-  width: 100%;
-  font-size: 14px;
-  color: var(--foreground);
-}
-
-.input input::placeholder {
-  color: var(--faint);
+.btn-ghost.btn-icon:hover {
+  border-color: transparent;
+  background: var(--primary-soft);
+  color: var(--primary);
 }
 
 /* ---------- 登录卡片：实色底 + 发光细边框（mask 镂空，静态零动画成本） ---------- */
@@ -347,6 +321,22 @@ h3 {
   }
 }
 
+/* ---------- 静态信息卡：与 kb-card 同外观但无 hover 交互（403/404 等非交互场景） ---------- */
+.panel {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--pad);
+  box-shadow: var(--shadow);
+}
+
+/* ---------- 功能标记徽标（如“默认”）：区别于角色徽标的中性强调 ---------- */
+.badge.flag {
+  background: var(--primary-soft);
+  color: var(--primary);
+  border: 1px solid var(--border-strong);
+}
+
 /* ---------- 角色徽标体系 ---------- */
 .badge {
   display: inline-flex;
@@ -396,6 +386,13 @@ html[data-theme='dark'] .badge.role-admin::after {
   background: var(--primary-soft);
   color: var(--muted);
   border: 1px solid var(--border);
+}
+
+/* org=全员可见库的只读访客（FR-17）：弱化描边样式，与成员区分 */
+.badge.role-org {
+  background: var(--primary-soft);
+  color: var(--faint);
+  border: 1px dashed var(--border);
 }
 
 /* ---------- 侧栏导航 ---------- */

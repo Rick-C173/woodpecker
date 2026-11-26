@@ -11,6 +11,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { useAdminSettings, usePatchSettings } from '@/hooks/use-admin';
+import { ThemeSettingsSection } from '@/components/theme/theme-controls';
 
 export function AdminSettingsPage() {
   const settings = useAdminSettings();
@@ -63,9 +64,20 @@ export function AdminSettingsPage() {
       <div className="mb-4">
         <h1 className="text-lg font-semibold">系统设置</h1>
         <p className="text-sm text-[var(--muted)]">
-          摄取排除规则与自助注册开关；每次保存均记录审计（setting.update）。
+          外观偏好、摄取排除规则与自助注册开关；数据项每次保存均记录审计（setting.update）。
         </p>
       </div>
+
+      {/* 外观设置（主题/配色为本地浏览器偏好，不走服务端） */}
+      <section className="kb-card mb-6">
+        <div className="mb-3">
+          <h2 className="text-base font-semibold">外观设置</h2>
+          <p className="text-xs text-[var(--muted)]">
+            明暗主题与配色方案，保存于当前浏览器，立即生效。
+          </p>
+        </div>
+        <ThemeSettingsSection />
+      </section>
 
       <QueryBoundary
         query={settings}

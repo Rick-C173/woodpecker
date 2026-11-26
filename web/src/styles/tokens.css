@@ -25,8 +25,9 @@
   --primary: #7c3aed;
   --primary-foreground: #ffffff;
   --primary-soft: rgba(124, 58, 237, 0.1);
-  --muted: #5d6478;
-  --muted-foreground: var(--muted);
+  --muted: #5d6478;                /* 次要文字色（全站 text-[var(--muted)] 的消费语义） */
+  --muted-bg: #ecebf7;             /* 次要背景（浅灰紫，徽标/底色用） */
+  --muted-foreground: #5d6478;     /* 与 --muted 同值（shadcn 兼容别名） */
   --faint: #8a93a6;
   --accent: #be185d;
   --accent-soft: rgba(236, 72, 153, 0.1);
@@ -89,6 +90,8 @@ html[data-theme='dark'] {
   --primary-foreground: #ffffff;
   --primary-soft: rgba(139, 92, 246, 0.16);
   --muted: #9ca3af;
+  --muted-bg: rgba(255, 255, 255, 0.07);
+  --muted-foreground: #9ca3af;
   --faint: #6b7490;
   --accent: #22d3ee;
   --accent-soft: rgba(34, 211, 238, 0.14);
@@ -279,19 +282,26 @@ html[data-theme='dark'][data-palette='p5'] {
   --color-foreground: var(--foreground);
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--card);
+  --color-popover-foreground: var(--foreground);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
   --color-primary-soft: var(--primary-soft);
+  --color-secondary: var(--muted);
+  --color-secondary-foreground: var(--foreground);
   --color-muted: var(--muted);
+  --color-muted-bg: var(--muted-bg);
   --color-muted-foreground: var(--muted-foreground);
   --color-faint: var(--faint);
   --color-accent: var(--accent);
   --color-accent-soft: var(--accent-soft);
+  --color-accent-foreground: var(--foreground);
   --color-destructive: var(--destructive);
   --color-destructive-soft: var(--destructive-soft);
   --color-border: var(--border);
   --color-border-strong: var(--border-strong);
   --color-input: var(--input);
+  --color-ring: var(--primary);
   --color-code: var(--code-bg);
   --color-code-fg: var(--code-fg);
   --radius-base: var(--radius);

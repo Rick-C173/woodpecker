@@ -66,7 +66,7 @@ export function KbSearchPage() {
   );
 
   return (
-    <div className="mx-auto w-full max-w-4xl px-6 py-8">
+    <div className="mx-auto w-full max-w-5xl px-6 py-8">
       <h1 className="mb-1 text-lg font-semibold">内容检索</h1>
       <p className="mb-4 text-sm text-[var(--muted)]">
         混合检索（向量 + 全文）+ 精排，命中片段含文件路径与行号，可跳转到对应文档。
@@ -129,7 +129,7 @@ export function KbSearchPage() {
                           <>
                             <Link
                               to={`/kbs/${kbIdNum}/documents/${item.document_id}`}
-                              className="text-[var(--primary)] hover:underline"
+                              className="block truncate text-[var(--primary)] hover:underline"
                             >
                               {item.file_path}
                             </Link>
@@ -148,14 +148,14 @@ export function KbSearchPage() {
                       </div>
                       {item.score !== undefined && item.score !== null ? (
                         <span
-                          className="rounded-md bg-[var(--muted)] px-1.5 py-0.5 text-xs tabular-nums text-[var(--muted-foreground)]"
+                          className="rounded-md bg-[var(--muted-bg)] border border-[var(--border)] px-1.5 py-0.5 text-xs tabular-nums text-[var(--muted-foreground)]"
                           title="融合得分（RRF，越小越相关）"
                         >
                           score {item.score.toFixed(4)}
                         </span>
                       ) : null}
                     </div>
-                    <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-[var(--radius)] bg-[var(--code-bg)] p-3 font-mono text-xs leading-relaxed text-[var(--code-fg)]">
+                    <pre className="codeblock max-h-48 overflow-auto whitespace-pre-wrap p-3 font-mono text-xs leading-relaxed text-[var(--code-fg)]">
                       {item.content}
                     </pre>
                     {item.document_id ? (

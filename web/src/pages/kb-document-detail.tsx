@@ -57,7 +57,7 @@ export function KbDocumentDetailPage() {
 
   if (isNotFound) {
     return (
-      <div className="mx-auto w-full max-w-4xl px-6 py-8">
+      <div className="mx-auto w-full max-w-5xl px-6 py-8">
         <EmptyState
           title="文档不存在或已被删除"
           action={
@@ -77,7 +77,7 @@ export function KbDocumentDetailPage() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-4xl px-6 py-8">
+    <div className="mx-auto w-full max-w-5xl px-6 py-8">
       <QueryBoundary query={query} skeleton={<Skeleton className="h-64 w-full" />}>
         {(doc: DocumentDetail) => (
           <>
@@ -197,7 +197,7 @@ export function KbDocumentDetailPage() {
             <section className="kb-card p-5">
               <h2 className="mb-3 text-sm font-semibold">任务历史</h2>
               {(doc.tasks ?? []).length === 0 ? (
-                <p className="py-4 text-center text-sm text-[var(--muted)]">暂无任务记录</p>
+                <EmptyState title="暂无任务记录" description="文档接入或同步后，这里会展示每次摄取任务的执行历史。" />
               ) : (
                 <ul className="space-y-2">
                   {doc.tasks?.map((t) => (

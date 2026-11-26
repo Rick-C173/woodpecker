@@ -43,6 +43,9 @@ type Deps struct {
 	// M7：系统设置与审计/反馈查询（FR-13 / FR-14 / FR-15）
 	AdminSettings *AdminSettingsHandler
 
+	// M10：邮箱邀请制注册（FR-16）
+	Invite *InviteHandler
+
 	KBLookup middleware.KBLookup
 	// OnAdminKBAccess 管理员以非成员身份访问库时回调（审计）
 	OnAdminKBAccess func(ctx context.Context, userID, kbID int64, method, path, ip string)
@@ -85,6 +88,11 @@ func NewRouter(d Deps) *gin.Engine {
 	// auth（公开）
 	v1.POST("/auth/login", d.Auth.Login)
 	v1.POST("/auth/register", d.Auth.Register)
+	// M10：邮箱邀请制（FR-16）公开端点
+	if d.Invite != nil {
+		v1.GET("/auth/invitations/:token", d.Invite.ValidateInvitation)
+		v1.POST("/auth/register/invited", d.Invite.RegisterInvited)
+	}
 
 	// auth（登录态）：全局限流（API 设计 §1，阈值可配 RATE_LIMIT_PER_MIN，<=0 关闭）
 	limiter := middleware.NewRateLimiter(cfg.RateLimitPerMin, time.Minute)
@@ -111,7 +119,8 @@ func NewRouter(d Deps) *gin.Engine {
 	kb.GET("", d.KB.Get)
 	kb.PATCH("", middleware.Admin(), d.KB.Update)
 	kb.DELETE("", middleware.Admin(), d.KB.Delete)
-	members := kb.Group("/members", middleware.Admin())
+	// 成员管理（R6）：管理员或库内管理者（owner 可授权，FR-02 扩展）
+	members := kb.Group("/members", middleware.KBMemberManager())
 	members.GET("", d.KB.ListMembers)
 	members.POST("", d.KB.AddMember)
 	members.PATCH("/:user", d.KB.UpdateMemberRole)
@@ -173,6 +182,16 @@ func NewRouter(d Deps) *gin.Engine {
 		admin.POST("/users", au.Create)
 		admin.PATCH("/users/:id", au.Patch)
 		admin.POST("/users/:id/reset-password", au.ResetPassword)
+		// M10：邮箱邀请制（FR-16）
+		if d.Invite != nil {
+			admin.POST("/invitations", d.Invite.CreateInvitations)
+			admin.GET("/invitations", d.Invite.ListInvitations)
+			admin.POST("/invitations/:id/resend", d.Invite.ResendInvitation)
+			admin.DELETE("/invitations/:id", d.Invite.RevokeInvitation)
+			admin.GET("/email-settings", d.Invite.GetEmailSettings)
+			admin.PATCH("/email-settings", d.Invite.UpdateEmailSettings)
+			admin.POST("/email-settings/test", d.Invite.TestEmail)
+		}
 
 		// 模型服务配置（FR-12）
 		mc := d.ModelCfg

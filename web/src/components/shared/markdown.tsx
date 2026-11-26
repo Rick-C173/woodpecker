@@ -229,7 +229,7 @@ export function Markdown({ content, streaming = false, onCite, className }: Mark
   }, []);
 
   return (
-    <div className={cn('md-body text-sm leading-relaxed', className)}>
+    <div className={cn('text-sm leading-relaxed', className)}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
@@ -245,7 +245,7 @@ export function Markdown({ content, streaming = false, onCite, className }: Mark
             const match = /language-([\w+-]+)/.exec(cls ?? '');
             if (!match) {
               return (
-                <code className="rounded-[4px] bg-[var(--code-bg)] px-1 py-0.5 font-mono text-[12px] text-[var(--code-fg)]">
+                <code className="rounded-[4px] bg-[var(--code-bg)] px-1 py-0.5 font-mono text-[13px] text-[var(--code-fg)]">
                   {children}
                 </code>
               );

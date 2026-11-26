@@ -78,6 +78,9 @@ type Config struct {
 
 	// 摄取（M4）：上传文件落地目录
 	UploadDir string
+	// InviteBaseURL 站点外部访问地址（FR-16 邀请链接前缀，如 https://wp.corp.com）。
+	// 部署属性，独立于 SMTP 配置；为空时邀请降级链接为空（仅邮件路径可用）。
+	InviteBaseURL string
 
 	// WorkerID 摄取 worker 标识（审计 P1-8）。任务开始处理时写入 ingest_tasks.worker_id，
 	// 重启恢复只清理「本标识」的残留任务。多实例部署（含同主机多容器）**必须各自配置唯一值**，
@@ -127,7 +130,8 @@ func Load() *Config {
 		DBMaxIdleConns:           envInt("DB_MAX_IDLE_CONNS", 5),
 		DBConnMaxLifetimeMinutes: envInt("DB_CONN_MAX_LIFETIME_MINUTES", 30),
 
-		UploadDir: envStr("UPLOAD_DIR", "data/uploads"),
+		UploadDir:     envStr("UPLOAD_DIR", "data/uploads"),
+		InviteBaseURL: envStr("APP_BASE_URL", ""),
 
 		WorkerID: envStr("WORKER_ID", DefaultWorkerID()),
 

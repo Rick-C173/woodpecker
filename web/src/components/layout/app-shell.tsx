@@ -7,7 +7,7 @@
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { FolderKanban, LogOut, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
-import { ThemeControls } from '@/components/theme/theme-controls';
+import { ThemeToggleButton } from '@/components/theme/theme-controls';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/use-auth';
 import { useKbsList } from '@/hooks/use-kbs';
@@ -33,7 +33,7 @@ export function AppShell() {
 
   return (
     <div className="relative z-[1] flex h-screen">
-      <aside className="sidebar flex w-56 flex-none flex-col px-2.5 py-4">
+      <aside className="sidebar flex w-60 flex-none flex-col px-2.5 py-4">
         <div className="flex items-center gap-2 px-2 pb-4 font-bold">
           <span className="flex size-8 items-center justify-center rounded-[var(--radius)] bg-[var(--grad)] text-white shadow-[var(--btn-shadow)]">
             🐦
@@ -98,9 +98,13 @@ export function AppShell() {
               </div>
             </div>
           </div>
-          <div className="px-2">
-            <ThemeControls />
+          <div className="flex items-center justify-between px-2">
+            <span className="text-xs text-[var(--muted)]">外观</span>
+            <ThemeToggleButton />
           </div>
+          <p className="mt-1 px-2 text-[11px] text-[var(--faint)]">
+            配色方案在「管理后台 → 系统设置」中调整
+          </p>
           <Button
             variant="ghost"
             size="sm"

@@ -15,6 +15,7 @@ import (
 
 type fakeKBLookup struct {
 	roles map[[2]int64]int16
+	vis   map[int64]int16 // kbID → visibility（未登记=私有）
 	err   error
 }
 
@@ -26,6 +27,17 @@ func (f *fakeKBLookup) GetMemberRole(_ context.Context, kbID, userID int64) (int
 		return r, nil
 	}
 	return 0, repo.ErrNotFound
+}
+
+// GetVisibility 未登记的库视为私有（FR-17：默认值语义）。
+func (f *fakeKBLookup) GetVisibility(_ context.Context, kbID int64) (int16, error) {
+	if f.err != nil {
+		return 0, f.err
+	}
+	if v, ok := f.vis[kbID]; ok {
+		return v, nil
+	}
+	return model.KBVisibilityPrivate, nil
 }
 
 func kbRouter(lookup KBLookup, userID int64, isAdmin bool, bypass func(*gin.Context, int64, int64)) *gin.Engine {
@@ -46,6 +58,8 @@ func TestKBAccess(t *testing.T) {
 	lookup := &fakeKBLookup{roles: map[[2]int64]int16{
 		{1, 7}: model.KBRoleEditor,
 		{1, 8}: model.KBRoleMember,
+	}, vis: map[int64]int16{
+		2: model.KBVisibilityOrg, // kb2=全员可见
 	}}
 
 	// 非法 kb 参数 → 404
@@ -71,9 +85,31 @@ func TestKBAccess(t *testing.T) {
 
 	// 非成员 → 404（不可见原则）
 	w = httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest("GET", "/kbs/2", nil))
+	r.ServeHTTP(w, httptest.NewRequest("GET", "/kbs/3", nil))
 	assert.Equal(t, 404, w.Code)
 	assert.NotContains(t, w.Body.String(), "kb_name")
+
+	// FR-17：全员可见库非成员 → 放行且等效 member 只读
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest("GET", "/kbs/2", nil))
+	assert.Equal(t, 200, w.Code)
+	assert.JSONEq(t, `{"kb":2,"role":3}`, w.Body.String())
+
+	// FR-17：org 库非成员不可获得成员管理权（KBMemberManager 拦截 member 角色）
+	gin.SetMode(gin.TestMode)
+	mr := gin.New()
+	mr.Use(func(c *gin.Context) {
+		c.Set(CtxUserID, 7)
+		c.Set(CtxIsAdmin, false)
+		c.Set(CtxKBID, int64(2))
+		c.Set(CtxKBRole, model.KBRoleMember)
+		c.Next()
+	})
+	mr.POST("/members", KBMemberManager(), func(c *gin.Context) { c.Status(200) })
+	mw := httptest.NewRecorder()
+	mr.ServeHTTP(mw, httptest.NewRequest("POST", "/members", nil))
+	assert.Equal(t, 403, mw.Code)
+	assert.Contains(t, mw.Body.String(), "FORBIDDEN")
 
 	// 成员 → 放行并注入角色
 	w = httptest.NewRecorder()

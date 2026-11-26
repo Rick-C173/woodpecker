@@ -256,7 +256,7 @@ function UploadIngestForm({ kbId, onSuccess }: { kbId: number; onSuccess: () => 
         tabIndex={0}
         aria-label="拖拽或点击选择文件"
         className={cn(
-          'flex flex-col items-center gap-2 rounded-[var(--radius)] border-2 border-dashed px-6 py-10 text-center transition-colors',
+          'flex flex-col items-center gap-2 rounded-[var(--radius)] border-2 border-dashed px-6 py-10 text-center transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--primary)]',
           dragOver
             ? 'border-[var(--border-strong)] bg-[var(--primary-soft)]'
             : 'border-[var(--border)] hover:bg-[var(--primary-soft)]',

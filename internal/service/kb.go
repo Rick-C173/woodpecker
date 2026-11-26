@@ -40,7 +40,8 @@ type KBItem struct {
 	Name          string `json:"name"`           // 名称（同账号内唯一，≤50 字符）
 	Description   string `json:"description"`    // 描述
 	DocumentCount int64  `json:"document_count"` // 库内文档总数
-	MyRole        string `json:"my_role"`        // 请求者在库内的角色：owner=管理者 editor=编辑者 member=成员
+	MyRole        string `json:"my_role"`        // 请求者在库内的角色：owner=管理者 editor=编辑者 member=成员 org=全员可见只读访客 admin=管理员
+	Visibility    int16  `json:"visibility"`     // 可见性：1=私有 2=全员可见（FR-17）
 	CreatedBy     int64  `json:"created_by"`     // 创建人用户 ID
 	CreatedAt     string `json:"created_at"`     // 创建时间 RFC3339 UTC
 	UpdatedAt     string `json:"updated_at"`     // 最近更新时间 RFC3339 UTC
@@ -76,13 +77,25 @@ func (s *KBService) toItem(row repo.KBRow, role string) KBItem {
 		Description:   row.Description,
 		DocumentCount: row.DocCount,
 		MyRole:        role,
+		Visibility:    row.Visibility,
 		CreatedBy:     row.CreatedBy,
 		CreatedAt:     row.CreatedAt.UTC().Format(time.RFC3339),
 		UpdatedAt:     row.UpdatedAt.UTC().Format(time.RFC3339),
 	}
 }
 
-// List 我可见的库：管理员=全部（my_role=admin），普通用户=被授权库（my_role=库内角色）。
+// myRoleName 列表行 → 对外角色名（FR-17）：0=无成员行（org 访客或管理员）。
+func myRoleName(role int16, isAdmin bool) string {
+	if isAdmin {
+		return "admin"
+	}
+	if role == 0 {
+		return "org"
+	}
+	return model.KBRoleName(role)
+}
+
+// List 我可见的库：管理员=全部（my_role=admin），普通用户=成员库 ∪ 全员可见库（org 访客 my_role=org）。
 func (s *KBService) List(ctx context.Context, userID int64, isAdmin bool) ([]KBItem, error) {
 	var (
 		rows []repo.KBRow
@@ -98,16 +111,12 @@ func (s *KBService) List(ctx context.Context, userID int64, isAdmin bool) ([]KBI
 	}
 	items := make([]KBItem, 0, len(rows))
 	for _, row := range rows {
-		role := "admin"
-		if !isAdmin {
-			role = model.KBRoleName(row.Role)
-		}
-		items = append(items, s.toItem(row, role))
+		items = append(items, s.toItem(row, myRoleName(row.Role, isAdmin)))
 	}
 	return items, nil
 }
 
-// Get 库详情（成员资格由中间件先行校验；此处再次校验以防越权调用）。
+// Get 库详情（访问资格由中间件先行校验；此处再次校验以防越权调用）。
 func (s *KBService) Get(ctx context.Context, kbID, userID int64, isAdmin bool) (*KBItem, error) {
 	kb, err := s.kbs.GetByID(ctx, kbID)
 	if err != nil {
@@ -121,11 +130,18 @@ func (s *KBService) Get(ctx context.Context, kbID, userID int64, isAdmin bool) (
 		r, err := s.kbs.GetMemberRole(ctx, kbID, userID)
 		if err != nil {
 			if errors.Is(err, repo.ErrNotFound) {
-				return nil, NewServiceError(CodeNotFound, "知识库不存在")
+				// 非成员：全员可见库放行（org 只读访客）；私有库 404（不可见原则）
+				if kb.Visibility == model.KBVisibilityOrg {
+					role = "org"
+				} else {
+					return nil, NewServiceError(CodeNotFound, "知识库不存在")
+				}
+			} else {
+				return nil, err
 			}
-			return nil, err
+		} else {
+			role = model.KBRoleName(r)
 		}
-		role = model.KBRoleName(r)
 	}
 	docCount, err := s.kbs.CountDocuments(ctx, kbID)
 	if err != nil {
@@ -135,6 +151,7 @@ func (s *KBService) Get(ctx context.Context, kbID, userID int64, isAdmin bool) (
 		ID:          kb.ID,
 		Name:        kb.Name,
 		Description: kb.Description,
+		Visibility:  kb.Visibility,
 		CreatedBy:   kb.CreatedBy,
 		CreatedAt:   kb.CreatedAt,
 		UpdatedAt:   kb.UpdatedAt,
@@ -143,8 +160,24 @@ func (s *KBService) Get(ctx context.Context, kbID, userID int64, isAdmin bool) (
 	return &item, nil
 }
 
+// ParseKBVisibility 校验可见性取值（FR-17）：1=私有 2=全员可见；0/缺省 → 私有。
+func ParseKBVisibility(v int16) (int16, bool) {
+	switch v {
+	case 0, model.KBVisibilityPrivate:
+		return model.KBVisibilityPrivate, true
+	case model.KBVisibilityOrg:
+		return model.KBVisibilityOrg, true
+	default:
+		return 0, false
+	}
+}
+
 // Create 建库（仅管理员，FR-02）：名称必填且 ≤50 字符，重名 → KB_001。
-func (s *KBService) Create(ctx context.Context, actorID int64, name, description, ip string) (*KBItem, error) {
+func (s *KBService) Create(ctx context.Context, actorID int64, name, description string, visibility int16, ip string) (*KBItem, error) {
+	vis, ok := ParseKBVisibility(visibility)
+	if !ok {
+		return nil, NewServiceError(CodeValidation, "visibility 取值仅 1(私有)|2(全员可见)")
+	}
 	name = strings.TrimSpace(name)
 	if err := validateKBFields(name, &description); err != nil {
 		return nil, err
@@ -157,6 +190,7 @@ func (s *KBService) Create(ctx context.Context, actorID int64, name, description
 	kb := &model.KnowledgeBase{
 		Name:        name,
 		Description: description,
+		Visibility:  vis,
 		CreatedBy:   actorID,
 	}
 	if err := s.kbs.Create(ctx, kb); err != nil {
@@ -172,11 +206,12 @@ func (s *KBService) Create(ctx context.Context, actorID int64, name, description
 		return nil, err
 	}
 	s.audit.Record(ctx, &actorID, "kb.create", "kb", &kb.ID,
-		map[string]any{"name": kb.Name}, ip)
+		map[string]any{"name": kb.Name, "visibility": vis}, ip)
 	item := s.toItem(repo.KBRow{
 		ID:          kb.ID,
 		Name:        kb.Name,
 		Description: kb.Description,
+		Visibility:  kb.Visibility,
 		CreatedBy:   kb.CreatedBy,
 		CreatedAt:   kb.CreatedAt,
 		UpdatedAt:   kb.UpdatedAt,
@@ -184,8 +219,8 @@ func (s *KBService) Create(ctx context.Context, actorID int64, name, description
 	return &item, nil
 }
 
-// Update 改名/改描述（仅管理员）：字段为 nil 表示不修改。
-func (s *KBService) Update(ctx context.Context, actorID, kbID int64, name, description *string, ip string) (*KBItem, error) {
+// Update 改名/描述/可见性（仅管理员，FR-17）：指针字段为 nil 表示不修改。
+func (s *KBService) Update(ctx context.Context, actorID, kbID int64, name, description *string, visibility *int16, ip string) (*KBItem, error) {
 	kb, err := s.kbs.GetByID(ctx, kbID)
 	if err != nil {
 		if errors.Is(err, repo.ErrNotFound) {
@@ -216,6 +251,16 @@ func (s *KBService) Update(ctx context.Context, actorID, kbID int64, name, descr
 		detail["description"] = *description
 		kb.Description = *description
 	}
+	if visibility != nil {
+		vis, ok := ParseKBVisibility(*visibility)
+		if !ok {
+			return nil, NewServiceError(CodeValidation, "visibility 取值仅 1(私有)|2(全员可见)")
+		}
+		if vis != kb.Visibility {
+			detail["visibility"] = vis
+			kb.Visibility = vis
+		}
+	}
 	kb.UpdatedAt = s.now()
 	if err := s.kbs.Save(ctx, kb); err != nil {
 		return nil, err
@@ -229,6 +274,7 @@ func (s *KBService) Update(ctx context.Context, actorID, kbID int64, name, descr
 		ID:          kb.ID,
 		Name:        kb.Name,
 		Description: kb.Description,
+		Visibility:  kb.Visibility,
 		CreatedBy:   kb.CreatedBy,
 		CreatedAt:   kb.CreatedAt,
 		UpdatedAt:   kb.UpdatedAt,

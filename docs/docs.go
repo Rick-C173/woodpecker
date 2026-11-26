@@ -108,6 +108,126 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/email-settings": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "email"
+                ],
+                "summary": "读取邮件配置（管理员）",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/mail.Config"
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "password 为空表示不修改现有密码；保存记审计。",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "email"
+                ],
+                "summary": "保存邮件配置（管理员）",
+                "parameters": [
+                    {
+                        "description": "SMTP 配置",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.emailSettingsUpdateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "message": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/email-settings/test": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "email"
+                ],
+                "summary": "测试邮件发送（管理员）",
+                "parameters": [
+                    {
+                        "description": "收件邮箱",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "to": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "message": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorBody"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/feedbacks": {
             "get": {
                 "description": "点踩反馈列表（FR-14，分页，新到旧）。联查被点踩回答与反馈人，message_text 为回答内容截断摘要。\n\n权限：管理员。",
@@ -188,6 +308,206 @@ const docTemplate = `{
                     },
                     "422": {
                         "description": "from/to 不是合法 RFC3339（VALIDATION_FAILED）",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorBody"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/invitations": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "按状态/时间筛选，created_at 倒序分页。",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "invitations"
+                ],
+                "summary": "邀请列表（管理员）",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "pending|accepted|revoked",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "页码（默认 1）",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "页大小（默认 20）",
+                        "name": "page_size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "items": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/definitions/service.InviteItem"
+                                    }
+                                },
+                                "page": {
+                                    "type": "integer"
+                                },
+                                "page_size": {
+                                    "type": "integer"
+                                },
+                                "total": {
+                                    "type": "integer"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "邮箱小写化去重后逐个发送；已注册邮箱拒绝；SMTP 未配置或发送失败不阻断创建（invite.send_status 标记，降级返回明文链接）。",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "invitations"
+                ],
+                "summary": "发起邀请（管理员）",
+                "parameters": [
+                    {
+                        "description": "邮箱列表（单次 ≤50）",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "emails": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "results": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/definitions/service.InviteResult"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorBody"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/invitations/{id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "已接受邀请不可撤销（409 AUTH_009）。",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "invitations"
+                ],
+                "summary": "撤销邀请（管理员）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "邀请 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "message": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/invitations/{id}/resend": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "覆盖 token、重置 7 天有效期与发送状态；已接受邀请 409 AUTH_009。",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "invitations"
+                ],
+                "summary": "重发邀请（管理员）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "邀请 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/service.InviteItem"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
                         "schema": {
                             "$ref": "#/definitions/httpx.ErrorBody"
                         }
@@ -1094,6 +1414,43 @@ const docTemplate = `{
                 }
             }
         },
+        "/auth/invitations/{token}": {
+            "get": {
+                "description": "返回邀请邮箱（只读展示）与过期时间；无效/过期 410 AUTH_008，已使用 409 AUTH_009。",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "邀请校验（公开）",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "邀请 token",
+                        "name": "token",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "email": {
+                                    "type": "string"
+                                },
+                                "expires_at": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/auth/login": {
             "post": {
                 "description": "登录，返回 JWT token 与 must_change_password / is_admin 标记。\n\n连续 5 次密码错误锁定 10 分钟（AUTH_002）。首登未改密（must_change_password=true）时，除本接口与 /healthz 外所有接口返回 403 AUTH_07。\n\n权限：公开。",
@@ -1208,6 +1565,57 @@ const docTemplate = `{
                     },
                     "422": {
                         "description": "密码过短 AUTH_006",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorBody"
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/register/invited": {
+            "post": {
+                "description": "token 一次性且 7 天有效；注册成功即作废邀请；一律普通用户（管理员由提升产生）。",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "持邀注册（公开，FR-16）",
+                "parameters": [
+                    {
+                        "description": "邀请 token + 账号信息",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "password": {
+                                    "type": "string"
+                                },
+                                "token": {
+                                    "type": "string"
+                                },
+                                "username": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/service.AuthResult"
+                        }
+                    },
+                    "410": {
+                        "description": "Gone",
                         "schema": {
                             "$ref": "#/definitions/httpx.ErrorBody"
                         }
@@ -1513,7 +1921,7 @@ const docTemplate = `{
                 "summary": "新建知识库（管理员）",
                 "parameters": [
                     {
-                        "description": "知识库名称与描述",
+                        "description": "名称/描述/可见性（1=私有 2=全员可见，缺省私有）",
                         "name": "body",
                         "in": "body",
                         "required": true,
@@ -1525,6 +1933,9 @@ const docTemplate = `{
                                 },
                                 "name": {
                                     "type": "string"
+                                },
+                                "visibility": {
+                                    "type": "integer"
                                 }
                             }
                         }
@@ -1728,6 +2139,9 @@ const docTemplate = `{
                                 },
                                 "name": {
                                     "type": "string"
+                                },
+                                "visibility": {
+                                    "type": "integer"
                                 }
                             }
                         }
@@ -2430,14 +2844,14 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "成员列表（user_id/username/role/加入时间）。\n\n角色定义（PRD R6）：owner=管理者（可删改内容）editor=编辑者（可补充内容）member=成员（只读）。\n\n权限：管理员。",
+                "description": "成员列表（user_id/username/role/加入时间）。\n\n角色定义（PRD R6）：owner=管理者（可删改内容、授权成员）editor=编辑者（可补充内容）member=成员（只读）。\n\n权限：管理员或库内管理者。",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "kbs"
                 ],
-                "summary": "成员列表（管理员）",
+                "summary": "成员列表（管理员/管理者）",
                 "parameters": [
                     {
                         "type": "integer",
@@ -2493,7 +2907,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "添加成员并指派角色：{user_id, role: owner|editor|member}。\n\n错误：404 目标用户不存在；409 已是成员。\n\n权限：管理员。",
+                "description": "添加成员并指派角色：{user_id, role: owner|editor|member}。\n\n错误：404 目标用户不存在；409 已是成员。\n\n权限：管理员或库内管理者（R6）。",
                 "consumes": [
                     "application/json"
                 ],
@@ -2503,7 +2917,7 @@ const docTemplate = `{
                 "tags": [
                     "kbs"
                 ],
-                "summary": "添加成员（管理员）",
+                "summary": "添加成员（管理员/管理者）",
                 "parameters": [
                     {
                         "type": "integer",
@@ -2587,14 +3001,14 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "移除成员，**其历史会话保留但立即失访**（后续访问会话 404）。\n\n权限：管理员。",
+                "description": "移除成员，**其历史会话保留但立即失访**（后续访问会话 404）；管理者不能移除自己（403，需管理员处理）。\n\n权限：管理员或库内管理者（R6）。",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "kbs"
                 ],
-                "summary": "移除成员（管理员）",
+                "summary": "移除成员（管理员/管理者）",
                 "parameters": [
                     {
                         "type": "integer",
@@ -2618,6 +3032,23 @@ const docTemplate = `{
                             "type": "object",
                             "properties": {
                                 "message": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "code": {
+                                    "type": "string"
+                                },
+                                "message": {
+                                    "type": "string"
+                                },
+                                "request_id": {
                                     "type": "string"
                                 }
                             }
@@ -2665,7 +3096,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "变更成员角色（owner|editor|member）。\n\n权限：管理员。",
+                "description": "变更成员角色（owner|editor|member）；管理者不能变更自己的角色（403，需管理员处理）。\n\n权限：管理员或库内管理者（R6）。",
                 "consumes": [
                     "application/json"
                 ],
@@ -2675,7 +3106,7 @@ const docTemplate = `{
                 "tags": [
                     "kbs"
                 ],
-                "summary": "修改成员角色（管理员）",
+                "summary": "修改成员角色（管理员/管理者）",
                 "parameters": [
                     {
                         "type": "integer",
@@ -2713,6 +3144,23 @@ const docTemplate = `{
                             "type": "object",
                             "properties": {
                                 "message": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "code": {
+                                    "type": "string"
+                                },
+                                "message": {
+                                    "type": "string"
+                                },
+                                "request_id": {
                                     "type": "string"
                                 }
                             }
@@ -3064,6 +3512,26 @@ const docTemplate = `{
                 }
             }
         },
+        "handler.emailSettingsUpdateRequest": {
+            "type": "object",
+            "properties": {
+                "from": {
+                    "type": "string"
+                },
+                "host": {
+                    "type": "string"
+                },
+                "password": {
+                    "type": "string"
+                },
+                "port": {
+                    "type": "integer"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
         "handler.patchUserResp": {
             "type": "object",
             "properties": {
@@ -3100,6 +3568,31 @@ const docTemplate = `{
                 "request_id": {
                     "type": "string",
                     "example": "req_01HXXXXXXX"
+                }
+            }
+        },
+        "mail.Config": {
+            "type": "object",
+            "properties": {
+                "from": {
+                    "description": "发件人（如 \"Woodpecker \u003cnoreply@corp.com\u003e\"）",
+                    "type": "string"
+                },
+                "host": {
+                    "description": "SMTP 服务器",
+                    "type": "string"
+                },
+                "password_enc": {
+                    "description": "AESGCM 加密后的密码（base64）",
+                    "type": "string"
+                },
+                "port": {
+                    "description": "465=隐式 TLS；587/25=STARTTLS",
+                    "type": "integer"
+                },
+                "username": {
+                    "description": "认证账号（可空=匿名）",
+                    "type": "string"
                 }
             }
         },
@@ -3573,6 +4066,66 @@ const docTemplate = `{
                 }
             }
         },
+        "service.InviteItem": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "integer"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "link": {
+                    "description": "仅创建/重发响应携带（邮件丢失时手动转发）；列表为空",
+                    "type": "string"
+                },
+                "send_error": {
+                    "type": "string"
+                },
+                "send_status": {
+                    "description": "sent | failed | not_sent",
+                    "type": "string"
+                },
+                "status": {
+                    "description": "pending | accepted | revoked",
+                    "type": "string"
+                }
+            }
+        },
+        "service.InviteResult": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "invite": {
+                    "$ref": "#/definitions/service.InviteItem"
+                },
+                "link": {
+                    "description": "降级路径：未发出时返回明文链接",
+                    "type": "string"
+                },
+                "ok": {
+                    "type": "boolean"
+                },
+                "sent": {
+                    "description": "邮件是否已发出（false=SMTP 未配置/发送失败，链接可手动转发）",
+                    "type": "boolean"
+                }
+            }
+        },
         "service.KBItem": {
             "type": "object",
             "properties": {
@@ -3597,7 +4150,7 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "my_role": {
-                    "description": "请求者在库内的角色：owner=管理者 editor=编辑者 member=成员",
+                    "description": "请求者在库内的角色：owner=管理者 editor=编辑者 member=成员 org=全员可见只读访客 admin=管理员",
                     "type": "string"
                 },
                 "name": {
@@ -3607,6 +4160,10 @@ const docTemplate = `{
                 "updated_at": {
                     "description": "最近更新时间 RFC3339 UTC",
                     "type": "string"
+                },
+                "visibility": {
+                    "description": "可见性：1=私有 2=全员可见（FR-17）",
+                    "type": "integer"
                 }
             }
         },
