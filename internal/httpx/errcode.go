@@ -18,6 +18,8 @@ const (
 	// CodeInviteInvalid 邀请无效或已过期（FR-16；token 不存在/过期/已撤销）。
 	CodeInviteInvalid      = "AUTH_008"          // 410 邀请无效或已过期
 	CodeInviteUsed         = "AUTH_009"          // 409 邀请已被使用
+	// CodeOIDCLoginFail SSO 登录失败（FR-19；一次性 code 过期/已消费、IdP 回调非法）。
+	CodeOIDCLoginFail      = "AUTH_010"          // 401 SSO 登录失败
 	CodeEmailSendFail      = "EMAIL_001"         // 422 邮件发送失败（邀请已创建，可配置后重发）
 	CodeNotFound           = "NOT_FOUND"         // 404 资源不存在
 	CodeValidation         = "VALIDATION_FAILED" // 422 参数校验失败
@@ -56,6 +58,7 @@ var httpStatusByCode = map[string]int{
 	CodeAuthMustChangePassword: http.StatusForbidden,
 	CodeInviteInvalid:          http.StatusGone,
 	CodeInviteUsed:             http.StatusConflict,
+	CodeOIDCLoginFail:          http.StatusUnauthorized,
 	CodeEmailSendFail:          http.StatusUnprocessableEntity,
 	CodeNotFound:               http.StatusNotFound,
 	CodeValidation:             http.StatusUnprocessableEntity,

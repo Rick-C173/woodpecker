@@ -7,12 +7,12 @@
  * 后端开启 SSO 时显隐「企业账号登录」按钮（整页跳转 /auth/oidc/login 走 IdP）。
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { setAuth, type AuthUser } from '@/lib/auth';
@@ -68,11 +68,14 @@ export function LoginPage() {
     }
   });
 
-  // M13：SSO 回跳（一次性 code 兑换 / 错误提示）；先清 URL 参数防刷新重复兑换
+  // M13：SSO 回跳（一次性 code 兑换 / 错误提示）；先清 URL 参数防刷新重复兑换。
+  // ref 兜住 React StrictMode 双执行 effect——code 一次性，重复兑换必然 AUTH_010。
+  const oidcExchanged = useRef(false);
   useEffect(() => {
     const code = searchParams.get('oidc');
     const oidcError = searchParams.get('oidc_error');
-    if (!code && !oidcError) return;
+    if ((!code && !oidcError) || oidcExchanged.current) return;
+    oidcExchanged.current = true;
     const rest = new URLSearchParams(searchParams);
     rest.delete('oidc');
     rest.delete('oidc_error');
@@ -184,19 +187,13 @@ export function LoginPage() {
               或
               <span className="h-px flex-1 bg-[var(--border)]" />
             </div>
-            <Button
-              type="button"
-              variant="outline"
-              className="mt-4 w-full"
-              disabled={exchanging}
+            <a
+              href="/api/v1/auth/oidc/login"
+              className={buttonVariants({ variant: 'outline' }) + ' w-full'}
               data-testid="oidc-login"
-              onClick={() => {
-                // 整页跳转：后端 302 至 IdP，回调后带回一次性 code
-                window.location.href = '/api/v1/auth/oidc/login';
-              }}
             >
               企业账号登录（SSO）
-            </Button>
+            </a>
           </>
         ) : null}
 
