@@ -107,10 +107,28 @@ type Config struct {
 	GitAutoSyncMinutes int
 }
 
-// Load 读取配置：.env 文件（存在则加载，不覆盖已有环境变量）→ 环境变量 → 默认值。
+// Load 读取配置，按环境分文件（生产和开发各一套，见 .env.example）：
+//  1. `.env`（公共兜底，可含 APP_ENV 本身；不存在则跳过）；
+//  2. 读 APP_ENV（缺省 development），再 Overload `.env.{APP_ENV}`——环境专属文件**覆盖**
+//     公共值（如 DATABASE_URL/UPLOAD_DIR/密钥），不存在则跳过。
+//
+// 即：APP_ENV=development → `.env.development`（本地开发，入库模板无敏感值）；
+// APP_ENV=production → `.env.production`（生产，不入库）。既有部署（compose env_file /
+// 裸机 $InstallDir\.env）不受影响：环境变量注入优先级高于任何文件。
 func Load() *Config {
 	if err := godotenv.Load(); err != nil && !os.IsNotExist(err) {
 		slog.Debug("未加载 .env", "err", err)
+	}
+	env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
+	if env == "" {
+		env = EnvDevelopment
+	}
+	if env == EnvProdAlias {
+		env = EnvProduction
+	}
+	// 环境专属文件覆盖公共 .env（Overload 允许覆盖已存在的环境变量）
+	if err := godotenv.Overload(".env." + env); err != nil && !os.IsNotExist(err) {
+		slog.Debug("未加载环境专属配置文件", "file", ".env."+env, "err", err)
 	}
 	cfg := &Config{
 		Env:           envStr("APP_ENV", EnvDevelopment),

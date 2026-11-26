@@ -24,6 +24,7 @@ go.work.sum
 
 # env file
 .env
+.env.production
 
 .idea
 # md/ 目录由其自身 git 仓库管理（本地版本控制，不推远程）；主仓库不纳入版本控制
