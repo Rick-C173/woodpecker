@@ -9,7 +9,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { FolderKanban, Pencil, Plus, Trash2 } from 'lucide-react';
+import { FolderKanban, Globe2, Pencil, Plus, Trash2 } from 'lucide-react';
 import { QueryBoundary } from '@/components/states/query-boundary';
 import { EmptyState } from '@/components/states/empty-state';
 import { RoleBadge } from '@/components/shared/role-badge';
@@ -18,6 +18,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   Dialog,
   DialogContent,
@@ -37,6 +44,7 @@ type KBItem = components['schemas']['service.KBItem'];
 const kbFormSchema = z.object({
   name: z.string().min(1, '请输入知识库名称').max(50, '名称不超过 50 字符'),
   description: z.string().max(500, '描述不超过 500 字符').optional(),
+  visibility: z.enum(['1', '2']),
 });
 
 type KbFormValues = z.infer<typeof kbFormSchema>;
@@ -57,7 +65,7 @@ function KbFormDialog({
 
   const form = useForm<KbFormValues>({
     resolver: zodResolver(kbFormSchema),
-    defaultValues: { name: '', description: '' },
+    defaultValues: { name: '', description: '', visibility: '1' },
   });
 
   // dialog 每次打开时按目标回填
@@ -68,6 +76,7 @@ function KbFormDialog({
       form.reset({
         name: editing?.name ?? '',
         description: editing?.description ?? '',
+        visibility: String(editing?.visibility ?? 1) === '2' ? '2' : '1',
       });
     }
   }
@@ -78,12 +87,14 @@ function KbFormDialog({
         await updateKb.mutateAsync({
           name: values.name,
           description: values.description || undefined,
+          visibility: Number(values.visibility),
         });
         toast.success('知识库已更新');
       } else {
         await createKb.mutateAsync({
           name: values.name,
           description: values.description || undefined,
+          visibility: Number(values.visibility),
         });
         toast.success('知识库已创建');
       }
@@ -125,6 +136,22 @@ function KbFormDialog({
               placeholder="一句话说明这个库的用途（可选）"
               {...form.register('description')}
             />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="kb-visibility">可见性</Label>
+            <Select value={form.watch('visibility')} onValueChange={(v) => form.setValue('visibility', v as '1' | '2')}>
+              <SelectTrigger id="kb-visibility">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="1">私有 —— 仅成员可见</SelectItem>
+                <SelectItem value="2">全员可见 —— 登录用户可浏览与问答（只读）</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-[var(--faint)]">
+              全员可见适合公司规范、新人指南等共享内容；写操作仍按成员角色控制。
+            </p>
           </div>
 
           <DialogFooter>
@@ -192,7 +219,7 @@ export function KbsPage() {
             description={
               isAdmin
                 ? '创建知识库后即可接入代码仓库、文档与网页。'
-                : '请联系管理员将你加入相关知识库。'
+                : '被授权或全员可见的知识库会出现在这里。'
             }
             action={isAdmin ? { label: '新建知识库', onClick: openCreate } : undefined}
           />
@@ -206,7 +233,18 @@ export function KbsPage() {
                   <h2 className="truncate text-[15px] font-semibold" title={kb.name ?? ''}>
                     {kb.name}
                   </h2>
-                  <RoleBadge role={kb.my_role} />
+                  <div className="flex shrink-0 items-center gap-1">
+                    {kb.visibility === 2 ? (
+                      <span
+                        className="inline-flex items-center gap-1 rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-xs text-[var(--accent)]"
+                        title="全员可见：登录用户可浏览与问答（只读）"
+                      >
+                        <Globe2 className="size-3" aria-hidden="true" />
+                        全员可见
+                      </span>
+                    ) : null}
+                    <RoleBadge role={kb.my_role} />
+                  </div>
                 </div>
                 <p className="mt-1 line-clamp-2 min-h-10 text-[13px] text-[var(--muted)]">
                   {kb.description || '暂无描述'}

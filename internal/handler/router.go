@@ -119,7 +119,8 @@ func NewRouter(d Deps) *gin.Engine {
 	kb.GET("", d.KB.Get)
 	kb.PATCH("", middleware.Admin(), d.KB.Update)
 	kb.DELETE("", middleware.Admin(), d.KB.Delete)
-	members := kb.Group("/members", middleware.Admin())
+	// 成员管理（R6）：管理员或库内管理者（owner 可授权，FR-02 扩展）
+	members := kb.Group("/members", middleware.KBMemberManager())
 	members.GET("", d.KB.ListMembers)
 	members.POST("", d.KB.AddMember)
 	members.PATCH("/:user", d.KB.UpdateMemberRole)

@@ -1,5 +1,5 @@
 /**
- * 知识库详情页（F3/F4）：头部信息 + Tab（文档列表 / 成员管理[仅管理员]）。
+ * 知识库详情页（F3/F4）：头部信息 + Tab（文档列表 / 成员管理[管理员或库管理者]）。
  * - 文档 tab：接入按钮（编辑者+）+ DocumentTable（3s 轮询自动启停）
  * - 成员 tab：成员列表、添加用户（user_id + role）、改角色、移除（二次确认）
  * - 非成员访问（后端 404 NOT_FOUND，R6 不可见原则）→ EmptyState「知识库不存在或无权访问」
@@ -12,11 +12,12 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { FolderOpen, MessageCircle, Plus, Search, Trash2, Users } from 'lucide-react';
+import { FolderOpen, Globe2, MessageCircle, Plus, Search, Trash2, Users } from 'lucide-react';
 import { QueryBoundary } from '@/components/states/query-boundary';
 import { EmptyState } from '@/components/states/empty-state';
 import { Skeleton } from '@/components/ui/skeleton';
 import { RoleBadge } from '@/components/shared/role-badge';
+import { useAuth } from '@/hooks/use-auth';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
 import { DocumentTable } from '@/components/documents/document-table';
 import { IngestWizard } from '@/components/documents/ingest-wizard';
@@ -182,11 +183,12 @@ function AddMemberDialog({
   );
 }
 
-/** 成员管理 Tab（仅管理员可见）。 */
+/** 成员管理 Tab（管理员或库管理者可见；owner 不能变更/移除自己）。 */
 function MembersTab({ kbId }: { kbId: number }) {
   const members = useMembers(kbId);
   const updateRole = useUpdateMemberRole(kbId);
   const removeMember = useRemoveMember(kbId);
+  const { user } = useAuth();
   const [removing, setRemoving] = useState<KBMemberItem | null>(null);
   const [addOpen, setAddOpen] = useState(false);
 
@@ -194,7 +196,7 @@ function MembersTab({ kbId }: { kbId: number }) {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-sm text-[var(--muted)]">
-          管理者可删改内容，编辑者可补充内容，成员只读（R6）。
+          管理者可删改内容并授权成员，编辑者可补充内容，成员只读（R6）。
         </p>
         <Button onClick={() => setAddOpen(true)}>
           <Plus aria-hidden="true" />
@@ -225,14 +227,20 @@ function MembersTab({ kbId }: { kbId: number }) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {items.map((m) => (
+              {items.map((m) => {
+                // owner 不能变更/移除自己的角色（R6 扩展保护，后端同样拦截）
+                const isSelf = user?.user_id !== undefined && m.user_id === user.user_id;
+                return (
                 <TableRow key={m.user_id}>
-                  <TableCell className="font-medium">{m.username}</TableCell>
+                  <TableCell className="font-medium">
+                    {m.username}
+                    {isSelf ? <span className="ml-1.5 text-[10px] text-[var(--faint)]">（我）</span> : null}
+                  </TableCell>
                   <TableCell className="tabular-nums">{m.user_id}</TableCell>
                   <TableCell>
                     <RoleSelect
                       value={m.role ?? 'member'}
-                      disabled={updateRole.isPending}
+                      disabled={updateRole.isPending || isSelf}
                       onChange={(role) => {
                         updateRole.mutate(
                           { userId: m.user_id as number, role },
@@ -253,7 +261,7 @@ function MembersTab({ kbId }: { kbId: number }) {
                       variant="ghost"
                       size="sm"
                       className="text-[var(--destructive)]"
-                      disabled={removeMember.isPending}
+                      disabled={removeMember.isPending || isSelf}
                       onClick={() => setRemoving(m)}
                     >
                       <Trash2 aria-hidden="true" />
@@ -261,7 +269,8 @@ function MembersTab({ kbId }: { kbId: number }) {
                     </Button>
                   </TableCell>
                 </TableRow>
-              ))}
+                );
+              })}
             </TableBody>
           </Table>
         )}
@@ -414,6 +423,15 @@ export function KbDetailPage() {
                     <h1 className="truncate text-lg font-semibold" title={data.name ?? ''}>
                       {data.name}
                     </h1>
+                    {data.visibility === 2 ? (
+                      <span
+                        className="inline-flex items-center gap-1 rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-xs text-[var(--accent)]"
+                        title="全员可见：登录用户可浏览与问答（只读）"
+                      >
+                        <Globe2 className="size-3" aria-hidden="true" />
+                        全员可见
+                      </span>
+                    ) : null}
                     <RoleBadge role={data.my_role} />
                   </div>
                   <p className="mt-1 line-clamp-2 text-sm text-[var(--muted)]">
@@ -443,7 +461,7 @@ export function KbDetailPage() {
               </div>
             </div>
 
-            {/* Tab 切换：文档列表 / 成员管理（仅管理员可见成员 tab） */}
+            {/* Tab 切换：文档列表 / 成员管理（管理员或库管理者可见成员 tab） */}
             <div className="mb-4 flex gap-1.5 border-b border-[var(--border)] pb-2">
               <button
                 type="button"

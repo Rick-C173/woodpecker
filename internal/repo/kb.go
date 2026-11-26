@@ -15,11 +15,12 @@ type KBRow struct {
 	ID          int64
 	Name        string
 	Description string
+	Visibility  int16
 	CreatedBy   int64
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 	DocCount    int64
-	Role        int16
+	Role        int16 // 0=无成员行（管理员视角或全员可见访客）
 }
 
 // KBMemberRow 成员列表行（含用户名）。
@@ -76,14 +77,29 @@ func (r *KBRepo) CountDocuments(ctx context.Context, kbID int64) (int64, error) 
 	return n, err
 }
 
-// ListForUser 我可见的库（FR-02 列表页）：仅成员，附角色与文档数。
+// GetVisibility 库可见性（FR-17）：KBAccess 中间件判定非成员访问用。
+func (r *KBRepo) GetVisibility(ctx context.Context, kbID int64) (int16, error) {
+	var vis int16
+	err := r.dbx(ctx).Table("knowledge_bases").Select("visibility").Where("id = ?", kbID).Scan(&vis).Error
+	if err != nil {
+		return 0, err
+	}
+	if vis == 0 {
+		return 0, ErrNotFound // Scan 未命中不报错，行不存在以 0 值判别
+	}
+	return vis, nil
+}
+
+// ListForUser 我可见的库（FR-02 列表页 + FR-17）：成员库 ∪ 全员可见库，附角色与文档数。
+// role=0 表示无成员行（仅全员可见访客），由 service 层映射为 my_role=org。
 func (r *KBRepo) ListForUser(ctx context.Context, userID int64) ([]KBRow, error) {
 	const q = `
-SELECT kb.id, kb.name, COALESCE(kb.description, '') AS description, kb.created_by,
-       kb.created_at, kb.updated_at, m.role,
+SELECT kb.id, kb.name, COALESCE(kb.description, '') AS description, kb.visibility, kb.created_by,
+       kb.created_at, kb.updated_at, COALESCE(m.role, 0) AS role,
        (SELECT COUNT(*) FROM documents d WHERE d.kb_id = kb.id) AS doc_count
 FROM knowledge_bases kb
-JOIN kb_members m ON m.kb_id = kb.id AND m.user_id = ?
+LEFT JOIN kb_members m ON m.kb_id = kb.id AND m.user_id = ?
+WHERE m.id IS NOT NULL OR kb.visibility = 2
 ORDER BY kb.updated_at DESC, kb.id DESC`
 	var rows []KBRow
 	err := r.dbx(ctx).Raw(q, userID).Scan(&rows).Error
@@ -93,7 +109,7 @@ ORDER BY kb.updated_at DESC, kb.id DESC`
 // ListAll 管理员视角：全部知识库（role=0 表示无库内角色）。
 func (r *KBRepo) ListAll(ctx context.Context) ([]KBRow, error) {
 	const q = `
-SELECT kb.id, kb.name, COALESCE(kb.description, '') AS description, kb.created_by,
+SELECT kb.id, kb.name, COALESCE(kb.description, '') AS description, kb.visibility, kb.created_by,
        kb.created_at, kb.updated_at, 0 AS role,
        (SELECT COUNT(*) FROM documents d WHERE d.kb_id = kb.id) AS doc_count
 FROM knowledge_bases kb

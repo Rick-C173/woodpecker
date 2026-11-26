@@ -13,7 +13,7 @@ export interface RolePermissions {
   mayIngest: boolean;
   /** 内容管理权限（管理者+）：删除文档/重建索引按钮 */
   mayManageContent: boolean;
-  /** 成员管理 Tab 可见性（后端成员端点=管理员） */
+  /** 成员管理 Tab 可见性（R6 扩展：管理员或库内管理者） */
   mayManageMembers: boolean;
 }
 
@@ -25,6 +25,6 @@ export function useRole(myRole: string | null | undefined): RolePermissions {
     isAdmin,
     mayIngest: canIngest(myRole, isAdmin),
     mayManageContent: canManageContent(myRole, isAdmin),
-    mayManageMembers: canManageMembers(isAdmin),
+    mayManageMembers: canManageMembers(myRole, isAdmin),
   };
 }
