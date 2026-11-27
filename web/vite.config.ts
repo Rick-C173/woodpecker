@@ -88,7 +88,8 @@ export default defineConfig({
   test: {
     environment: 'node',
     globals: true,
-    include: ['src/**/*.test.ts'],
+    include: ['src/**/*.test.{ts,tsx}'],
+    setupFiles: ['src/test/setup.ts'],
   },
   server: {
     proxy: {

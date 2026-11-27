@@ -10,6 +10,7 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "playwright test",
     "gen:api": "npm run gen:api:convert && npm run gen:api:types",
     "gen:api:convert": "swagger2openapi ../docs/swagger.json -o src/api/openapi.json",
     "gen:api:types": "openapi-typescript src/api/openapi.json -o src/api/schema.d.ts"
@@ -38,7 +39,11 @@
     "zustand": "^5.0.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.1",
     "@tailwindcss/vite": "^4.1.0",
+    "@testing-library/jest-dom": "^6.10.0",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.13",
     "@types/node": "^22.13.0",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
@@ -47,6 +52,7 @@
     "eslint-plugin-react-hooks": "^5.1.0",
     "eslint-plugin-react-refresh": "^0.4.18",
     "globals": "^15.15.0",
+    "jsdom": "^31.0.1",
     "openapi-typescript": "^7.6.1",
     "prettier": "^3.5.0",
     "swagger2openapi": "^7.0.8",

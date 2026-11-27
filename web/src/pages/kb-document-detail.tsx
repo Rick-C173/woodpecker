@@ -93,15 +93,6 @@ export function KbDocumentDetailPage() {
       <QueryBoundary query={query} skeleton={<Skeleton className="h-64 w-full" />}>
         {(doc: DocumentDetail) => (
           <>
-            <Breadcrumbs
-              items={[
-                { label: '知识库', to: '/kbs' },
-                { label: '库详情', to: `/kbs/${kbIdNum}` },
-                { label: doc.name ?? '' },
-              ]}
-              className="mb-4"
-            />
-
             {/* 状态与错误信息 */}
             <div className="mb-6 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] p-5 shadow-[var(--shadow)]">
               <div className="flex flex-wrap items-start justify-between gap-3">

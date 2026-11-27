@@ -121,6 +121,7 @@ function CreateTokenDialog({
         name: values.name,
         expires_in_days: values.expires === '0' ? undefined : Number(values.expires),
       });
+      if (!ct?.token) throw new Error('创建 Token 失败：响应缺少明文');
       onOpenChange(false);
       onCreated(ct.token);
     } catch (e) {
