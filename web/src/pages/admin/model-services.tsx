@@ -339,7 +339,7 @@ export function AdminModelServicesPage() {
   const servicesList = services.data ?? [];
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-8">
+    <div className="w-full space-y-8">
       {/* 服务列表 */}
       <section>
         <PageHeader
@@ -372,7 +372,7 @@ export function AdminModelServicesPage() {
           }
         >
           {() => (
-            <div className="kb-card p-0">
+            <div className="overflow-hidden rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] shadow-[var(--shadow)]">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -535,7 +535,7 @@ export function AdminModelServicesPage() {
           }
         >
           {(items) => (
-            <div className="kb-card p-0">
+            <div className="overflow-hidden rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] shadow-[var(--shadow)]">
               <Table>
                 <TableHeader>
                   <TableRow>

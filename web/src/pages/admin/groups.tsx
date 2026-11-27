@@ -126,7 +126,7 @@ export function AdminGroupsPage() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-5xl">
+    <div className="w-full">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-lg font-semibold">用户组</h1>
@@ -159,7 +159,7 @@ export function AdminGroupsPage() {
         }
       >
         {(items) => (
-          <div className="kb-card p-0">
+          <div className="overflow-hidden rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] shadow-[var(--shadow)]">
             <Table>
               <TableHeader>
                 <TableRow>

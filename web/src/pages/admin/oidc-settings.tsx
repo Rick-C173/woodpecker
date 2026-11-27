@@ -148,7 +148,7 @@ export function AdminOidcSettingsPage() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-3xl">
+    <div className="w-full max-w-3xl">
       <div className="mb-4">
         <h1 className="text-lg font-semibold">SSO 登录（OIDC）</h1>
         <p className="text-sm text-[var(--muted)]">
@@ -157,7 +157,7 @@ export function AdminOidcSettingsPage() {
         </p>
       </div>
 
-      <section className="kb-card mb-6 space-y-4">
+      <section className="mb-6 space-y-4 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] p-4 shadow-[var(--shadow)]">
         <div className="flex items-center justify-between border-b border-[var(--border)] pb-3">
           <div>
             <h2 className="text-base font-semibold">启用状态</h2>
@@ -295,7 +295,7 @@ export function AdminOidcSettingsPage() {
         </div>
       </section>
 
-      <section className="kb-card space-y-3">
+      <section className="space-y-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] p-4 shadow-[var(--shadow)]">
         <h2 className="text-sm font-semibold">连接测试</h2>
         <p className="text-xs text-[var(--muted)]">
           拉取 IdP 发现文档验证可达性（使用已保存配置，无需先保存修改）。

@@ -155,7 +155,7 @@ export function AdminUsersPage() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-5xl">
+    <div className="w-full">
       <PageHeader
         title="用户管理"
         description="创建账号、禁用/启用、分配管理员；初始密码仅创建/重置时展示一次。"
@@ -217,7 +217,7 @@ export function AdminUsersPage() {
       >
         {(data) => (
           <>
-            <div className="kb-card p-0">
+            <div className="overflow-hidden rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] shadow-[var(--shadow)]">
               <Table>
                 <TableHeader>
                   <TableRow>
