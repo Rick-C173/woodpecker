@@ -138,7 +138,7 @@ function ConversationListItem({
       <span className="absolute inset-0 rounded-[var(--radius)]" aria-hidden="true" />
       <div
         className={cn(
-          'flex h-[var(--row)] items-center gap-2 rounded-[var(--radius)] px-3 transition-colors',
+          'flex h-9 items-center gap-2 rounded-[var(--radius)] px-3 transition-colors',
           active
             ? 'bg-[var(--primary-soft)] text-[var(--primary)]'
             : 'text-[var(--muted)] hover:bg-[var(--primary-soft)]',
@@ -300,8 +300,8 @@ export function KbChatPage() {
 
   return (
     <div className="flex h-full min-h-0" data-testid="kb-chat-page">
-      {/* 左侧：会话列表侧栏（玻璃拟态白名单容器） */}
-      <aside className="conv-list flex w-60 flex-none flex-col">
+      {/* 左侧：会话列表侧栏 */}
+      <aside className="flex w-60 flex-none flex-col border-r border-[var(--border)] bg-[var(--card)]">
         <div className="flex items-center justify-between border-b border-[var(--border)] px-3 py-3">
           <h2 className="text-sm font-semibold">会话</h2>
           <Button
@@ -412,7 +412,7 @@ export function KbChatPage() {
           </div>
         ) : (
           <>
-            <div className="topbar flex-none">
+            <div className="flex h-12 flex-none items-center gap-3 border-b border-[var(--border)] bg-[var(--card)] px-4">
               <Link
                 to={`/kbs/${kbIdNum}`}
                 className="flex-none rounded-[var(--radius)] p-1.5 text-[var(--muted)] transition-colors hover:bg-[var(--primary-soft)] hover:text-[var(--primary)]"
