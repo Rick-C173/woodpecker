@@ -1,279 +1,170 @@
 /* ============================================================
-   Woodpecker 定稿视觉 token（自 md/demos/demo-g-final.html 与
-   demo-h-palettes.html 迁移，M8 开发与 QA 走查基准）。
+   Woodpecker 设计系统 v2 tokens ——「冷静工具风」
+   视觉基准：md/前端设计demo.html（用户批准版）
    不在此文件写组件样式；组件装饰样式见 styles/app.css。
 
-   分层：
-     ① 语义层   —— 对齐 shadcn/ui CSS 变量体系（零改造换装）
-     ② 装饰层   —— 极光视觉专属（渐变/光斑/玻璃/扫光/辉光/阴影）
-     ③ 选择器结构 —— :root 明色基准 / dark 暗色 / palette p2..p5 明色增量 / dark+palette 暗色增量
-     ④ @theme inline 桥接 —— Tailwind v4 工具类映射（必须 inline 才能运行时切换）
-     ⑤ 兜底与降级 —— .theme-switching 切换过渡、prefers-reduced-motion 全局降级
+   三层派生链架构：
+     ① 中性阶 × 明暗   —— html[data-theme='light'|'dark']（theme-provider 写入）
+     ② 强调色 HSL 派生 —— html[data-palette='p1'..'p5'] → --acc-h/s/l → --accent 系列
+        自定义颜色 = JS 直接写 <html> 内联 --acc-h/s/l（内联优先级高于一切选择器，
+        预设与自定义共用同一条派生链，切换配色即换装，零组件改动）
+     ③ 密度双档        —— html[data-density='cozy'|'compact'] → 行高/卡距/侧栏宽/字号
 
-   性能硬规则（架构文档 §5.5）：
-     动画属性白名单 transform/opacity/clip-path；光斑 ≤3 无 blur 仅 transform；
-     backdrop-filter 白名单三容器（app.css 中 @supports 降级）；扫光伪元素仅 hover。
+   阶段 A 兼容策略（旧 19 页不崩）：
+     · 语义变量名 API 与旧版完全一致（--background/--primary/--muted/--row/--pad 等）
+     · 装饰层变量（--grad/--blob/--glass/--sheen 等）保留名字，值全部中性化——
+       旧页的渐变按钮/光斑/辉光收敛为平静的工具风，阶段 C 逐页重写后删除
    ============================================================ */
 
-/* ---------- ① + ② P1 极光紫 · 明色基准 ---------- */
+/* ---------- 基座：字体 / 圆角 / 动效（明暗共用） ---------- */
 :root {
-  /* 语义层（shadcn 兼容） */
-  --background: #f5f6ff;
-  --foreground: #1e1b33;
+  --font: system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei',
+    'Noto Sans CJK SC', sans-serif;
+  --mono: 'JetBrains Mono', 'Cascadia Code', Consolas, 'Sarasa Mono SC', monospace;
+
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 14px;
+
+  --motion-fast: 150ms;   /* hover/focus 色彩、边框过渡 */
+  --motion-normal: 220ms; /* 侧栏折叠、面板显隐、主题切换 */
+  --motion-slow: 320ms;   /* 浮层缩放、长位移 */
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+/* ---------- ② 强调色 HSL 派生链（三层架构核心） ----------
+   只在派生链上写一次公式；5 套预设仅提供 H/S/L 三元组。
+   语义色：--success/--warning/--info 固定不随强调色变化（可预测的状态色）。 */
+:root {
+  --acc-h: 28;
+  --acc-s: 82%;
+  --acc-l: 57%;
+
+  --accent: hsl(var(--acc-h), var(--acc-s), var(--acc-l));
+  --accent-hover: hsl(var(--acc-h), var(--acc-s), calc(var(--acc-l) - 7%));
+  --accent-subtle: hsl(var(--acc-h), var(--acc-s), calc(var(--acc-l) + 38%));
+  --accent-weak: hsl(var(--acc-h), var(--acc-s), var(--acc-l) / 0.12);
+  --on-accent: #ffffff;
+
+  --success: #16a34a;
+  --warning: #d97706;
+  --info: #0284c7;
+  --success-weak: rgba(22, 163, 74, 0.12);
+  --danger-weak: rgba(220, 38, 38, 0.1);
+}
+
+/* 5 套预设强调色（p1 默认；切换 = theme-provider 写 data-palette，
+   自定义取色 = 直接写内联 --acc-h/s/l，优先级高于以下所有规则） */
+html[data-palette='p1'] { --acc-h: 28;  --acc-s: 82%; --acc-l: 57%; } /* 琥珀 */
+html[data-palette='p2'] { --acc-h: 239; --acc-s: 84%; --acc-l: 60%; } /* 靛蓝 */
+html[data-palette='p3'] { --acc-h: 175; --acc-s: 77%; --acc-l: 38%; } /* 青碧 */
+html[data-palette='p4'] { --acc-h: 199; --acc-s: 89%; --acc-l: 48%; } /* 天青 */
+html[data-palette='p5'] { --acc-h: 347; --acc-s: 78%; --acc-l: 51%; } /* 玫红 */
+
+/* ---------- ① 中性阶 · 明色 ---------- */
+:root {
+  --background: #fafafa;
+  --foreground: #17181c;
   --card: #ffffff;
   --card-foreground: var(--foreground);
-  --primary: #7c3aed;
-  --primary-foreground: #ffffff;
-  --primary-soft: rgba(124, 58, 237, 0.1);
-  --muted: #5d6478;                /* 次要文字色（全站 text-[var(--muted)] 的消费语义） */
-  --muted-bg: #ecebf7;             /* 次要背景（浅灰紫，徽标/底色用） */
-  --muted-foreground: #5d6478;     /* 与 --muted 同值（shadcn 兼容别名） */
-  --faint: #8a93a6;
-  --accent: #be185d;
-  --accent-soft: rgba(236, 72, 153, 0.1);
+  --primary: var(--accent);
+  --primary-foreground: var(--on-accent);
+  --primary-soft: var(--accent-weak);
+  --muted: #5c6370;              /* 次要文字 */
+  --muted-bg: #f4f4f5;           /* 次要背景（徽标/底色） */
+  --muted-foreground: #5c6370;   /* shadcn 兼容别名 */
+  --faint: #9ca3af;              /* 三级文字/占位/图标 */
+  --accent-soft: var(--accent-weak);
   --destructive: #dc2626;
-  --destructive-soft: rgba(220, 38, 38, 0.08);
-  --border: #e7e6f5;
-  --border-strong: rgba(168, 85, 247, 0.45);
+  --destructive-soft: rgba(220, 38, 38, 0.1);
+  --border: #e4e7eb;
+  --border-strong: #d1d5db;
   --input: var(--border);
-  --ring: 0 0 0 3px var(--primary-soft);
-  --radius: 8px;
-
-  /* 密度（A 布局：40px 控件/表格行高、16px 卡片内距） */
-  --row: 40px;
-  --pad: 16px;
-
-  /* 代码 */
-  --code-bg: #f7f6ff;
-  --code-fg: #3b3560;
-
-  /* 装饰层：极光渐变 */
-  --grad-a: #6366f1; /* 靛蓝 */
-  --grad-b: #a855f7; /* 紫 */
-  --grad-c: #ec4899; /* 品红 */
-  --grad: linear-gradient(120deg, var(--grad-a), var(--grad-b), var(--grad-c));
-
-  /* 装饰层：玻璃拟态成对变量（无 backdrop-filter 降级实底 / 支持 blur 时的底） */
-  --glass-bg: rgba(255, 255, 255, 0.85);
-  --glass-bg-af: rgba(255, 255, 255, 0.72);
-  --topbar-bg: rgba(245, 246, 255, 0.85);
-  --topbar-bg-af: rgba(245, 246, 255, 0.7);
-  --drawer-bg: rgba(255, 255, 255, 0.94);
-  --drawer-bg-af: rgba(255, 255, 255, 0.86);
-
-  /* 装饰层：阴影与辉光 */
-  --shadow: 0 1px 3px rgba(30, 27, 51, 0.06);
-  --shadow-hover: 0 10px 30px rgba(124, 58, 237, 0.16), 0 4px 14px rgba(236, 72, 153, 0.1);
-  --btn-shadow: 0 4px 14px rgba(168, 85, 247, 0.3);
-  --badge-glow: rgba(168, 85, 247, 0.55);
-
-  /* 装饰层：背景光斑（低半径 radial-gradient 直绘，无 blur）与扫光 */
-  --blob-1: #c7d2fe;
-  --blob-2: #f5d0fe;
-  --blob-3: #a5f3fc;
-  --blob-opacity: 0.5;
-  --sheen: rgba(168, 85, 247, 0.1);
-
-  /* 字体 */
-  --font: -apple-system, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei',
-    'Noto Sans CJK SC', sans-serif;
-  --mono: ui-monospace, 'Cascadia Code', Consolas, monospace;
+  --ring: 0 0 0 3px var(--accent-weak);
+  --hover-bg: rgba(0, 0, 0, 0.04);
+  --code-bg: #f4f4f5;
+  --code-fg: #17181c;
 }
 
-/* ---------- ③ P1 暗色（基准 D） ---------- */
+/* ---------- ① 中性阶 · 暗色 ---------- */
 html[data-theme='dark'] {
-  --background: #0b0f1e;
-  --foreground: #f1f5f9;
-  --card: #141b34; /* 正文卡片一律实色，不依赖 blur */
+  --background: #0f1115;
+  --foreground: #e7e9ee;
+  --card: #16181d;
   --card-foreground: var(--foreground);
-  --primary: #a78bfa;
-  --primary-foreground: #ffffff;
-  --primary-soft: rgba(139, 92, 246, 0.16);
-  --muted: #9ca3af;
-  --muted-bg: rgba(255, 255, 255, 0.07);
-  --muted-foreground: #9ca3af;
-  --faint: #6b7490;
-  --accent: #22d3ee;
-  --accent-soft: rgba(34, 211, 238, 0.14);
+  --muted: #9ba1ad;
+  --muted-bg: #1c1f26;
+  --muted-foreground: #9ba1ad;
+  --faint: #5e6470;
   --destructive: #f87171;
   --destructive-soft: rgba(248, 113, 113, 0.14);
-  --border: rgba(255, 255, 255, 0.12);
-  --border-strong: rgba(139, 92, 246, 0.55);
-  --code-bg: rgba(2, 6, 23, 0.55);
-  --code-fg: #e2e8f0;
-  --grad-a: #8b5cf6; /* 紫 */
-  --grad-b: #22d3ee; /* 青 */
-  --grad-c: #ec4899; /* 品红点缀 */
-  --grad: linear-gradient(120deg, var(--grad-a), var(--grad-b));
-  --glass-bg: rgba(15, 20, 40, 0.92);
-  --glass-bg-af: rgba(15, 20, 40, 0.62);
-  --topbar-bg: rgba(11, 15, 30, 0.85);
-  --topbar-bg-af: rgba(11, 15, 30, 0.62);
-  --drawer-bg: rgba(11, 15, 30, 0.92);
-  --drawer-bg-af: rgba(11, 15, 30, 0.72);
-  --shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
-  --shadow-hover: 0 14px 36px rgba(0, 0, 0, 0.45), 0 0 22px rgba(139, 92, 246, 0.22);
-  --btn-shadow: 0 4px 18px rgba(139, 92, 246, 0.4);
-  --badge-glow: rgba(139, 92, 246, 0.55);
-  --blob-1: #8b5cf6;
-  --blob-2: #22d3ee;
-  --blob-3: #ec4899;
-  --blob-opacity: 0.28;
-  --sheen: rgba(255, 255, 255, 0.1);
-  --ring: 0 0 0 3px var(--accent-soft);
+  --border: #262932;
+  --border-strong: #343845;
+  /* 暗色派生：subtle 压深作底色，on-accent 提亮保对比 */
+  --accent-subtle: hsl(var(--acc-h), var(--acc-s), calc(var(--acc-l) * 0.28));
+  --on-accent: hsl(var(--acc-h), calc(var(--acc-s) * 0.35), calc(var(--acc-l) * 1.6));
+  --hover-bg: rgba(255, 255, 255, 0.05);
+  --code-bg: #1c1f26;
+  --code-fg: #e7e9ee;
 }
 
-/* ---------- ③ P2 极光蓝 · 明色增量 ---------- */
-html[data-palette='p2'] {
-  --grad-a: #2563eb;
-  --grad-b: #3b82f6;
-  --grad-c: #06b6d4;
-  --primary: #1d4ed8;
-  --primary-soft: rgba(37, 99, 235, 0.1);
-  --accent: #0e7490;
-  --accent-soft: rgba(6, 182, 212, 0.12);
-  --border-strong: rgba(59, 130, 246, 0.45);
-  --shadow-hover: 0 10px 30px rgba(37, 99, 235, 0.16), 0 4px 14px rgba(6, 182, 212, 0.1);
-  --btn-shadow: 0 4px 14px rgba(37, 99, 235, 0.3);
-  --blob-1: #bfdbfe;
-  --blob-2: #a5f3fc;
-  --blob-3: #c7d2fe;
-  --sheen: rgba(37, 99, 235, 0.1);
-  --badge-glow: rgba(59, 130, 246, 0.55);
-  --ring: 0 0 0 3px var(--primary-soft);
-}
-/* ---------- ③ P2 极光蓝 · 暗色增量 ---------- */
-html[data-theme='dark'][data-palette='p2'] {
-  --grad-a: #3b82f6;
-  --grad-b: #22d3ee;
-  --grad-c: #0ea5e9;
-  --primary: #93c5fd;
-  --primary-soft: rgba(59, 130, 246, 0.16);
-  --accent: #22d3ee;
-  --accent-soft: rgba(34, 211, 238, 0.14);
-  --border-strong: rgba(59, 130, 246, 0.55);
-  --shadow-hover: 0 14px 36px rgba(0, 0, 0, 0.45), 0 0 22px rgba(59, 130, 246, 0.22);
-  --btn-shadow: 0 4px 18px rgba(59, 130, 246, 0.4);
-  --blob-1: #3b82f6;
-  --blob-2: #22d3ee;
-  --blob-3: #0ea5e9;
-  --badge-glow: rgba(59, 130, 246, 0.55);
-  --ring: 0 0 0 3px var(--accent-soft);
+/* ---------- ③ 密度双档（默认 cozy；紧凑由 html[data-density='compact'] 覆盖） ---------- */
+:root {
+  --row-h: 44px;
+  --card-p: 24px;
+  --gap: 16px;
+  --side-w: 232px;
+  --fs-body: 14px;
 }
 
-/* ---------- ③ P3 啄木青绿 · 明色增量 ---------- */
-html[data-palette='p3'] {
-  --grad-a: #0d9488;
-  --grad-b: #14b8a6;
-  --grad-c: #4ade80;
-  --primary: #0f766e;
-  --primary-soft: rgba(13, 148, 136, 0.1);
-  --accent: #16a34a;
-  --accent-soft: rgba(74, 222, 128, 0.14);
-  --border-strong: rgba(20, 184, 166, 0.45);
-  --shadow-hover: 0 10px 30px rgba(13, 148, 136, 0.16), 0 4px 14px rgba(74, 222, 128, 0.12);
-  --btn-shadow: 0 4px 14px rgba(13, 148, 136, 0.3);
-  --blob-1: #99f6e4;
-  --blob-2: #d9f99d;
-  --blob-3: #a7f3d0;
-  --sheen: rgba(13, 148, 136, 0.1);
-  --badge-glow: rgba(20, 184, 166, 0.55);
-  --ring: 0 0 0 3px var(--primary-soft);
-}
-/* ---------- ③ P3 啄木青绿 · 暗色增量 ---------- */
-html[data-theme='dark'][data-palette='p3'] {
-  --grad-a: #14b8a6;
-  --grad-b: #a3e635;
-  --grad-c: #2dd4bf;
-  --primary: #5eead4;
-  --primary-soft: rgba(20, 184, 166, 0.16);
-  --accent: #a3e635;
-  --accent-soft: rgba(163, 230, 53, 0.14);
-  --border-strong: rgba(20, 184, 166, 0.55);
-  --shadow-hover: 0 14px 36px rgba(0, 0, 0, 0.45), 0 0 22px rgba(20, 184, 166, 0.22);
-  --btn-shadow: 0 4px 18px rgba(20, 184, 166, 0.4);
-  --blob-1: #14b8a6;
-  --blob-2: #a3e635;
-  --blob-3: #2dd4bf;
-  --badge-glow: rgba(20, 184, 166, 0.55);
-  --ring: 0 0 0 3px var(--accent-soft);
+html[data-density='compact'] {
+  --row-h: 32px;
+  --card-p: 16px;
+  --gap: 12px;
+  --side-w: 200px;
+  --fs-body: 13px;
 }
 
-/* ---------- ③ P4 落日琥珀 · 明色增量 ---------- */
-html[data-palette='p4'] {
-  --grad-a: #ea580c;
-  --grad-b: #f97316;
-  --grad-c: #f59e0b;
-  --primary: #c2410c;
-  --primary-soft: rgba(234, 88, 12, 0.1);
-  --accent: #b45309;
-  --accent-soft: rgba(245, 158, 11, 0.12);
-  --border-strong: rgba(249, 115, 22, 0.45);
-  --shadow-hover: 0 10px 30px rgba(234, 88, 12, 0.16), 0 4px 14px rgba(245, 158, 11, 0.12);
-  --btn-shadow: 0 4px 14px rgba(234, 88, 12, 0.3);
-  --blob-1: #fed7aa;
-  --blob-2: #fde68a;
-  --blob-3: #fecaca;
-  --sheen: rgba(234, 88, 12, 0.1);
-  --badge-glow: rgba(249, 115, 22, 0.55);
-  --ring: 0 0 0 3px var(--primary-soft);
-}
-/* ---------- ③ P4 落日琥珀 · 暗色增量（暗色为三色渐变，demo-h 已覆盖 --grad） ---------- */
-html[data-theme='dark'][data-palette='p4'] {
-  --grad-a: #f59e0b;
-  --grad-b: #f97316;
-  --grad-c: #fb7185;
-  --grad: linear-gradient(120deg, var(--grad-a), var(--grad-b), var(--grad-c));
-  --primary: #fdba74;
-  --primary-soft: rgba(249, 115, 22, 0.16);
-  --accent: #fb923c;
-  --accent-soft: rgba(251, 146, 60, 0.14);
-  --border-strong: rgba(249, 115, 22, 0.55);
-  --shadow-hover: 0 14px 36px rgba(0, 0, 0, 0.45), 0 0 22px rgba(249, 115, 22, 0.22);
-  --btn-shadow: 0 4px 18px rgba(249, 115, 22, 0.4);
-  --blob-1: #f59e0b;
-  --blob-2: #f97316;
-  --blob-3: #fb7185;
-  --badge-glow: rgba(249, 115, 22, 0.55);
-  --ring: 0 0 0 3px var(--accent-soft);
+/* 旧变量名兼容映射（19 个旧页面与 ui/ 组件的既有消费面） */
+:root {
+  --row: var(--row-h);  /* 控件高度 / 表格行高 */
+  --pad: var(--card-p); /* 卡片内距 */
 }
 
-/* ---------- ③ P5 幻晶红紫 · 明色增量 ---------- */
-html[data-palette='p5'] {
-  --grad-a: #db2777;
-  --grad-b: #e11d48;
-  --grad-c: #8b5cf6;
-  --primary: #be185d;
-  --primary-soft: rgba(219, 39, 119, 0.1);
-  --accent: #7c3aed;
-  --accent-soft: rgba(139, 92, 246, 0.1);
-  --border-strong: rgba(225, 29, 72, 0.45);
-  --shadow-hover: 0 10px 30px rgba(219, 39, 119, 0.16), 0 4px 14px rgba(139, 92, 246, 0.12);
-  --btn-shadow: 0 4px 14px rgba(219, 39, 119, 0.3);
-  --blob-1: #fbcfe8;
-  --blob-2: #ddd6fe;
-  --blob-3: #fecdd3;
-  --sheen: rgba(219, 39, 119, 0.1);
-  --badge-glow: rgba(244, 63, 94, 0.55);
-  --ring: 0 0 0 3px var(--primary-soft);
+/* ---------- 装饰层（中性化）：变量名保留给旧页，值收敛为平静工具风 ---------- */
+:root {
+  /* 旧「极光渐变」→ 纯强调色平涂 */
+  --grad: linear-gradient(120deg, var(--accent), var(--accent));
+  --grad-a: var(--accent);
+  --grad-b: var(--accent);
+  --grad-c: var(--accent);
+
+  /* 玻璃拟态 → 实色 */
+  --glass-bg: var(--card);
+  --glass-bg-af: var(--card);
+  --topbar-bg: var(--background);
+  --topbar-bg-af: var(--background);
+  --drawer-bg: var(--card);
+  --drawer-bg-af: var(--card);
+
+  /* 阴影：两级克制 */
+  --shadow: 0 1px 2px rgba(16, 18, 24, 0.04);
+  --shadow-hover: 0 8px 24px rgba(16, 18, 24, 0.1);
+  --btn-shadow: none;
+
+  /* 辉光 / 光斑 / 扫光 → 归零（元素仍在旧页 DOM 中，视觉消失） */
+  --badge-glow: transparent;
+  --blob-1: transparent;
+  --blob-2: transparent;
+  --blob-3: transparent;
+  --blob-opacity: 0;
+  --sheen: transparent;
 }
-/* ---------- ③ P5 幻晶红紫 · 暗色增量 ---------- */
-html[data-theme='dark'][data-palette='p5'] {
-  --grad-a: #f43f5e;
-  --grad-b: #a855f7;
-  --grad-c: #ec4899;
-  --primary: #fda4af;
-  --primary-soft: rgba(244, 63, 94, 0.16);
-  --accent: #c4b5fd;
-  --accent-soft: rgba(168, 85, 247, 0.16);
-  --border-strong: rgba(244, 63, 94, 0.55);
-  --shadow-hover: 0 14px 36px rgba(0, 0, 0, 0.45), 0 0 22px rgba(244, 63, 94, 0.22);
-  --btn-shadow: 0 4px 18px rgba(244, 63, 94, 0.4);
-  --blob-1: #f43f5e;
-  --blob-2: #a855f7;
-  --blob-3: #ec4899;
-  --badge-glow: rgba(244, 63, 94, 0.55);
-  --ring: 0 0 0 3px var(--accent-soft);
+
+html[data-theme='dark'] {
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-hover: 0 8px 24px rgba(0, 0, 0, 0.45);
 }
 
 /* ---------- ④ Tailwind v4 桥接（必须 inline：运行时切主题即时生效，非编译期固化） ---------- */
@@ -298,6 +189,9 @@ html[data-theme='dark'][data-palette='p5'] {
   --color-accent-foreground: var(--foreground);
   --color-destructive: var(--destructive);
   --color-destructive-soft: var(--destructive-soft);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
   --color-border: var(--border);
   --color-border-strong: var(--border-strong);
   --color-input: var(--input);
@@ -310,15 +204,6 @@ html[data-theme='dark'][data-palette='p5'] {
 }
 
 /* ---------- ⑤ 兜底与降级 ---------- */
-
-/* 动效 token（§5.6：0.2~0.5s 区间，克制、有意义） */
-:root {
-  --motion-fast: 150ms; /* hover/focus 色彩、边框、阴影过渡 */
-  --motion-normal: 300ms; /* 卡片 hover 抬升、消息入场、抽屉滑入、主题/配色切换 */
-  --motion-slow: 500ms; /* 扫光 */
-  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
-}
 
 /* 主题/配色切换 0.3s 平滑过渡（仅切换瞬间由 Provider 启用，避免常驻全局 transition） */
 html.theme-switching *,

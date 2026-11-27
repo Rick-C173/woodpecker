@@ -97,7 +97,7 @@ export function ThemeSettingsSection() {
       <div>
         <p className="mb-2 text-sm font-medium text-[var(--foreground)]">配色方案</p>
         <PaletteDots />
-        <p className="mt-1.5 text-xs text-[var(--faint)]">五套极光配色即时生效，仅影响当前浏览器。</p>
+        <p className="mt-1.5 text-xs text-[var(--faint)]">预设强调色即时生效，仅影响当前浏览器。</p>
       </div>
     </div>
   );

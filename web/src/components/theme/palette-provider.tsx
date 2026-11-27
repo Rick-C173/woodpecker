@@ -13,11 +13,11 @@ export const PALETTE_STORAGE_KEY = 'wp-palette';
 export const PALETTES: readonly Palette[] = ['p1', 'p2', 'p3', 'p4', 'p5'];
 
 export const PALETTE_NAMES: Record<Palette, string> = {
-  p1: 'P1 极光紫',
-  p2: 'P2 极光蓝',
-  p3: 'P3 啄木青绿',
-  p4: 'P4 落日琥珀',
-  p5: 'P5 幻晶红紫',
+  p1: '琥珀',
+  p2: '靛蓝',
+  p3: '青碧',
+  p4: '天青',
+  p5: '玫红',
 };
 
 function isPalette(value: unknown): value is Palette {

@@ -35,6 +35,7 @@ import { AdminSettingsPage } from '@/pages/admin/settings';
 import { AdminFeedbacksPage } from '@/pages/admin/feedbacks';
 import { NotFoundPage } from '@/pages/not-found';
 import { ForbiddenPage } from '@/pages/forbidden';
+import { DesignPage } from '@/pages/design';
 
 /** 未登录 → /login?from=当前路径（AuthGuard）。 */
 function AuthGuard({ children }: { children: ReactElement }) {
@@ -104,6 +105,7 @@ export const router = createBrowserRouter([
   { path: '/login', element: <LoginGuard><LoginPage /></LoginGuard> },
   { path: '/register', element: <RegisterPage /> }, // FR-16 持邀注册（公开）
   { path: '/change-password', element: <ChangePasswordPage /> },
+  { path: '/design', element: <DesignPage /> }, // 设计系统演示页（阶段 A 验收，公开）
   {
     path: '/',
     element: (
