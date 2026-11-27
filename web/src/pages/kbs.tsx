@@ -190,10 +190,18 @@ export function KbsPage() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-6 py-8">
+    <div className="w-full px-8 py-7">
       <PageHeader
         title="知识库"
-        description="按成员授权访问；管理员可见全部库。"
+        description={
+          list.data
+            ? `你有权限访问 ${list.data.length} 个知识库${
+                list.data.some((kb) => kb.visibility === 2)
+                  ? `（含 ${list.data.filter((kb) => kb.visibility === 2).length} 个全员可见）`
+                  : ''
+              }`
+            : '按成员授权访问；管理员可见全部库。'
+        }
         actions={
           isAdmin ? (
             <Button onClick={openCreate}>
@@ -207,9 +215,9 @@ export function KbsPage() {
       <QueryBoundary
         query={list}
         skeleton={
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            {Array.from({ length: 4 }, (_, i) => (
-              <Skeleton key={i} className="h-32 w-full" />
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-4">
+            {Array.from({ length: 6 }, (_, i) => (
+              <Skeleton key={i} className="h-36 w-full" />
             ))}
           </div>
         }
@@ -227,31 +235,37 @@ export function KbsPage() {
         }
       >
         {(items) => (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-4">
             {items.map((kb) => (
               <Link key={kb.id} to={`/kbs/${kb.id}`} className="kb-card group block">
-                <div className="flex items-start justify-between gap-2">
-                  <h2 className="truncate text-[15px] font-semibold" title={kb.name ?? ''}>
+                {/* 标题行只留 avatar + name：角色/属性徽标在 meta 行（阶段 A demo 定稿） */}
+                <div className="flex items-start gap-3">
+                  <span
+                    className="flex size-10 shrink-0 items-center justify-center rounded-[var(--radius)] bg-[var(--accent-weak)] text-[15px] font-semibold text-[var(--accent)]"
+                    aria-hidden="true"
+                  >
+                    {kb.name?.charAt(0)?.toUpperCase() || 'K'}
+                  </span>
+                  <h2 className="line-clamp-2 min-w-0 flex-1 text-[15px] font-semibold leading-snug" title={kb.name ?? ''}>
                     {kb.name}
                   </h2>
-                  <div className="flex shrink-0 items-center gap-1">
-                    {kb.visibility === 2 ? (
-                      <span
-                        className="inline-flex items-center gap-1 rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-xs text-[var(--accent)]"
-                        title="全员可见：登录用户可浏览与问答（只读）"
-                      >
-                        <Globe2 className="size-3" aria-hidden="true" />
-                        全员可见
-                      </span>
-                    ) : null}
-                    <RoleBadge role={kb.my_role} />
-                  </div>
                 </div>
-                <p className="mt-1 line-clamp-2 min-h-10 text-[13px] text-[var(--muted)]">
+                <p className="mt-2.5 line-clamp-2 min-h-10 text-[13px] text-[var(--muted)]">
                   {kb.description || '暂无描述'}
                 </p>
-                <div className="mt-3 flex items-center justify-between text-xs text-[var(--faint)]">
+                <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-[var(--faint)]">
+                  <RoleBadge role={kb.my_role} />
+                  {kb.visibility === 2 ? (
+                    <span
+                      className="inline-flex items-center gap-1 rounded-full border border-dashed border-[var(--border)] px-2 py-0.5 font-medium"
+                      title="全员可见：登录用户可浏览与问答（只读）"
+                    >
+                      <Globe2 className="size-3" aria-hidden="true" />
+                      全员可见
+                    </span>
+                  ) : null}
                   <span>{kb.document_count ?? 0} 个文档</span>
+                  <span aria-hidden="true">·</span>
                   <span>{fromNow(kb.updated_at) || '—'}</span>
                 </div>
                 {isAdmin ? (
