@@ -15,7 +15,6 @@ import { toast } from 'sonner';
 import { FolderOpen, Globe2, MessageCircle, Plus, Search, Trash2, Users } from 'lucide-react';
 import { QueryBoundary } from '@/components/states/query-boundary';
 import { EmptyState } from '@/components/states/empty-state';
-import { Breadcrumbs } from '@/components/shared/breadcrumbs';
 import { Skeleton } from '@/components/ui/skeleton';
 import { RoleBadge } from '@/components/shared/role-badge';
 import { useAuth } from '@/hooks/use-auth';
@@ -545,7 +544,7 @@ export function KbDetailPage() {
 
   if (isNotFound) {
     return (
-      <div className="mx-auto w-full max-w-5xl px-6 py-8">
+      <div className="w-full px-8 py-7">
         <EmptyState
           icon={FolderOpen}
           title="知识库不存在或无权访问"
@@ -561,37 +560,28 @@ export function KbDetailPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-6 py-8">
+    <div className="w-full px-8 py-7">
       <QueryBoundary query={detail} skeleton={<Skeleton className="h-28 w-full" />}>
         {(data) => (
           <>
-            <Breadcrumbs items={[{ label: '知识库', to: '/kbs' }, { label: data.name ?? '' }]} className="mb-3" />
-            {/* 头部：库信息 + 动作（GitHub 式开放布局，不再卡片嵌套） */}
-            <div className="mb-5">
+            {/* 头部：avatar + 名称（demo 定稿：徽标进 meta 行）+ 动作 */}
+            <div className="mb-6">
               <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <h1 className="truncate text-lg font-semibold" title={data.name ?? ''}>
+                <div className="flex min-w-0 items-start gap-3">
+                  <span
+                    className="flex size-11 shrink-0 items-center justify-center rounded-[var(--radius)] bg-[var(--accent-weak)] text-[17px] font-semibold text-[var(--accent)]"
+                    aria-hidden="true"
+                  >
+                    {data.name?.charAt(0)?.toUpperCase() || 'K'}
+                  </span>
+                  <div className="min-w-0">
+                    <h1 className="line-clamp-2 text-xl font-semibold leading-tight" title={data.name ?? ''}>
                       {data.name}
                     </h1>
-                    {data.visibility === 2 ? (
-                      <span
-                        className="inline-flex items-center gap-1 rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-xs text-[var(--accent)]"
-                        title="全员可见：登录用户可浏览与问答（只读）"
-                      >
-                        <Globe2 className="size-3" aria-hidden="true" />
-                        全员可见
-                      </span>
-                    ) : null}
-                    <RoleBadge role={data.my_role} />
+                    <p className="mt-1 line-clamp-2 text-sm text-[var(--muted)]">
+                      {data.description || '暂无描述'}
+                    </p>
                   </div>
-                  <p className="mt-1 line-clamp-2 text-sm text-[var(--muted)]">
-                    {data.description || '暂无描述'}
-                  </p>
-                  <p className="mt-2 text-xs text-[var(--faint)]">
-                    {data.document_count ?? 0} 个文档 · 创建于 {fromNow(data.created_at) || '—'} ·
-                    最近更新 {fromNow(data.updated_at) || '—'}
-                  </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <Link to={`/kbs/${kbIdNum}/search`} className={buttonVariants({ variant: 'outline' })}>
@@ -610,13 +600,35 @@ export function KbDetailPage() {
                   ) : null}
                 </div>
               </div>
+              <div className="mt-2.5 flex flex-wrap items-center gap-2 text-xs text-[var(--faint)]">
+                <RoleBadge role={data.my_role} />
+                {data.visibility === 2 ? (
+                  <span
+                    className="inline-flex items-center gap-1 rounded-full border border-dashed border-[var(--border)] px-2 py-0.5 font-medium"
+                    title="全员可见：登录用户可浏览与问答（只读）"
+                  >
+                    <Globe2 className="size-3" aria-hidden="true" />
+                    全员可见
+                  </span>
+                ) : null}
+                <span>{data.document_count ?? 0} 个文档</span>
+                <span aria-hidden="true">·</span>
+                <span>创建于 {fromNow(data.created_at) || '—'}</span>
+                <span aria-hidden="true">·</span>
+                <span>最近更新 {fromNow(data.updated_at) || '—'}</span>
+              </div>
             </div>
 
-            {/* Tab 切换：文档列表 / 成员管理（管理员或库管理者可见成员 tab） */}
-            <div className="mb-4 flex gap-1.5 border-b border-[var(--border)] pb-2">
+            {/* Tab 切换：文档列表 / 成员管理（下划线式，管理员或库管理者可见成员 tab） */}
+            <div className="mb-4 flex gap-1 border-b border-[var(--border)]">
               <button
                 type="button"
-                className={cn('nav-item', tab === 'documents' && 'active')}
+                className={cn(
+                  '-mb-px border-b-2 px-3 pb-2 pt-1 text-sm transition-colors',
+                  tab === 'documents'
+                    ? 'border-[var(--accent)] font-medium text-[var(--foreground)]'
+                    : 'border-transparent text-[var(--muted)] hover:text-[var(--foreground)]',
+                )}
                 onClick={() => setTab('documents')}
                 aria-pressed={tab === 'documents'}
               >
@@ -625,7 +637,12 @@ export function KbDetailPage() {
               {mayManageMembers ? (
                 <button
                   type="button"
-                  className={cn('nav-item', tab === 'members' && 'active')}
+                  className={cn(
+                    '-mb-px border-b-2 px-3 pb-2 pt-1 text-sm transition-colors',
+                    tab === 'members'
+                      ? 'border-[var(--accent)] font-medium text-[var(--foreground)]'
+                      : 'border-transparent text-[var(--muted)] hover:text-[var(--foreground)]',
+                  )}
                   onClick={() => setTab('members')}
                   aria-pressed={tab === 'members'}
                 >
