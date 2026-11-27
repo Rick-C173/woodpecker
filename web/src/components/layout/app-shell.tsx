@@ -17,6 +17,7 @@ import {
   ChevronUp,
   KeyRound,
   LibraryBig,
+  LockKeyhole,
   LogOut,
   PanelLeftClose,
   PanelLeftOpen,
@@ -278,7 +279,8 @@ function ShellInner() {
                 </>
               )}
               <NavGroup label="个人" collapsed={collapsed} />
-              <NavRow to="/change-password" icon={KeyRound} label="修改密码" collapsed={collapsed} />
+              <NavRow to="/settings/tokens" icon={KeyRound} label="API Token" collapsed={collapsed} />
+              <NavRow to="/change-password" icon={LockKeyhole} label="修改密码" collapsed={collapsed} />
               {user?.is_admin && (
                 <>
                   <NavGroup label="管理" collapsed={collapsed} />

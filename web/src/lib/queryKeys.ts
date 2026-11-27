@@ -21,6 +21,9 @@ export const qk = {
   conversations: {
     detail: (cId: number) => ['conversations', cId] as const, // 消息历史
   },
+  tokens: {
+    list: ['tokens'] as const,
+  },
   admin: {
     users: ['admin', 'users'] as const,
     models: ['admin', 'models'] as const,

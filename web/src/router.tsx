@@ -36,6 +36,7 @@ import { AdminFeedbacksPage } from '@/pages/admin/feedbacks';
 import { NotFoundPage } from '@/pages/not-found';
 import { ForbiddenPage } from '@/pages/forbidden';
 import { DesignPage } from '@/pages/design';
+import { SettingsTokensPage } from '@/pages/settings/tokens';
 
 /** 未登录 → /login?from=当前路径（AuthGuard）。 */
 function AuthGuard({ children }: { children: ReactElement }) {
@@ -126,6 +127,14 @@ export const router = createBrowserRouter([
       { path: 'kbs/:kbId/search', element: <AuthGuard><KbSearchPage /></AuthGuard> },
       { path: 'kbs/:kbId/chat', element: <AuthGuard><KbChatPage /></AuthGuard> },
       { path: 'kbs/:kbId/chat/:cId', element: <AuthGuard><KbChatPage /></AuthGuard> },
+      {
+        path: 'settings/tokens',
+        element: (
+          <AuthGuard>
+            <SettingsTokensPage />
+          </AuthGuard>
+        ),
+      },
       {
         path: 'admin',
         element: <AdminShell />,

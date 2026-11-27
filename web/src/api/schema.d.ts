@@ -4607,6 +4607,137 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 我的 API Token 列表
+         * @description 按创建时间倒序；`prefix` 展示时拼 `wpk_` 前缀。
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items?: components["schemas"]["service.APITokenItem"][];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        /**
+         * 创建 API Token
+         * @description 明文 `wpk_<64hex>` 仅此一次返回；每人上限 20 个有效 Token（TOK_001）。
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /** @description 名称 + 可选有效天数（1~3650，缺省永久） */
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["handler.createTokenReq"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["service.CreatedToken"];
+                    };
+                };
+                /** @description TOK_001 超上限 / VALIDATION_FAILED 参数非法 */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["httpx.ErrorBody"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tokens/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * 吊销 API Token
+         * @description 软吊销（revoked_at 置时间）；仅本人。
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description token ID */
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            revoked?: boolean;
+                        };
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["httpx.ErrorBody"];
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -4615,6 +4746,11 @@ export interface components {
             /** @enum {string} */
             kind: "token" | "ssh";
             secret: string;
+        };
+        "handler.createTokenReq": {
+            /** @description 可空=永久；1~3650 */
+            expires_in_days?: number;
+            name: string;
         };
         "handler.createUserResp": {
             /** @description 新用户 ID */
@@ -4720,6 +4856,16 @@ export interface components {
             /** @description 反馈人用户名 */
             username?: string;
         };
+        "service.APITokenItem": {
+            created_at?: string;
+            expires_at?: string;
+            id?: number;
+            last_used_at?: string;
+            name?: string;
+            /** @description 展示用：客户端按 "wpk_"+prefix 拼接前 12 字符 */
+            prefix?: string;
+            revoked_at?: string;
+        };
         "service.AdminUserItem": {
             /** @description 创建时间 RFC3339 UTC */
             created_at?: string;
@@ -4785,6 +4931,11 @@ export interface components {
             title?: string;
             /** @description 最近活跃时间 RFC3339 UTC */
             updated_at?: string;
+        };
+        "service.CreatedToken": {
+            item?: components["schemas"]["service.APITokenItem"];
+            /** @description 完整明文 wpk_<64hex>，仅创建响应返回一次 */
+            token?: string;
         };
         "service.DocumentDetail": {
             /** @description 定时同步开关（M14，仅 git 类型）：true=worker 周期扫描并入队增量 sync */
