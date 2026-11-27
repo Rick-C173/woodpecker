@@ -12,7 +12,6 @@ import { QueryBoundary } from '@/components/states/query-boundary';
 import { EmptyState } from '@/components/states/empty-state';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
-import { Breadcrumbs } from '@/components/shared/breadcrumbs';
 import { StatusBadge, TaskStatusBadge, TypeBadge } from '@/components/shared/status-badge';
 import { FileList } from '@/components/documents/file-list';
 import { Button, buttonVariants } from '@/components/ui/button';
@@ -70,7 +69,7 @@ export function KbDocumentDetailPage() {
 
   if (isNotFound) {
     return (
-      <div className="mx-auto w-full max-w-5xl px-6 py-8">
+      <div className="w-full px-8 py-7">
         <EmptyState
           title="文档不存在或已被删除"
           action={
@@ -90,7 +89,7 @@ export function KbDocumentDetailPage() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-6 py-8">
+    <div className="w-full px-8 py-7">
       <QueryBoundary query={query} skeleton={<Skeleton className="h-64 w-full" />}>
         {(doc: DocumentDetail) => (
           <>
@@ -104,7 +103,7 @@ export function KbDocumentDetailPage() {
             />
 
             {/* 状态与错误信息 */}
-            <div className="kb-card mb-6 p-5">
+            <div className="mb-6 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] p-5 shadow-[var(--shadow)]">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
@@ -193,7 +192,7 @@ export function KbDocumentDetailPage() {
 
             {/* 内容预览（url 类型）：原文摘要区 */}
             {doc.type === 'url' && doc.source_url ? (
-              <section className="kb-card mb-6 p-5">
+              <section className="mb-6 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] p-5 shadow-[var(--shadow)]">
                 <h2 className="mb-2 text-sm font-semibold">网页来源</h2>
                 <a
                   className="break-all font-mono text-xs text-[var(--primary)] hover:underline"
@@ -207,13 +206,13 @@ export function KbDocumentDetailPage() {
             ) : null}
 
             {/* 文件清单 */}
-            <section className="kb-card mb-6 p-5">
+            <section className="mb-6 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] p-5 shadow-[var(--shadow)]">
               <h2 className="mb-3 text-sm font-semibold">文件清单</h2>
               <FileList files={doc.files} />
             </section>
 
             {/* 任务历史 */}
-            <section className="kb-card p-5">
+            <section className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] p-5 shadow-[var(--shadow)]">
               <h2 className="mb-3 text-sm font-semibold">任务历史</h2>
               {(doc.tasks ?? []).length === 0 ? (
                 <EmptyState title="暂无任务记录" description="文档接入或同步后，这里会展示每次摄取任务的执行历史。" />
@@ -322,7 +321,7 @@ function AutoSyncSection({ kbId, doc }: { kbId: number; doc: DocumentDetail }) {
   };
 
   return (
-    <section className="kb-card mb-6 p-5">
+    <section className="mb-6 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] p-5 shadow-[var(--shadow)]">
       <h2 className="mb-1 text-sm font-semibold">自动同步</h2>
       <p className="mb-3 text-xs text-[var(--muted)]">
         开启后由 worker 按固定周期自动拉取远端变更（增量同步）；也可用 webhook 实时触发。
