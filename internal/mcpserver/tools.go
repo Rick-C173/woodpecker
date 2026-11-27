@@ -8,13 +8,30 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+// ClientResolver 从工具调用请求解析出本次调用的后端客户端。
+//
+// stdio 模式：token 在进程启动时固定，用 FixedClient 返回常量客户端；
+// Streamable HTTP 模式（M17）：每个 HTTP 请求携带调用者自己的 Authorization header，
+// 用 HTTPClientResolver 按 req.Extra.Header 构造 per-request 客户端——
+// 团队共享部署下工具权限严格等于「发起该请求的用户」权限。
+type ClientResolver func(req *mcp.CallToolRequest) (*Client, error)
+
+// FixedClient 返回固定客户端的 resolver（stdio 单用户模式）。
+func FixedClient(c *Client) ClientResolver {
+	return func(*mcp.CallToolRequest) (*Client, error) { return c, nil }
+}
+
 // Register 把四个知识库工具注册到 MCP server。
 // 工具描述面向 Agent 编写：说清用途、参数含义与行为边界（如 ask 的会话残留取舍）。
-func Register(srv *mcp.Server, c *Client) {
+func Register(srv *mcp.Server, resolve ClientResolver) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_kbs",
 		Description: "列出你有权限访问的知识库（含全员可见库）。调用其他工具前先用它确认 kb_id。",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
+	}, func(ctx context.Context, req *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
+		c, err := resolve(req)
+		if err != nil {
+			return nil, nil, err
+		}
 		items, err := c.ListKBs(ctx)
 		if err != nil {
 			return nil, nil, err
@@ -41,7 +58,11 @@ func Register(srv *mcp.Server, c *Client) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "search",
 		Description: "在指定知识库内做混合检索（向量 + 关键词），返回带 file_path:line 引用的知识切片。最快、不消耗 LLM，优先于 ask 使用。",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in searchIn) (*mcp.CallToolResult, any, error) {
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in searchIn) (*mcp.CallToolResult, any, error) {
+		c, err := resolve(req)
+		if err != nil {
+			return nil, nil, err
+		}
 		topK := in.TopK
 		if topK == 0 {
 			topK = 5
@@ -67,7 +88,11 @@ func Register(srv *mcp.Server, c *Client) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "ask",
 		Description: "对知识库发起 RAG 问答（消耗服务端 LLM 配额，较慢）。search 不够用时再用。注意：每次调用会新建一个会话（可在网页端查看/删除）。",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in askIn) (*mcp.CallToolResult, any, error) {
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in askIn) (*mcp.CallToolResult, any, error) {
+		c, err := resolve(req)
+		if err != nil {
+			return nil, nil, err
+		}
 		res, err := c.Ask(ctx, in.KBID, in.Question)
 		if err != nil {
 			return nil, nil, err
@@ -90,7 +115,11 @@ func Register(srv *mcp.Server, c *Client) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "get_document",
 		Description: "查看文档元信息（类型/状态/文件数/来源地址），用于确认某文档是否已就绪、排查摄取失败原因。切片全文请用 search。",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in getDocIn) (*mcp.CallToolResult, any, error) {
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in getDocIn) (*mcp.CallToolResult, any, error) {
+		c, err := resolve(req)
+		if err != nil {
+			return nil, nil, err
+		}
 		d, err := c.GetDocument(ctx, in.KBID, in.DocID)
 		if err != nil {
 			return nil, nil, err

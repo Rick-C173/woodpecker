@@ -21,8 +21,6 @@ import (
 	"woodpecker/internal/mcpserver"
 )
 
-const version = "0.1.0"
-
 func main() {
 	server := flag.String("server", envOr("WOODPECKER_SERVER", ""), "woodpecker 服务地址，如 http://wp.corp:8080")
 	token := flag.String("token", envOr("WOODPECKER_TOKEN", ""), "个人 API Token（wpk_ 前缀，网页端个人设置生成）")
@@ -42,9 +40,9 @@ func main() {
 	srv := mcp.NewServer(&mcp.Implementation{
 		Name:    "woodpecker-mcp",
 		Title:   "Woodpecker 知识库",
-		Version: version,
+		Version: mcpserver.Version,
 	}, nil)
-	mcpserver.Register(srv, mcpserver.NewClient(*server, *token, *timeout))
+	mcpserver.Register(srv, mcpserver.FixedClient(mcpserver.NewClient(*server, *token, *timeout)))
 
 	slog.Info("woodpecker-mcp 启动", "server", *server, "timeout", *timeout)
 	ctx := context.Background()

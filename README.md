@@ -85,9 +85,13 @@ make api-docs      # swag init 生成 docs/swagger.json（OpenAPI 事实源）
 
 ## MCP Server（AI 辅助开发接入）
 
-IDE Agent（Cursor / Claude Code / Trae）可通过 MCP 协议查询知识库（检索 + 带引用问答）：
+IDE Agent（Cursor / Claude Code / Trae）可通过 MCP 协议查询知识库（检索 + 带引用问答）。两种接入形态：
 
 ```bash
+# HTTP 远程接入（M17，团队共享推荐）：server 自带 /mcp 端点，客户端免安装
+#   客户端配置 url: http://wp.corp:8080/mcp + header "Authorization: Bearer wpk_xxx"
+
+# 本机 exe（M16，stdio）：
 go build -o woodpecker-mcp.exe ./cmd/mcp-server
 woodpecker-mcp -server http://localhost:8080 -token wpk_xxx   # token 在网页端个人 API Token 页生成
 ```
@@ -106,7 +110,7 @@ internal/repo          存储层（检索 SQL 手写，见 md/数据库设计.md
 internal/worker        摄取流水线（asynq worker）
 internal/llm           Provider（OpenAI 兼容 embeddings/chat/rerank）
 internal/rag           分块
-internal/mcpserver     MCP 工具层（四工具 + SSE 消费）
+internal/mcpserver     MCP 工具层（四工具 + stdio/Streamable HTTP 双传输）
 migrations/            嵌入 SQL 迁移（自研 runner，schema.up.sql 基线 + 开发期 patch）
 docs/                  swag 生成的 OpenAPI spec
 ```

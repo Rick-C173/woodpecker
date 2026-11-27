@@ -105,6 +105,17 @@ type Config struct {
 	// worker 周期扫描 auto_sync=true 的 git 文档并入队增量 sync（内容变化由 last_commit diff 判定）。
 	// <=0 关闭定时同步（webhook 触发不受影响）。默认 30。
 	GitAutoSyncMinutes int
+
+	// MCPSelfURL Streamable HTTP MCP 端点（/mcp，M17）回环调用本进程 REST API 的
+	// 自访问地址。工具层回环调用 /api/v1 走完整鉴权链，权限 = 调用者本人；
+	// 缺省由 APP_PORT 推导（http://127.0.0.1:{Port}）。仅当 server 监听地址与
+	// 缺省不一致（如容器内服务名访问）时需要显式配置。
+	MCPSelfURL string
+	// MCPDisableLocalhostProtection 关闭 MCP 端点的 DNS rebinding 防护（SDK 缺省开启：
+	// 请求经 loopback 地址进来但 Host 头为非 loopback 时返回 403）。
+	// 仅「同机 Nginx 反代 proxy_pass http://127.0.0.1:8080 + proxy_set_header Host $host」
+	// 这一种部署形态需要设 true；其余场景保持 false（MCP_DISABLE_LOCALHOST_PROTECTION）。
+	MCPDisableLocalhostProtection bool
 }
 
 // Load 读取配置，按环境分文件（生产和开发各一套，见 .env.example）：
@@ -164,7 +175,11 @@ func Load() *Config {
 		WorkerZombieTimeoutMinutes: envInt("WORKER_ZOMBIE_TIMEOUT_MINUTES", DefaultWorkerZombieTimeoutMinutes),
 		WorkerZombieSweepMinutes:   envInt("WORKER_ZOMBIE_SWEEP_MINUTES", DefaultWorkerZombieSweepMinutes),
 		GitAutoSyncMinutes:         envInt("GIT_AUTO_SYNC_MINUTES", DefaultGitAutoSyncMinutes),
+
+		MCPDisableLocalhostProtection: envBool("MCP_DISABLE_LOCALHOST_PROTECTION", false),
 	}
+	// MCP 回环地址缺省由端口推导（env 显式值优先，故不能放进结构体字面量）。
+	cfg.MCPSelfURL = envStr("MCP_SELF_URL", fmt.Sprintf("http://127.0.0.1:%d", cfg.Port))
 	if cfg.JWTSecret == "" {
 		if cfg.IsProduction() {
 			// 生产缺失：不回落占位密钥，留空交由 Validate 拒绝启动（审计 P1-5）。

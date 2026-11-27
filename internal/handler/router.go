@@ -9,6 +9,7 @@ import (
 
 	"woodpecker/internal/config"
 	"woodpecker/internal/jwt"
+	"woodpecker/internal/mcpserver"
 	"woodpecker/internal/middleware"
 	"woodpecker/internal/model"
 )
@@ -18,8 +19,9 @@ type UserLookupRepo interface {
 	GetByID(ctx context.Context, id int64) (*model.User, error)
 }
 
-// M16（形态扩展 G2）：MCP Server 已由独立进程 cmd/mcp-server 实现（stdio 四工具，
-// internal/mcpserver 工具层；本进程零改动，后端 API 原样复用；接入见 md/MCP接入指南.md）。
+// M16（形态扩展 G2）：MCP Server 工具层由 internal/mcpserver 实现——stdio 独立进程
+// （cmd/mcp-server）与 Streamable HTTP 端点（M17，本进程 /mcp，见 NewRouter 根路由段）
+// 两种部署共用同一套工具与后端 API 回环调用；接入见 md/MCP接入指南.md。
 //
 // Deps 组合根注入：main.go 构造 repos/services 后传入（技术选型 §5 分层）。
 type Deps struct {
@@ -282,6 +284,15 @@ func NewRouter(d Deps) *gin.Engine {
 
 	r.GET("/healthz", Health())                     // 基础设施探针挂在根路径（liveness：仅进程）
 	r.GET("/readyz", Readyz(pinger, d.RedisPinger)) // readiness：依赖就绪判定
+
+	// M17：Streamable HTTP MCP 端点（团队共享部署，免安装 stdio exe）。
+	// 仅 api/all 模式走到这里（NewRouter 不在 worker-only 分支被调）；工具层
+	// （internal/mcpserver）回环调用本进程 /api/v1，权限 = 调用者 token 所属用户。
+	// r.Any 覆盖 POST/GET/DELETE——GET/DELETE 由 SDK 的 stateless 模式回 405。
+	if d.Tokens != nil {
+		r.Any("/mcp", middleware.MCPAuth(apiTokenLookup(d.Tokens)),
+			gin.WrapH(mcpserver.NewHTTPHandler(cfg.MCPSelfURL, cfg.MCPDisableLocalhostProtection)))
+	}
 
 	if d.NoRoute != nil {
 		r.NoRoute(d.NoRoute)

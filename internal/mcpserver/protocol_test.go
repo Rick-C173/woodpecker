@@ -27,7 +27,7 @@ func TestProtocolEndToEnd(t *testing.T) {
 	ctx := context.Background()
 	serverTransport, clientTransport := mcp.NewInMemoryTransports()
 	srv := mcp.NewServer(&mcp.Implementation{Name: "woodpecker-mcp-test", Version: "test"}, nil)
-	Register(srv, NewClient(ts.URL, "wpk_test", 5*time.Second))
+	Register(srv, FixedClient(NewClient(ts.URL, "wpk_test", 5*time.Second)))
 	srvErr := make(chan error, 1)
 	go func() { srvErr <- srv.Run(ctx, serverTransport) }()
 
