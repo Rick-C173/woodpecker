@@ -13,5 +13,5 @@
 *.py text eol=lf
 Makefile eol=lf
 *.mk eol=lf
-.ps1 text eol=crlf
+*.ps1 text eol=crlf
 *.bat text eol=crlf
