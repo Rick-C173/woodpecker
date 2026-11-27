@@ -17,7 +17,7 @@ DOCS_DIR       := docs
 BACKUP_DIR     := bin/apifox-backup
 
 .DEFAULT_GOAL := help
-.PHONY: help run api worker build build-all test cover cover-html integration fmt vet lint lint-fix tidy web-install web web-test web-lint web-typecheck web-build api-docs api-sync api-sync-overwrite api-backup clean
+.PHONY: help run api worker build build-all test cover cover-html integration fmt vet lint lint-fix tidy web-install web web-test web-e2e web-lint web-typecheck web-build api-docs api-sync api-sync-overwrite api-backup clean
 
 ## ---- 帮助 ----
 help:
@@ -50,6 +50,7 @@ help:
 	@echo   make web-lint                  前端 ESLint
 	@echo   make web-typecheck             前端 TypeScript 类型检查
 	@echo   make web-build                 前端生产构建(web/dist)
+	@echo   make web-e2e                   前端 e2e 五步冒烟(需后端 8080 与 E2E_PASSWORD)
 	@echo   make clean                     清理所有编译与运行生成的文件(bin/覆盖率/data/日志等)
 	@-chcp 936 >nul
 
@@ -150,6 +151,11 @@ web-typecheck:
 
 web-build:
 	cd web && npm run build
+
+# e2e 五步冒烟(登录→建库→上传→搜索→聊天)：需后端 :8080 先启动；
+# 凭证经环境变量注入(不进仓库)：E2E_USERNAME(默认 root) / E2E_PASSWORD
+web-e2e:
+	cd web && npm run test:e2e
 
 ## ---- 清理 ----
 clean:
