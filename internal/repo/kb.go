@@ -119,7 +119,8 @@ ORDER BY kb.updated_at DESC, kb.id DESC`
 	return rows, err
 }
 
-// GetMemberRole 指定用户在库内角色；非成员返回 ErrNotFound。
+// GetMemberRole 指定用户在库内直接角色；非成员返回 ErrNotFound。
+// 注意：成员资格判定请用 GroupRepo.GetEffectiveRole（FR-18：直接 ∪ 组取最高）。
 func (r *KBRepo) GetMemberRole(ctx context.Context, kbID, userID int64) (int16, error) {
 	var m model.KBMember
 	if err := r.dbx(ctx).Where("kb_id = ? AND user_id = ?", kbID, userID).First(&m).Error; err != nil {
@@ -129,6 +130,27 @@ func (r *KBRepo) GetMemberRole(ctx context.Context, kbID, userID int64) (int16, 
 		return 0, err
 	}
 	return m.Role, nil
+}
+
+// GetEffectiveRole 库内有效角色（FR-18）：
+// 直接授权(kb_members) 与组授权(kb_group_roles ∩ group_members) 的最高者（数值越小权限越高）；
+// 无任何角色 → ErrNotFound。实时查询，组员/授权变化即时生效。
+func (r *KBRepo) GetEffectiveRole(ctx context.Context, kbID, userID int64) (int16, error) {
+	const q = `
+SELECT LEAST(
+  COALESCE((SELECT role FROM kb_members WHERE kb_id = ? AND user_id = ?), 99),
+  COALESCE((SELECT MIN(r.role) FROM kb_group_roles r
+            JOIN group_members m ON m.group_id = r.group_id
+            WHERE r.kb_id = ? AND m.user_id = ?), 99)
+) AS effective`
+	var eff int16
+	if err := r.dbx(ctx).Raw(q, kbID, userID, kbID, userID).Scan(&eff).Error; err != nil {
+		return 0, err
+	}
+	if eff == 0 || eff >= 99 {
+		return 0, ErrNotFound
+	}
+	return eff, nil
 }
 
 func (r *KBRepo) ListMembers(ctx context.Context, kbID int64) ([]KBMemberRow, error) {

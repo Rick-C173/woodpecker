@@ -5,6 +5,12 @@ coverage
 *.local
 *.tsbuildinfo
 
+# Playwright（浏览器二进制装用户缓存；产物不入库）
+test-results/
+playwright-report/
+blob-report/
+.playwright/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

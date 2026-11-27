@@ -89,7 +89,7 @@ export function RegisterPage() {
       <div className="absolute right-4 top-4">
         <ThemeToggleButton />
       </div>
-      <div className="w-full max-w-sm rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-sm">
+      <div className="w-full max-w-sm rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--card)] p-8 shadow-[var(--shadow)]">
         <h1 className="text-lg font-semibold">完成注册</h1>
 
         {load.kind === 'loading' && (

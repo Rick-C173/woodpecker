@@ -8,6 +8,7 @@ import { RotateCcw, Save } from 'lucide-react';
 import { toast } from 'sonner';
 import { QueryBoundary } from '@/components/states/query-boundary';
 import { Skeleton } from '@/components/ui/skeleton';
+import { PageHeader } from '@/components/shared/page-header';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { useAdminSettings, usePatchSettings } from '@/hooks/use-admin';
@@ -60,16 +61,14 @@ export function AdminSettingsPage() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-3xl">
-      <div className="mb-4">
-        <h1 className="text-lg font-semibold">系统设置</h1>
-        <p className="text-sm text-[var(--muted)]">
-          外观偏好、摄取排除规则与自助注册开关；数据项每次保存均记录审计（setting.update）。
-        </p>
-      </div>
+    <div className="w-full max-w-3xl">
+      <PageHeader
+        title="系统设置"
+        description="外观偏好、摄取排除规则与自助注册开关；数据项每次保存均记录审计（setting.update）。"
+      />
 
       {/* 外观设置（主题/配色为本地浏览器偏好，不走服务端） */}
-      <section className="kb-card mb-6">
+      <section className="mb-6 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] p-4 shadow-[var(--shadow)]">
         <div className="mb-3">
           <h2 className="text-base font-semibold">外观设置</h2>
           <p className="text-xs text-[var(--muted)]">
@@ -92,7 +91,7 @@ export function AdminSettingsPage() {
         {(data) => (
           <div className="space-y-6">
             {/* 排除规则 */}
-            <section className="kb-card">
+            <section className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] p-4 shadow-[var(--shadow)]">
               <div className="mb-3 flex items-center justify-between">
                 <div>
                   <h2 className="text-base font-semibold">摄取排除规则</h2>
@@ -132,7 +131,7 @@ export function AdminSettingsPage() {
             </section>
 
             {/* 自助注册开关 */}
-            <section className="kb-card">
+            <section className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] p-4 shadow-[var(--shadow)]">
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="text-base font-semibold">自助注册</h2>

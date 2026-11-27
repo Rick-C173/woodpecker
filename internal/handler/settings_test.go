@@ -62,6 +62,8 @@ func TestSettingsAPI(t *testing.T) {
 }
 
 func TestAuditLogsAPI(t *testing.T) {
+	// to 排他断言的基准时刻：必须早于全部日志写入（含 newAdminEnv 产生的 register）。
+	before := time.Now().UTC().Format(time.RFC3339)
 	h, token := newAdminEnv(t)
 
 	// 产生审计：登录失败 + 建库
@@ -95,11 +97,20 @@ func TestAuditLogsAPI(t *testing.T) {
 	sc, _ = get(t, h.ts, "/api/v1/admin/audit-logs?from=not-a-time", token)
 	assert.Equal(t, 422, sc)
 
-	// 合法时间筛选（to 边界排他）
-	now := time.Now().UTC().Format(time.RFC3339)
-	sc, body = get(t, h.ts, "/api/v1/admin/audit-logs?to="+now, token)
+	// 合法时间筛选（to 边界排他，repo 层 created_at < to）：
+	// to=before 晚于任何日志写入时刻（before ≥ 其秒级截断值，created_at > before 恒成立），
+	// 排他语义下应零命中。不可用「当前时刻」——日志写入距 now 仅几毫秒，
+	// now 跨秒进位后（如日志 06.98 → now 07.05）to 反而晚于日志，全部命中导致
+	// 偶发失败（全量跑实测复现过）。
+	sc, body = get(t, h.ts, "/api/v1/admin/audit-logs?to="+before, token)
 	require.Equal(t, 200, sc)
-	assert.InDelta(t, 0, body["total"], 0.001, "to 排他：全部日志晚于该时刻")
+	assert.InDelta(t, 0, body["total"], 0.001, "to 边界排他：日志写入均晚于 to，不应命中")
+
+	// 包含侧：to 晚于全部日志时全部命中（3 条）
+	future := time.Now().UTC().Add(time.Hour).Format(time.RFC3339)
+	sc, body = get(t, h.ts, "/api/v1/admin/audit-logs?to="+future, token)
+	require.Equal(t, 200, sc)
+	assert.InDelta(t, 3, body["total"], 0.001, "to 晚于全部日志时应全部命中")
 }
 
 func TestFeedbacksAPI(t *testing.T) {

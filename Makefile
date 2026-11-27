@@ -17,7 +17,7 @@ DOCS_DIR       := docs
 BACKUP_DIR     := bin/apifox-backup
 
 .DEFAULT_GOAL := help
-.PHONY: help run api worker build test cover cover-html integration fmt vet lint lint-fix tidy web-install web web-test web-lint web-typecheck web-build api-docs api-sync api-sync-overwrite api-backup clean
+.PHONY: help run api worker build build-all test cover cover-html integration fmt vet lint lint-fix tidy web-install web web-test web-lint web-typecheck web-build api-docs api-sync api-sync-overwrite api-backup clean
 
 ## ---- 帮助 ----
 help:
@@ -27,6 +27,7 @@ help:
 	@echo   make api                       仅启动 HTTP 服务
 	@echo   make worker                    仅启动摄取 Worker
 	@echo   make build                     编译到 bin/(自动带平台后缀)
+	@echo   make build-all                 单二进制构建(内嵌前端产物,部署/发布用)
 	@echo   make test                      全量单元测试
 	@echo   make cover                     单测 + 语句覆盖率汇总
 	@echo   make cover-html                生成 coverage.html 覆盖率详情
@@ -68,6 +69,12 @@ build:
 	go build -o $(BIN) $(SERVER_DIR)
 	@echo 已生成 $(BIN)
 	@-chcp 936 >nul
+
+# 单二进制构建（含内嵌前端）：前端构建 → 拷贝 dist → 后端编译。
+# 裸机部署（scripts/deploy）与 Docker 镜像均走此链路；仅后端开发用 build 即可。
+build-all: web-build
+	go run scripts/embed_web.go
+	@$(MAKE) build
 
 ## ---- 测试 ----
 test:

@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"woodpecker/internal/httpx"
 	"woodpecker/internal/model"
 	"woodpecker/internal/service"
 	"woodpecker/internal/testutil"
@@ -93,7 +94,7 @@ func TestDocCreateUploadAndURL(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, items, 2, "支持格式落库")
 	require.Len(t, rejected, 2, "png→DOC_002、超限→DOC_001")
-	assert.Equal(t, service.CodeDocUnsupported, rejected[0].Code)
+	assert.Equal(t, httpx.CodeDocFormatNoSupport, rejected[0].Code)
 	assert.Equal(t, service.CodeDocRepoTooLarge, rejected[1].Code)
 
 	// 文件已落地

@@ -35,14 +35,28 @@ import (
 	"woodpecker/internal/jwt"
 	"woodpecker/internal/llm"
 	"woodpecker/internal/mail"
+	"woodpecker/internal/oidc"
 	"woodpecker/internal/repo"
 	"woodpecker/internal/service"
+	"woodpecker/internal/web"
 	"woodpecker/internal/worker"
 )
 
 func main() {
+	// TODO(方向待办-4): 形态扩展——CLI / 桌面端（独立二进制 cmd/woodpecker-cli 等），
+	// 等 MCP Server 验证价值后再评估优先级。见 md/形态扩展可行性-MCP-CLI-桌面.md。（2026-11-26 规划）
 	mode := flag.String("mode", "all", "运行模式：api | worker | all")
+	// Windows 服务模式：sc.exe 注册后由 SCM 启动（binPath 携带 --svc）；仅 Windows 有实现。
+	svcFlag := flag.Bool("svc", false, "以 Windows 服务方式运行（sc.exe 注册，仅 Windows）")
 	flag.Parse()
+
+	if *svcFlag {
+		if err := runAsWindowsService(*mode); err != nil {
+			fmt.Fprintf(os.Stderr, "Windows 服务模式启动失败: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	cfg := config.Load()
 	// 生产环境缺密钥/弱密钥直接拒绝启动（审计 P1-5），不做「Warn 后继续」。
@@ -99,6 +113,10 @@ func setupLogWriter(cfg *config.Config) io.Writer {
 // closer 日志文件句柄（LOG_TO_FILE=true 时非空），进程退出前关闭。
 var closer io.Closer
 
+// svcCancel 服务控制管理器的取消函数：Windows 服务收到 Stop/Shutdown 时由
+// svc_windows.go 调用以触发 run() 的优雅关闭；控制台模式与其他平台恒为 nil。
+var svcCancel func()
+
 // maskDSN 脱敏数据源连接串（密码替换为 ***）。
 func maskDSN(dsn string) string {
 	u, err := url.Parse(dsn)
@@ -133,14 +151,19 @@ func run(mode string, cfg *config.Config) int {
 		"log_file", logFileForSummary(cfg),
 		"rate_limit_per_min", cfg.RateLimitPerMin,
 	)
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
+	sigCtx, stopSignal := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stopSignal()
+	ctx, cancel := context.WithCancel(sigCtx)
+	defer cancel()
+	// 服务模式（Windows SCM）的 Stop 请求经 svcCancel 触发同一优雅关闭链路。
+	svcCancel = cancel
+	defer func() { svcCancel = nil }()
 
 	if mode == "worker" || mode == "all" {
 		go func() {
 			if err := worker.Run(ctx, cfg); err != nil {
 				slog.Error("worker 退出", "err", err)
-				stop()
+				cancel()
 			}
 		}()
 	}
@@ -217,6 +240,10 @@ func runAPI(ctx context.Context, cfg *config.Config) error {
 
 	// M10：邮箱邀请制注册（FR-16）—— SMTP 配置（密码加密落 settings）+ 邀请生命周期
 	inviteRepo := repo.NewInviteRepo(db)
+	groupRepo := repo.NewGroupRepo(db)
+	groupSvc := service.NewGroupService(groupRepo, users, kbs, auditSvc)
+	oidcStore := &oidc.SettingStore{Store: repo.NewSettingRepo(db), Encrypt: cipher.Encrypt, Decrypt: cipher.Decrypt}
+	oidcSvc := service.NewOIDCService(oidcStore, users, groupRepo, issuer, auditSvc)
 	smtpStore := &mail.SMTPSettingStore{
 		Store:   repo.NewSettingRepo(db),
 		Encrypt: cipher.Encrypt,
@@ -225,6 +252,9 @@ func runAPI(ctx context.Context, cfg *config.Config) error {
 	smtpSender := mail.NewSMTPSender(smtpStore)
 	inviteSvc := service.NewInviteService(inviteRepo, users, smtpSender, smtpStore, cfg.InviteBaseURL, auditSvc)
 	authSvc.SetInvites(inviteRepo)
+
+	// M15：个人 API Token（FR-20）——机器访问凭证（脚本/CI/CLI，MCP 前置依赖）
+	tokenSvc := service.NewAPITokenService(repo.NewAPITokenRepo(db), auditSvc)
 
 	router := handler.NewRouter(handler.Deps{
 		Cfg:           cfg,
@@ -238,10 +268,14 @@ func runAPI(ctx context.Context, cfg *config.Config) error {
 		Chat:          handler.NewChatHandler(chatSvc),
 		AdminSettings: handler.NewAdminSettingsHandler(settingsSvc, adminQuerySvc),
 		Invite:        handler.NewInviteHandler(inviteSvc, authSvc, smtpStore, smtpSender),
+		Groups:        handler.NewGroupHandler(groupSvc),
+		OIDC:          handler.NewOIDCHandler(oidcSvc),
+		Tokens:        handler.NewAPITokenHandler(tokenSvc),
 		UserRepo:      users,
 		Issuer:        issuer,
 		KBLookup:      kbs,
-		RedisPinger:   kvCache.Ping, // /healthz、/readyz 探测 Redis（队列与默认配置缓存，P2-27）
+		RedisPinger:   kvCache.Ping,  // /healthz、/readyz 探测 Redis（队列与默认配置缓存，P2-27）
+		NoRoute:       web.Handler(), // 单二进制部署：内嵌前端 SPA（dist 未构建时返回指引页）
 		OnAdminKBAccess: func(ctx context.Context, userID, kbID int64, method, path, ip string) {
 			auditSvc.Record(ctx, &userID, "kb.admin_access", "kb", &kbID,
 				map[string]any{"method": method, "path": path}, ip)

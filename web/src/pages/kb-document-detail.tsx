@@ -15,12 +15,24 @@ import { ConfirmDialog } from '@/components/shared/confirm-dialog';
 import { StatusBadge, TaskStatusBadge, TypeBadge } from '@/components/shared/status-badge';
 import { FileList } from '@/components/documents/file-list';
 import { Button, buttonVariants } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { fromNow, formatDateTime } from '@/lib/time';
 import {
   useDocumentDetail,
   useDeleteDocument,
   useReindexDocument,
   useRetryDocument,
+  useSetAutoSync,
+  useRotateWebhookSecret,
   useSyncDocument,
 } from '@/hooks/use-documents';
 import { useKbDetail } from '@/hooks/use-kbs';
@@ -57,7 +69,7 @@ export function KbDocumentDetailPage() {
 
   if (isNotFound) {
     return (
-      <div className="mx-auto w-full max-w-5xl px-6 py-8">
+      <div className="w-full px-8 py-7">
         <EmptyState
           title="文档不存在或已被删除"
           action={
@@ -77,20 +89,12 @@ export function KbDocumentDetailPage() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-6 py-8">
+    <div className="w-full px-8 py-7">
       <QueryBoundary query={query} skeleton={<Skeleton className="h-64 w-full" />}>
         {(doc: DocumentDetail) => (
           <>
-            <div className="mb-4 flex items-center gap-2 text-sm text-[var(--muted)]">
-              <Link to={`/kbs/${kbIdNum}`} className="hover:text-[var(--primary)]">
-                知识库
-              </Link>
-              <span>/</span>
-              <span className="truncate">{doc.name}</span>
-            </div>
-
             {/* 状态与错误信息 */}
-            <div className="kb-card mb-6 p-5">
+            <div className="mb-6 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] p-5 shadow-[var(--shadow)]">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
@@ -172,9 +176,14 @@ export function KbDocumentDetailPage() {
               ) : null}
             </div>
 
+            {/* M14 Git 自动同步（git 类型 + 编辑者+）：定时拉取开关 + webhook */}
+            {doc.type === 'git' && mayIngest ? (
+              <AutoSyncSection kbId={kbIdNum} doc={doc} />
+            ) : null}
+
             {/* 内容预览（url 类型）：原文摘要区 */}
             {doc.type === 'url' && doc.source_url ? (
-              <section className="kb-card mb-6 p-5">
+              <section className="mb-6 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] p-5 shadow-[var(--shadow)]">
                 <h2 className="mb-2 text-sm font-semibold">网页来源</h2>
                 <a
                   className="break-all font-mono text-xs text-[var(--primary)] hover:underline"
@@ -188,13 +197,13 @@ export function KbDocumentDetailPage() {
             ) : null}
 
             {/* 文件清单 */}
-            <section className="kb-card mb-6 p-5">
+            <section className="mb-6 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] p-5 shadow-[var(--shadow)]">
               <h2 className="mb-3 text-sm font-semibold">文件清单</h2>
               <FileList files={doc.files} />
             </section>
 
             {/* 任务历史 */}
-            <section className="kb-card p-5">
+            <section className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] p-5 shadow-[var(--shadow)]">
               <h2 className="mb-3 text-sm font-semibold">任务历史</h2>
               {(doc.tasks ?? []).length === 0 ? (
                 <EmptyState title="暂无任务记录" description="文档接入或同步后，这里会展示每次摄取任务的执行历史。" />
@@ -275,5 +284,97 @@ function DeleteDocButton({
         }}
       />
     </>
+  );
+}
+
+/** M14 Git 自动同步区块：定时拉取开关 + webhook（token 明文仅生成时弹窗展示一次）。 */
+function AutoSyncSection({ kbId, doc }: { kbId: number; doc: DocumentDetail }) {
+  const docId = doc.id as number;
+  const setAutoSync = useSetAutoSync(kbId);
+  const rotate = useRotateWebhookSecret(kbId);
+  const [issued, setIssued] = useState<{ token: string; url: string } | null>(null);
+
+  const handleToggle = (checked: boolean) => {
+    setAutoSync.mutate(
+      { docId, autoSync: checked },
+      {
+        onSuccess: () => toast.success(checked ? '定时同步已开启' : '定时同步已关闭'),
+        onError: (e) => toast.error(e instanceof Error ? e.message : '设置失败'),
+      },
+    );
+  };
+
+  const handleRotate = () => {
+    rotate.mutate(docId, {
+      onSuccess: (r) => setIssued({ token: r.webhook_token, url: r.webhook_url }),
+      onError: (e) => toast.error(e instanceof Error ? e.message : '生成失败'),
+    });
+  };
+
+  return (
+    <section className="mb-6 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] p-5 shadow-[var(--shadow)]">
+      <h2 className="mb-1 text-sm font-semibold">自动同步</h2>
+      <p className="mb-3 text-xs text-[var(--muted)]">
+        开启后由 worker 按固定周期自动拉取远端变更（增量同步）；也可用 webhook 实时触发。
+      </p>
+
+      <label className="flex cursor-pointer items-center gap-2 text-sm" data-testid="auto-sync-toggle">
+        <input
+          type="checkbox"
+          checked={doc.auto_sync === true}
+          disabled={setAutoSync.isPending}
+          onChange={(e) => handleToggle(e.target.checked)}
+          className="accent-[var(--primary)]"
+        />
+        {doc.auto_sync ? '定时拉取：已开启' : '定时拉取：已关闭'}
+      </label>
+
+      <div className="mt-4 border-t border-[var(--border)] pt-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="text-xs text-[var(--muted)]">
+            Webhook（GitLab / GitHub 均可配置自定义 header：
+            <code className="mx-1 rounded bg-[var(--border)] px-1 py-0.5">X-Woodpecker-Token</code>
+            ，push 事件即时触发增量同步）
+          </div>
+          <Button variant="outline" size="sm" disabled={rotate.isPending} onClick={handleRotate}>
+            {doc.has_webhook ? '轮换 token' : '生成 webhook token'}
+          </Button>
+        </div>
+      </div>
+
+      {/* token 明文仅本次展示（与初始密码同一语义）；URL 供 Git 平台 webhook 地址栏复制 */}
+      <Dialog open={issued !== null} onOpenChange={(open) => !open && setIssued(null)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Webhook 配置</DialogTitle>
+            <DialogDescription>
+              在 Git 平台为该仓库添加 Push 事件 webhook（地址见下），并设置自定义 header。token 明文仅本次展示，请立即保存。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label htmlFor="wh-url">Webhook 地址</Label>
+              <Input id="wh-url" readOnly value={issued?.url ?? ''} className="font-mono text-xs" onFocus={(e) => e.target.select()} />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="wh-token">X-Woodpecker-Token 值</Label>
+              <Input id="wh-token" readOnly value={issued?.token ?? ''} className="font-mono text-xs" onFocus={(e) => e.target.select()} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                void navigator.clipboard.writeText(`url: ${issued?.url ?? ''}\nX-Woodpecker-Token: ${issued?.token ?? ''}`);
+                toast.success('已复制到剪贴板');
+              }}
+            >
+              复制配置
+            </Button>
+            <Button onClick={() => setIssued(null)}>我已保存，关闭</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </section>
   );
 }

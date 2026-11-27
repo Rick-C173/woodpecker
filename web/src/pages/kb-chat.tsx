@@ -7,18 +7,29 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
-import { MessageSquarePlus, MessagesSquare, Pencil, Trash2, X } from 'lucide-react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import {
+  ArrowLeft,
+  ChevronRight,
+  MessageSquarePlus,
+  MessagesSquare,
+  Pencil,
+  Trash2,
+  X,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { ChatInput } from '@/components/chat/chat-input';
 import { ChatWindow } from '@/components/chat/chat-window';
 import { CitationsDrawer } from '@/components/chat/citations-drawer';
 import { FeedbackDialog } from '@/components/chat/feedback-dialog';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
+import { useKbDetail } from '@/hooks/use-kbs';
+import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { QueryBoundary } from '@/components/states/query-boundary';
 import { EmptyState } from '@/components/states/empty-state';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import {
   useChatStream,
   useConversationDetail,
@@ -38,6 +49,31 @@ import { useUiStore } from '@/stores/ui-store';
 
 function toastError(e: unknown): void {
   toast.error(e instanceof Error ? e.message : '操作失败，请稍后重试');
+}
+
+/* ---------------------- 会话列表：搜索 + 时间分组（Slack 式） ---------------------- */
+
+type TimeGroup = 'today' | 'yesterday' | 'week' | 'earlier';
+const GROUP_ORDER: TimeGroup[] = ['today', 'yesterday', 'week', 'earlier'];
+const GROUP_LABELS: Record<TimeGroup, string> = {
+  today: '今天',
+  yesterday: '昨天',
+  week: '7 天内',
+  earlier: '更早',
+};
+
+/** 按最近更新时间归组（本地时区自然日边界）。 */
+function timeGroup(iso: string | null | undefined): TimeGroup {
+  if (!iso) return 'earlier';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return 'earlier';
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const day = 86_400_000;
+  if (d.getTime() >= startOfToday) return 'today';
+  if (d.getTime() >= startOfToday - day) return 'yesterday';
+  if (d.getTime() >= startOfToday - 7 * day) return 'week';
+  return 'earlier';
 }
 
 /** 会话列表项：标题 + 相对时间；hover 出现重命名/删除；inline 重命名输入。 */
@@ -102,7 +138,7 @@ function ConversationListItem({
       <span className="absolute inset-0 rounded-[var(--radius)]" aria-hidden="true" />
       <div
         className={cn(
-          'flex h-[var(--row)] items-center gap-2 rounded-[var(--radius)] px-3 transition-colors',
+          'flex h-9 items-center gap-2 rounded-[var(--radius)] px-3 transition-colors',
           active
             ? 'bg-[var(--primary-soft)] text-[var(--primary)]'
             : 'text-[var(--muted)] hover:bg-[var(--primary-soft)]',
@@ -155,7 +191,10 @@ export function KbChatPage() {
   const openCitation = useUiStore((s) => s.openCitation);
   const closeCitationsDrawer = useUiStore((s) => s.closeCitationsDrawer);
 
+  const kbDetail = useKbDetail(kbIdNum);
   const conversations = useConversations(kbIdNum, kbValid);
+  const [convSearch, setConvSearch] = useState('');
+  const debouncedConvSearch = useDebouncedValue(convSearch.trim().toLowerCase(), 200);
   const detail = useConversationDetail(cIdNum, convSelected);
 
   const createConv = useCreateConversation(kbIdNum);
@@ -261,8 +300,8 @@ export function KbChatPage() {
 
   return (
     <div className="flex h-full min-h-0" data-testid="kb-chat-page">
-      {/* 左侧：会话列表侧栏（玻璃拟态白名单容器） */}
-      <aside className="conv-list flex w-60 flex-none flex-col">
+      {/* 左侧：会话列表侧栏 */}
+      <aside className="flex w-60 flex-none flex-col border-r border-[var(--border)] bg-[var(--card)]">
         <div className="flex items-center justify-between border-b border-[var(--border)] px-3 py-3">
           <h2 className="text-sm font-semibold">会话</h2>
           <Button
@@ -276,6 +315,16 @@ export function KbChatPage() {
             <MessageSquarePlus aria-hidden="true" />
             新会话
           </Button>
+        </div>
+        <div className="px-1.5 pb-1">
+          <Input
+            value={convSearch}
+            onChange={(e) => setConvSearch(e.target.value)}
+            placeholder="搜索会话"
+            aria-label="搜索会话"
+            className="h-8 text-[13px]"
+            data-testid="conversation-search"
+          />
         </div>
         <div className="flex-1 space-y-0.5 overflow-y-auto px-1.5 py-2">
           <QueryBoundary
@@ -293,31 +342,59 @@ export function KbChatPage() {
               </p>
             }
           >
-            {(items) =>
-              items.map((c) => (
-                <div key={c.id} role="button" tabIndex={0} className="cursor-pointer"
-                  onClick={() => {
-                    if (editingId === null) navigate(`/kbs/${kbIdNum}/chat/${c.id}`);
-                  }}
-                  onKeyDown={(e) => {
-                    if ((e.key === 'Enter' || e.key === ' ') && editingId === null) {
-                      navigate(`/kbs/${kbIdNum}/chat/${c.id}`);
-                    }
-                  }}
-                  data-testid="conversation-item"
-                >
-                  <ConversationListItem
-                    conversation={c}
-                    active={c.id === cIdNum}
-                    editing={editingId === c.id}
-                    onStartEdit={() => setEditingId(c.id ?? null)}
-                    onCancelEdit={() => setEditingId(null)}
-                    onCommitRename={(title) => handleCommitRename(c.id ?? 0, title)}
-                    onDelete={() => setPendingDelete(c)}
-                  />
-                </div>
-              ))
-            }
+            {(items) => {
+              const kw = debouncedConvSearch;
+              const filtered = kw
+                ? items.filter((c) => (c.title ?? '').toLowerCase().includes(kw))
+                : items;
+              const groups: Record<TimeGroup, typeof items> = {
+                today: [],
+                yesterday: [],
+                week: [],
+                earlier: [],
+              };
+              for (const c of filtered) groups[timeGroup(c.updated_at)].push(c);
+              return filtered.length === 0 ? (
+                <p className="px-3 py-6 text-center text-xs text-[var(--faint)]">
+                  {kw ? '未找到匹配的会话' : '还没有会话，点上方「新会话」开始提问'}
+                </p>
+              ) : (
+                <>
+                  {GROUP_ORDER.map((g) =>
+                    groups[g].length > 0 ? (
+                      <div key={g}>
+                        <p className="px-2 pb-0.5 pt-2 text-[11px] font-semibold tracking-wide text-[var(--faint)]">
+                          {GROUP_LABELS[g]}
+                        </p>
+                        {groups[g].map((c) => (
+                          <div key={c.id} role="button" tabIndex={0} className="cursor-pointer"
+                            onClick={() => {
+                              if (editingId === null) navigate(`/kbs/${kbIdNum}/chat/${c.id}`);
+                            }}
+                            onKeyDown={(e) => {
+                              if ((e.key === 'Enter' || e.key === ' ') && editingId === null) {
+                                navigate(`/kbs/${kbIdNum}/chat/${c.id}`);
+                              }
+                            }}
+                            data-testid="conversation-item"
+                          >
+                            <ConversationListItem
+                              conversation={c}
+                              active={c.id === cIdNum}
+                              editing={editingId === c.id}
+                              onStartEdit={() => setEditingId(c.id ?? null)}
+                              onCancelEdit={() => setEditingId(null)}
+                              onCommitRename={(title) => handleCommitRename(c.id ?? 0, title)}
+                              onDelete={() => setPendingDelete(c)}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    ) : null,
+                  )}
+                </>
+              );
+            }}
           </QueryBoundary>
         </div>
       </aside>
@@ -335,9 +412,24 @@ export function KbChatPage() {
           </div>
         ) : (
           <>
-            <div className="topbar flex-none">
+            <div className="flex h-12 flex-none items-center gap-3 border-b border-[var(--border)] bg-[var(--card)] px-4">
+              <Link
+                to={`/kbs/${kbIdNum}`}
+                className="flex-none rounded-[var(--radius)] p-1.5 text-[var(--muted)] transition-colors hover:bg-[var(--primary-soft)] hover:text-[var(--primary)]"
+                aria-label="返回知识库详情"
+                title="返回知识库详情"
+              >
+                <ArrowLeft className="size-4" aria-hidden="true" />
+              </Link>
+              <span
+                className="max-w-40 flex-none truncate text-sm text-[var(--muted)]"
+                title={kbDetail.data?.name ?? ''}
+              >
+                {kbDetail.data?.name ?? ''}
+              </span>
+              <ChevronRight className="size-3.5 flex-none text-[var(--faint)]" aria-hidden="true" />
               <div className="min-w-0 flex-1 truncate text-sm font-semibold">
-                  {detail.data?.title ?? '会话'}
+                {detail.data?.title ?? '会话'}
               </div>
               {view.status === 'streaming' ? (
                 <span className="flex-none text-xs text-[var(--primary)]">回答生成中…</span>

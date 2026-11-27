@@ -1,23 +1,32 @@
--- Woodpecker 初始表结构（合并版，最终形态），来源：md/数据库设计.md §3
--- 注意：chunks 引用 document_files，messages 引用 model_entries，故建表顺序不可调换。
+-- Woodpecker 初始表结构（v1 合并基线，2026-11-26 终态 schema，含 M15 API Token）。
+-- ⚠ 迁移纪律（migrations.go / 数据库设计.md 头部）：
+--   1. 本文件为基线：功能开发期可临时新增 schema_patch_<feature>.up.sql（"." 字典序小于
+--      "_"，保证基线先执行），功能验证完毕把 patch 内容合并回本文件并删除 patch 文件；
+--   2. 再次合并的唯一条件：所有部署环境均可 DROP 重建（无生产数据窗口期），人工决策执行；
+--      一旦出现生产数据，合并窗口永久关闭，转为只增不改；
+--   3. chunks 引用 document_files、messages 引用 model_entries，建表顺序不可调换。
 
 CREATE EXTENSION IF NOT EXISTS vector;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
--- 用户与权限（PRD R6）
+-- 用户与权限（PRD R6）：email 为登录身份之一（FR-16）与 OIDC 身份锚点（FR-19）；
+-- auth_source 1=本地密码 2=OIDC（OIDC 建号账号无本地密码，密码位为随机不可登录哈希）
 CREATE TABLE users (
     id                   BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     username             VARCHAR(64)  NOT NULL UNIQUE,
     password_hash        VARCHAR(255) NOT NULL,
+    email                VARCHAR(255),                    -- 唯一（部分索引），可空
     is_admin             BOOLEAN      NOT NULL DEFAULT FALSE,
     status               SMALLINT     NOT NULL DEFAULT 1,  -- 1=启用 2=禁用
     must_change_password BOOLEAN      NOT NULL DEFAULT FALSE,
     token_version        INT          NOT NULL DEFAULT 0,
     failed_attempts      INT          NOT NULL DEFAULT 0,
     locked_until         TIMESTAMPTZ,
+    auth_source          SMALLINT     NOT NULL DEFAULT 1,  -- 1=本地密码 2=OIDC
     created_at           TIMESTAMPTZ  NOT NULL DEFAULT now(),
     updated_at           TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
+CREATE UNIQUE INDEX uq_users_email ON users(email) WHERE email IS NOT NULL;
 
 -- 模型服务配置（PRD FR-12），先于 messages 建表
 CREATE TABLE model_services (
@@ -43,10 +52,12 @@ CREATE TABLE model_entries (
 
 CREATE UNIQUE INDEX uq_model_entries_default ON model_entries(purpose) WHERE is_default;
 
+-- 知识库：visibility 1=私有（仅成员）2=全员可见（登录用户等效只读成员，FR-17）
 CREATE TABLE knowledge_bases (
     id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     name        VARCHAR(50)  NOT NULL,
     description VARCHAR(500),
+    visibility  SMALLINT     NOT NULL DEFAULT 1,
     created_by  BIGINT       NOT NULL REFERENCES users(id),
     created_at  TIMESTAMPTZ  NOT NULL DEFAULT now(),
     updated_at  TIMESTAMPTZ  NOT NULL DEFAULT now()
@@ -62,6 +73,61 @@ CREATE TABLE kb_members (
 );
 CREATE INDEX idx_kb_members_user ON kb_members(user_id);
 
+-- 用户组（FR-18）：auto=true 的组由 OIDC groups claim 同步（FR-19）；
+-- created_by 无 users 外键（仅审计信息）：0=系统自动创建（OIDC 组同步）
+CREATE TABLE user_groups (
+    id          BIGSERIAL PRIMARY KEY,
+    name        VARCHAR(50) NOT NULL,
+    description VARCHAR(500) NOT NULL DEFAULT '',
+    auto        BOOLEAN NOT NULL DEFAULT FALSE,
+    created_by  BIGINT NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT uq_user_groups_name UNIQUE (name)
+);
+
+CREATE TABLE group_members (
+    id         BIGSERIAL PRIMARY KEY,
+    group_id   BIGINT NOT NULL REFERENCES user_groups(id) ON DELETE CASCADE,
+    user_id    BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT uq_group_members UNIQUE (group_id, user_id)
+);
+CREATE INDEX idx_group_members_user ON group_members(user_id);
+
+-- 组 → 库的角色授权（role 与 kb_members 同枚举）；有效角色 = max(直授, 组授)
+CREATE TABLE kb_group_roles (
+    id         BIGSERIAL PRIMARY KEY,
+    kb_id      BIGINT NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+    group_id   BIGINT NOT NULL REFERENCES user_groups(id) ON DELETE CASCADE,
+    role       SMALLINT NOT NULL, -- 1=管理者(owner) 2=编辑者(editor) 3=成员(member)
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT uq_kb_group_roles UNIQUE (kb_id, group_id)
+);
+CREATE INDEX idx_kb_group_roles_group ON kb_group_roles(group_id);
+
+-- 邀请注册（FR-16）：每邮箱一条，重复邀请覆盖 token（重发）；
+-- token 只存 sha256 哈希（URL 明文仅出现在邮件与创建响应中，库泄漏不泄露可用链接）
+CREATE TABLE invites (
+    id           BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    email        VARCHAR(255) NOT NULL UNIQUE,          -- 统一小写
+    token_hash   VARCHAR(64)  NOT NULL UNIQUE,          -- sha256 hex(token)
+    status       SMALLINT     NOT NULL DEFAULT 1,       -- 1=待接受 2=已接受 3=已撤销
+    expires_at   TIMESTAMPTZ  NOT NULL,                 -- 7 天有效期（重发时重置）
+    accepted_at  TIMESTAMPTZ,
+    accepted_by  BIGINT REFERENCES users(id),
+    send_status  SMALLINT     NOT NULL DEFAULT 3,       -- 1=已发送 2=发送失败 3=未发送（SMTP 未配置）
+    send_error   TEXT,
+    send_count   INT          NOT NULL DEFAULT 0,       -- 实际发送尝试次数
+    created_by   BIGINT       NOT NULL REFERENCES users(id),
+    created_at   TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    updated_at   TIMESTAMPTZ  NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_invites_status ON invites(status, created_at DESC);
+
+-- M14 Git 自动同步（FR-03 增强）：auto_sync=true 时 worker 周期扫描入队增量 sync
+-- （间隔 GIT_AUTO_SYNC_MINUTES）；webhook_secret 为 AES-GCM 加密验签 token
+-- （Git 平台自定义 header X-Woodpecker-Token 比对，NULL=未启用）
 CREATE TABLE documents (
     id             BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     kb_id          BIGINT   NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
@@ -76,6 +142,8 @@ CREATE TABLE documents (
     ignore_rules   TEXT[]       DEFAULT '{}',
     last_commit    VARCHAR(40),
     last_synced_at TIMESTAMPTZ,
+    auto_sync      BOOLEAN NOT NULL DEFAULT false,
+    webhook_secret BYTEA,
     source_url     VARCHAR(2000),
     file_count     INT,
     total_size     BIGINT,
@@ -220,3 +288,20 @@ CREATE TABLE settings (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_by BIGINT REFERENCES users(id)
 );
+-- 个人 API Token（机器访问凭证，脚本/CI/CLI 鉴权；MCP Server 前置依赖）：
+-- 仅存 SHA-256 哈希（明文 wpk_<64hex> 仅创建响应返回一次）；prefix 为 64hex 前 8 字符
+-- （列表展示时拼 wpk_ 前缀）；token 权限=所属用户本人权限，禁用即时失效；
+-- 不受 users.token_version 影响（改密不使机器凭证失效）。MVP 无细粒度 scope（二期扩展）。
+CREATE TABLE api_tokens (
+    id           BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id      BIGINT       NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name         VARCHAR(100) NOT NULL,
+    token_hash   CHAR(64)     NOT NULL UNIQUE,
+    prefix       CHAR(8)      NOT NULL,
+    last_used_at TIMESTAMPTZ,
+    expires_at   TIMESTAMPTZ,                 -- NULL=永久
+    created_at   TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    revoked_at   TIMESTAMPTZ                  -- NULL=有效；软吊销
+);
+CREATE INDEX idx_api_tokens_user ON api_tokens(user_id, created_at DESC);
+

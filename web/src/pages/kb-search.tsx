@@ -66,7 +66,7 @@ export function KbSearchPage() {
   );
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-6 py-8">
+    <div className="w-full px-8 py-7">
       <h1 className="mb-1 text-lg font-semibold">内容检索</h1>
       <p className="mb-4 text-sm text-[var(--muted)]">
         混合检索（向量 + 全文）+ 精排，命中片段含文件路径与行号，可跳转到对应文档。
@@ -120,7 +120,7 @@ export function KbSearchPage() {
                 {data.items.map((item) => (
                   <article
                     key={item.chunk_id}
-                    className="kb-card p-4"
+                    className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] p-4 shadow-[var(--shadow)]"
                     data-testid="search-result-card"
                   >
                     <div className="mb-2 flex flex-wrap items-center justify-between gap-2">

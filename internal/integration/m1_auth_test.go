@@ -24,6 +24,7 @@ import (
 	"woodpecker/internal/jwt"
 	"woodpecker/internal/llm"
 	"woodpecker/internal/mail"
+	oidcpkg "woodpecker/internal/oidc"
 	"woodpecker/internal/repo"
 	"woodpecker/internal/service"
 )
@@ -58,6 +59,14 @@ func setup(t *testing.T) *env {
 	smtpStore := &mail.SMTPSettingStore{Store: settings, Encrypt: cipher.Encrypt, Decrypt: cipher.Decrypt}
 	inviteSvc := service.NewInviteService(invites, users, mail.NewSMTPSender(smtpStore), smtpStore, cfg.InviteBaseURL, auditSvc)
 	authSvc.SetInvites(invites)
+	// M12：用户组与组授权（FR-18）
+	groupRepo := repo.NewGroupRepo(db)
+	groupSvc := service.NewGroupService(groupRepo, users, kbs, auditSvc)
+	// M13：SSO / OIDC（FR-19）
+	oidcStore := &oidcpkg.SettingStore{Store: settings, Encrypt: cipher.Encrypt, Decrypt: cipher.Decrypt}
+	oidcSvc := service.NewOIDCService(oidcStore, users, groupRepo, issuer, auditSvc)
+	// M15：个人 API Token（FR-20）
+	tokenSvc := service.NewAPITokenService(repo.NewAPITokenRepo(db), auditSvc)
 
 	router := handler.NewRouter(handler.Deps{
 		Cfg:      cfg,
@@ -67,6 +76,9 @@ func setup(t *testing.T) *env {
 		KB:       handler.NewKBHandler(kbSvc),
 		ModelCfg: handler.NewModelCfgHandler(modelCfgSvc),
 		Invite:   handler.NewInviteHandler(inviteSvc, authSvc, smtpStore, mail.NewSMTPSender(smtpStore)),
+		Groups:   handler.NewGroupHandler(groupSvc),
+		OIDC:     handler.NewOIDCHandler(oidcSvc),
+		Tokens:   handler.NewAPITokenHandler(tokenSvc),
 		UserRepo: users,
 		Issuer:   issuer,
 		KBLookup: kbs,

@@ -24,6 +24,8 @@ type DocumentRow struct {
 	SourceURL    *string
 	RepoURL      *string
 	GitRef       *string
+	AutoSync     bool // M14：定时同步开关（git 类型）
+	HasWebhook   bool // M14：webhook secret 已配置（不暴露本体）
 	FileCount    *int
 	TotalSize    *int64
 	LastSyncedAt *time.Time
@@ -144,6 +146,7 @@ func (r *DocumentRepo) ListDocuments(ctx context.Context, q DocumentListQuery) (
 		rows = append(rows, DocumentRow{
 			ID: d.ID, Type: d.Type, Name: d.Name, Status: d.Status, Stage: d.Stage,
 			Error: d.Error, SourceURL: d.SourceURL, RepoURL: d.RepoURL, GitRef: d.GitRef,
+			AutoSync: d.AutoSync, HasWebhook: len(d.WebhookSecret) > 0,
 			FileCount: d.FileCount, TotalSize: d.TotalSize, LastSyncedAt: d.LastSyncedAt,
 			CreatedBy: d.CreatedBy, CreatedAt: d.CreatedAt, UpdatedAt: d.UpdatedAt,
 		})
@@ -290,6 +293,17 @@ func (r *DocumentRepo) HasRunningTask(ctx context.Context, documentID int64) (bo
 		Where("document_id = ? AND status IN ?", documentID, []int16{model.TaskStatusQueued, model.TaskStatusRunning}).
 		Count(&n).Error
 	return n > 0, err
+}
+
+// ListAutoSyncDocs 待定时同步的 Git 文档（M14）：auto_sync=true 且非处理中——
+// 已就绪（周期增量）、失败（重试恢复）、待处理（首次入库后）均可被扫描入队 sync；
+// status=processing（有运行中任务）的由 service 层 HasRunningTask 兜底跳过。
+func (r *DocumentRepo) ListAutoSyncDocs(ctx context.Context) ([]model.Document, error) {
+	var docs []model.Document
+	err := r.dbx(ctx).
+		Where("type = ? AND auto_sync = ? AND status <> ?", model.DocTypeGit, true, model.DocStatusProcessing).
+		Order("id").Find(&docs).Error
+	return docs, err
 }
 
 // ListTaskHistory 任务历史（新→旧）。

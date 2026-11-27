@@ -37,6 +37,9 @@ const DefaultWorkerZombieTimeoutMinutes = 5
 // 启动恢复看不到陈旧心跳的场景。
 const DefaultWorkerZombieSweepMinutes = 2
 
+// DefaultGitAutoSyncMinutes Git 定时同步扫描间隔缺省值（分钟，M14）。
+const DefaultGitAutoSyncMinutes = 30
+
 // 开发环境占位密钥（仅非生产可回落，生产缺失直接拒绝启动）。
 const (
 	devJWTSecret     = "dev-only-jwt-secret"
@@ -97,12 +100,46 @@ type Config struct {
 	// 心跳超时的运行中任务由后台循环定期置失败，覆盖「Pod 秒级重建 → 启动恢复时心跳还没过期」
 	// 的场景（否则文档只能等下一次重启才被回收）。<=0 关闭 sweeper。
 	WorkerZombieSweepMinutes int
+
+	// GitAutoSyncMinutes Git 定时同步扫描间隔（分钟，M14）。
+	// worker 周期扫描 auto_sync=true 的 git 文档并入队增量 sync（内容变化由 last_commit diff 判定）。
+	// <=0 关闭定时同步（webhook 触发不受影响）。默认 30。
+	GitAutoSyncMinutes int
+
+	// MCPSelfURL Streamable HTTP MCP 端点（/mcp，M17）回环调用本进程 REST API 的
+	// 自访问地址。工具层回环调用 /api/v1 走完整鉴权链，权限 = 调用者本人；
+	// 缺省由 APP_PORT 推导（http://127.0.0.1:{Port}）。仅当 server 监听地址与
+	// 缺省不一致（如容器内服务名访问）时需要显式配置。
+	MCPSelfURL string
+	// MCPDisableLocalhostProtection 关闭 MCP 端点的 DNS rebinding 防护（SDK 缺省开启：
+	// 请求经 loopback 地址进来但 Host 头为非 loopback 时返回 403）。
+	// 仅「同机 Nginx 反代 proxy_pass http://127.0.0.1:8080 + proxy_set_header Host $host」
+	// 这一种部署形态需要设 true；其余场景保持 false（MCP_DISABLE_LOCALHOST_PROTECTION）。
+	MCPDisableLocalhostProtection bool
 }
 
-// Load 读取配置：.env 文件（存在则加载，不覆盖已有环境变量）→ 环境变量 → 默认值。
+// Load 读取配置，按环境分文件（生产和开发各一套，见 .env.example）：
+//  1. `.env`（公共兜底，可含 APP_ENV 本身；不存在则跳过）；
+//  2. 读 APP_ENV（缺省 development），再 Overload `.env.{APP_ENV}`——环境专属文件**覆盖**
+//     公共值（如 DATABASE_URL/UPLOAD_DIR/密钥），不存在则跳过。
+//
+// 即：APP_ENV=development → `.env.development`（本地开发，入库模板无敏感值）；
+// APP_ENV=production → `.env.production`（生产，不入库）。既有部署（compose env_file /
+// 裸机 $InstallDir\.env）不受影响：环境变量注入优先级高于任何文件。
 func Load() *Config {
 	if err := godotenv.Load(); err != nil && !os.IsNotExist(err) {
 		slog.Debug("未加载 .env", "err", err)
+	}
+	env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
+	if env == "" {
+		env = EnvDevelopment
+	}
+	if env == EnvProdAlias {
+		env = EnvProduction
+	}
+	// 环境专属文件覆盖公共 .env（Overload 允许覆盖已存在的环境变量）
+	if err := godotenv.Overload(".env." + env); err != nil && !os.IsNotExist(err) {
+		slog.Debug("未加载环境专属配置文件", "file", ".env."+env, "err", err)
 	}
 	cfg := &Config{
 		Env:           envStr("APP_ENV", EnvDevelopment),
@@ -137,7 +174,12 @@ func Load() *Config {
 
 		WorkerZombieTimeoutMinutes: envInt("WORKER_ZOMBIE_TIMEOUT_MINUTES", DefaultWorkerZombieTimeoutMinutes),
 		WorkerZombieSweepMinutes:   envInt("WORKER_ZOMBIE_SWEEP_MINUTES", DefaultWorkerZombieSweepMinutes),
+		GitAutoSyncMinutes:         envInt("GIT_AUTO_SYNC_MINUTES", DefaultGitAutoSyncMinutes),
+
+		MCPDisableLocalhostProtection: envBool("MCP_DISABLE_LOCALHOST_PROTECTION", false),
 	}
+	// MCP 回环地址缺省由端口推导（env 显式值优先，故不能放进结构体字面量）。
+	cfg.MCPSelfURL = envStr("MCP_SELF_URL", fmt.Sprintf("http://127.0.0.1:%d", cfg.Port))
 	if cfg.JWTSecret == "" {
 		if cfg.IsProduction() {
 			// 生产缺失：不回落占位密钥，留空交由 Validate 拒绝启动（审计 P1-5）。

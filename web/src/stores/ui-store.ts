@@ -9,6 +9,10 @@ interface UiState {
   /** 知识库侧栏折叠 */
   sidebarCollapsed: boolean;
   toggleSidebar: () => void;
+  /** 命令面板（Ctrl+K）开关 */
+  commandOpen: boolean;
+  setCommandOpen: (open: boolean) => void;
+  toggleCommand: () => void;
   /** 引用抽屉开关（聊天窗内） */
   citationsDrawerOpen: boolean;
   /** 抽屉当前聚焦的引用 seq（点击行内 [n] / 引用 chip 联动滚动） */
@@ -21,6 +25,10 @@ interface UiState {
 export const useUiStore = create<UiState>((set) => ({
   sidebarCollapsed: false,
   toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
+
+  commandOpen: false,
+  setCommandOpen: (open) => set({ commandOpen: open }),
+  toggleCommand: () => set((s) => ({ commandOpen: !s.commandOpen })),
 
   citationsDrawerOpen: false,
   citationsSeq: null,

@@ -339,6 +339,22 @@ export async function postRegisterInvited(body: {
   return toTyped<Schemas['service.AuthResult']>(res);
 }
 
+/* ================= 企业单点登录 SSO / OIDC（FR-19 / M13） ================= */
+
+/** GET /auth/oidc/status（公开）：登录页据此显隐「企业账号登录」。 */
+export async function getOidcStatus(): Promise<RawResult<{ enabled?: boolean }>> {
+  const res = await api.GET('/auth/oidc/status');
+  return toTyped<{ enabled?: boolean }>(res);
+}
+
+/** POST /auth/oidc/token（公开）：回调 302 带回的一次性 code 换系统 JWT（60s 有效、消费即失效）。 */
+export async function postOidcToken(
+  code: string,
+): Promise<RawResult<Schemas['service.AuthResult']>> {
+  const res = await api.POST('/auth/oidc/token', { body: { code } } as unknown as PostInit);
+  return toTyped<Schemas['service.AuthResult']>(res);
+}
+
 /* ================= 会话与反馈（F5） ================= */
 
 /** PATCH /conversations/{c}：重命名会话。 */

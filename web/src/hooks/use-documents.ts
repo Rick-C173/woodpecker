@@ -155,6 +155,36 @@ export function useSyncDocument(kbId: number) {
   });
 }
 
+/** 开关定时同步（M14，git 类型；成功后 invalidate 拿最新 auto_sync）。 */
+export function useSetAutoSync(kbId: number) {
+  const invalidate = useInvalidateDocuments(kbId);
+  return useMutation({
+    mutationFn: async ({ docId, autoSync }: { docId: number; autoSync: boolean }): Promise<void> => {
+      const { response } = await api.PATCH('/kbs/{kb}/documents/{doc}/auto-sync', {
+        params: { path: { kb: kbId, doc: docId } },
+        body: { auto_sync: autoSync },
+      });
+      if (!response.ok) throw new Error('设置失败');
+    },
+    onSuccess: invalidate,
+  });
+}
+
+/** 生成/轮换 webhook token（M14）：明文仅本次响应返回。 */
+export function useRotateWebhookSecret(kbId: number) {
+  const invalidate = useInvalidateDocuments(kbId);
+  return useMutation({
+    mutationFn: async (docId: number): Promise<{ webhook_token: string; webhook_url: string }> => {
+      const { data, response } = await api.POST('/kbs/{kb}/documents/{doc}/webhook-secret', {
+        params: { path: { kb: kbId, doc: docId } },
+      });
+      if (!response.ok || !data) throw new Error('生成失败');
+      return { webhook_token: data.webhook_token ?? '', webhook_url: data.webhook_url ?? '' };
+    },
+    onSuccess: invalidate,
+  });
+}
+
 /** 重建索引（管理者+，仅 ready）。 */
 export function useReindexDocument(kbId: number) {
   const invalidate = useInvalidateDocuments(kbId);

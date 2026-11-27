@@ -20,8 +20,18 @@ import { RoleBadge } from '@/components/shared/role-badge';
 import { useAuth } from '@/hooks/use-auth';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
 import { DocumentTable } from '@/components/documents/document-table';
+import { useGroupsList, useGrantGroup, useKBGroupRoles, useRevokeGroup, useUpdateGroupRole } from '@/hooks/use-groups';
+
+type KBGroupRoleItem = components['schemas']['service.KBGroupRoleItem'];
 import { IngestWizard } from '@/components/documents/ingest-wizard';
 import { Button, buttonVariants } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -278,6 +288,9 @@ function MembersTab({ kbId }: { kbId: number }) {
 
       <AddMemberDialog open={addOpen} onOpenChange={setAddOpen} kbId={kbId} />
 
+      {/* 组授权区块（FR-18） */}
+      <GroupGrantsSection kbId={kbId} />
+
       <ConfirmDialog
         open={removing !== null}
         onOpenChange={(open) => {
@@ -299,6 +312,142 @@ function MembersTab({ kbId }: { kbId: number }) {
         }}
       />
     </div>
+  );
+}
+
+/* ------------------------------ 组授权区块（FR-18） ------------------------------ */
+
+/** 组授权：列表（组名/角色）+ 授权（组下拉 + 角色下拉）+ 变更/撤销。 */
+function GroupGrantsSection({ kbId }: { kbId: number }) {
+  const grants = useKBGroupRoles(kbId);
+  const groupsQ = useGroupsList();
+  const grant = useGrantGroup();
+  const updateRole = useUpdateGroupRole();
+  const revoke = useRevokeGroup();
+  const [groupId, setGroupId] = useState('');
+  const [role, setRole] = useState('member');
+  // 撤销确认
+  const [revoking, setRevoking] = useState<KBGroupRoleItem | null>(null);
+
+  const items = grants.data ?? [];
+  // 只能授权未授权的组
+  const grantedIds = new Set(items.map((g) => g.group_id));
+  const availableGroups = (groupsQ.data ?? []).filter((g) => !grantedIds.has(g.id));
+
+  const handleGrant = () => {
+    if (!groupId) return;
+    grant.mutate(
+      { kbId, groupId: Number(groupId), role },
+      {
+        onSuccess: () => {
+          toast.success('组授权成功');
+          setGroupId('');
+        },
+        onError: (e) => toast.error(e instanceof Error ? e.message : '组授权失败'),
+      },
+    );
+  };
+
+  return (
+    <section className="rounded-lg border border-[var(--border)] p-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold">组授权</h3>
+          <p className="text-xs text-[var(--faint)]">
+            组内成员按组角色访问本库（有效角色取直接授权与组授权的最高者）。
+          </p>
+        </div>
+      </div>
+
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <Select value={groupId} onValueChange={setGroupId}>
+          <SelectTrigger className="w-52" aria-label="选择用户组">
+            <SelectValue placeholder="选择用户组" />
+          </SelectTrigger>
+          <SelectContent>
+            {availableGroups.map((g) => (
+              <SelectItem key={g.id} value={String(g.id)}>
+                {g.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={role} onValueChange={setRole}>
+          <SelectTrigger className="w-36" aria-label="组角色">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="owner">管理者</SelectItem>
+            <SelectItem value="editor">编辑者</SelectItem>
+            <SelectItem value="member">成员</SelectItem>
+          </SelectContent>
+        </Select>
+        <Button size="sm" onClick={handleGrant} disabled={!groupId || grant.isPending}>
+          {grant.isPending ? '授权中…' : '授权'}
+        </Button>
+      </div>
+
+      {items.length === 0 ? (
+        <p className="py-2 text-center text-sm text-[var(--faint)]">暂无组授权</p>
+      ) : (
+        <div className="divide-y divide-[var(--border)] rounded-md border border-[var(--border)]">
+          {items.map((g) => (
+            <div key={g.group_id} className="flex items-center justify-between gap-3 px-3 py-2">
+              <span className="text-sm font-medium">{g.name}</span>
+              <div className="flex items-center gap-2">
+                <RoleSelect
+                  value={g.role ?? 'member'}
+                  disabled={updateRole.isPending}
+                  onChange={(r) =>
+                    updateRole.mutate(
+                      { kbId, groupId: g.group_id ?? 0, role: r },
+                      {
+                        onSuccess: () => toast.success('组角色已更新'),
+                        onError: (e) => toast.error(e instanceof Error ? e.message : '变更失败'),
+                      },
+                    )
+                  }
+                />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-[var(--destructive)]"
+                  disabled={revoke.isPending}
+                  onClick={() => setRevoking(g)}
+                >
+                  <Trash2 aria-hidden="true" />
+                  撤销
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <ConfirmDialog
+        open={revoking !== null}
+        onOpenChange={(open) => {
+          if (!open) setRevoking(null);
+        }}
+        title="撤销组授权"
+        description={`将撤销组「${revoking?.name ?? ''}」对本库的授权，组内成员立即失去本库访问。`}
+        confirmLabel="撤销"
+        busy={revoke.isPending}
+        onConfirm={() => {
+          if (!revoking) return;
+          revoke.mutate(
+            { kbId, groupId: revoking.group_id ?? 0 },
+            {
+              onSuccess: () => {
+                toast.success('组授权已撤销');
+                setRevoking(null);
+              },
+              onError: (e) => toast.error(e instanceof Error ? e.message : '撤销失败'),
+            },
+          );
+        }}
+      />
+    </section>
   );
 }
 
@@ -395,7 +544,7 @@ export function KbDetailPage() {
 
   if (isNotFound) {
     return (
-      <div className="mx-auto w-full max-w-5xl px-6 py-8">
+      <div className="w-full px-8 py-7">
         <EmptyState
           icon={FolderOpen}
           title="知识库不存在或无权访问"
@@ -411,36 +560,28 @@ export function KbDetailPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-6 py-8">
+    <div className="w-full px-8 py-7">
       <QueryBoundary query={detail} skeleton={<Skeleton className="h-28 w-full" />}>
         {(data) => (
           <>
-            {/* 头部：库信息 + 动作 */}
-            <div className="kb-card mb-6 p-5">
+            {/* 头部：avatar + 名称（demo 定稿：徽标进 meta 行）+ 动作 */}
+            <div className="mb-6">
               <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <h1 className="truncate text-lg font-semibold" title={data.name ?? ''}>
+                <div className="flex min-w-0 items-start gap-3">
+                  <span
+                    className="flex size-11 shrink-0 items-center justify-center rounded-[var(--radius)] bg-[var(--accent-weak)] text-[17px] font-semibold text-[var(--accent)]"
+                    aria-hidden="true"
+                  >
+                    {data.name?.charAt(0)?.toUpperCase() || 'K'}
+                  </span>
+                  <div className="min-w-0">
+                    <h1 className="line-clamp-2 text-xl font-semibold leading-tight" title={data.name ?? ''}>
                       {data.name}
                     </h1>
-                    {data.visibility === 2 ? (
-                      <span
-                        className="inline-flex items-center gap-1 rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-xs text-[var(--accent)]"
-                        title="全员可见：登录用户可浏览与问答（只读）"
-                      >
-                        <Globe2 className="size-3" aria-hidden="true" />
-                        全员可见
-                      </span>
-                    ) : null}
-                    <RoleBadge role={data.my_role} />
+                    <p className="mt-1 line-clamp-2 text-sm text-[var(--muted)]">
+                      {data.description || '暂无描述'}
+                    </p>
                   </div>
-                  <p className="mt-1 line-clamp-2 text-sm text-[var(--muted)]">
-                    {data.description || '暂无描述'}
-                  </p>
-                  <p className="mt-2 text-xs text-[var(--faint)]">
-                    {data.document_count ?? 0} 个文档 · 创建于 {fromNow(data.created_at) || '—'} ·
-                    最近更新 {fromNow(data.updated_at) || '—'}
-                  </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <Link to={`/kbs/${kbIdNum}/search`} className={buttonVariants({ variant: 'outline' })}>
@@ -459,13 +600,35 @@ export function KbDetailPage() {
                   ) : null}
                 </div>
               </div>
+              <div className="mt-2.5 flex flex-wrap items-center gap-2 text-xs text-[var(--faint)]">
+                <RoleBadge role={data.my_role} />
+                {data.visibility === 2 ? (
+                  <span
+                    className="inline-flex items-center gap-1 rounded-full border border-dashed border-[var(--border)] px-2 py-0.5 font-medium"
+                    title="全员可见：登录用户可浏览与问答（只读）"
+                  >
+                    <Globe2 className="size-3" aria-hidden="true" />
+                    全员可见
+                  </span>
+                ) : null}
+                <span>{data.document_count ?? 0} 个文档</span>
+                <span aria-hidden="true">·</span>
+                <span>创建于 {fromNow(data.created_at) || '—'}</span>
+                <span aria-hidden="true">·</span>
+                <span>最近更新 {fromNow(data.updated_at) || '—'}</span>
+              </div>
             </div>
 
-            {/* Tab 切换：文档列表 / 成员管理（管理员或库管理者可见成员 tab） */}
-            <div className="mb-4 flex gap-1.5 border-b border-[var(--border)] pb-2">
+            {/* Tab 切换：文档列表 / 成员管理（下划线式，管理员或库管理者可见成员 tab） */}
+            <div className="mb-4 flex gap-1 border-b border-[var(--border)]">
               <button
                 type="button"
-                className={cn('nav-item', tab === 'documents' && 'active')}
+                className={cn(
+                  '-mb-px border-b-2 px-3 pb-2 pt-1 text-sm transition-colors',
+                  tab === 'documents'
+                    ? 'border-[var(--accent)] font-medium text-[var(--foreground)]'
+                    : 'border-transparent text-[var(--muted)] hover:text-[var(--foreground)]',
+                )}
                 onClick={() => setTab('documents')}
                 aria-pressed={tab === 'documents'}
               >
@@ -474,7 +637,12 @@ export function KbDetailPage() {
               {mayManageMembers ? (
                 <button
                   type="button"
-                  className={cn('nav-item', tab === 'members' && 'active')}
+                  className={cn(
+                    '-mb-px border-b-2 px-3 pb-2 pt-1 text-sm transition-colors',
+                    tab === 'members'
+                      ? 'border-[var(--accent)] font-medium text-[var(--foreground)]'
+                      : 'border-transparent text-[var(--muted)] hover:text-[var(--foreground)]',
+                  )}
                   onClick={() => setTab('members')}
                   aria-pressed={tab === 'members'}
                 >

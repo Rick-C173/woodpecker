@@ -40,6 +40,11 @@ func (f *fakeKBLookup) GetVisibility(_ context.Context, kbID int64) (int16, erro
 	return model.KBVisibilityPrivate, nil
 }
 
+// GetEffectiveRole FR-18：测试替身直接返回 GetMemberRole 语义（单测不覆盖组合并，见 IT）。
+func (f *fakeKBLookup) GetEffectiveRole(ctx context.Context, kbID, userID int64) (int16, error) {
+	return f.GetMemberRole(ctx, kbID, userID)
+}
+
 func kbRouter(lookup KBLookup, userID int64, isAdmin bool, bypass func(*gin.Context, int64, int64)) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()

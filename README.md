@@ -83,18 +83,35 @@ make api-docs      # swag init 生成 docs/swagger.json（OpenAPI 事实源）
 - 接口契约同步 Apifox：`make api-sync`（只新增）/ `make api-sync-overwrite`（全量覆盖），同步前自动备份
 - 统一响应：成功直接返回数据对象/分页信封；失败 `{"code","message","request_id"}`，错误码见 `internal/httpx/errcode.go`
 
+## MCP Server（AI 辅助开发接入）
+
+IDE Agent（Cursor / Claude Code / Trae）可通过 MCP 协议查询知识库（检索 + 带引用问答）。两种接入形态：
+
+```bash
+# HTTP 远程接入（M17，团队共享推荐）：server 自带 /mcp 端点，客户端免安装
+#   客户端配置 url: http://wp.corp:8080/mcp + header "Authorization: Bearer wpk_xxx"
+
+# 本机 exe（M16，stdio）：
+go build -o woodpecker-mcp.exe ./cmd/mcp-server
+woodpecker-mcp -server http://localhost:8080 -token wpk_xxx   # token 在网页端个人 API Token 页生成
+```
+
+四工具：`list_kbs` / `search` / `ask` / `get_document`；鉴权与权限沿用个人 API Token（M15）。接入配置与排障见 [md/MCP接入指南.md](./md/MCP接入指南.md)。
+
 ## 目录结构
 
 ```
-cmd/server/            入口（--mode=all|api|worker）
-internal/config        环境变量配置
+cmd/server/            服务入口（--mode=all|api|worker）
+cmd/mcp-server/        MCP Server 入口（stdio，独立进程）
+internal/config        环境配置（.env + .env.{APP_ENV} 分环境加载）
 internal/handler       HTTP 层（swaggo 注解）
 internal/service       业务层
 internal/repo          存储层（检索 SQL 手写，见 md/数据库设计.md）
 internal/worker        摄取流水线（asynq worker）
 internal/llm           Provider（OpenAI 兼容 embeddings/chat/rerank）
 internal/rag           分块
-migrations/            golang-migrate（000001~000007）
+internal/mcpserver     MCP 工具层（四工具 + stdio/Streamable HTTP 双传输）
+migrations/            嵌入 SQL 迁移（自研 runner，schema.up.sql 基线 + 开发期 patch）
 docs/                  swag 生成的 OpenAPI spec
 ```
 

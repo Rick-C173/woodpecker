@@ -9,6 +9,7 @@ import (
 
 	"woodpecker/internal/config"
 	"woodpecker/internal/jwt"
+	"woodpecker/internal/mcpserver"
 	"woodpecker/internal/middleware"
 	"woodpecker/internal/model"
 )
@@ -18,6 +19,10 @@ type UserLookupRepo interface {
 	GetByID(ctx context.Context, id int64) (*model.User, error)
 }
 
+// M16（形态扩展 G2）：MCP Server 工具层由 internal/mcpserver 实现——stdio 独立进程
+// （cmd/mcp-server）与 Streamable HTTP 端点（M17，本进程 /mcp，见 NewRouter 根路由段）
+// 两种部署共用同一套工具与后端 API 回环调用；接入见 md/MCP接入指南.md。
+//
 // Deps 组合根注入：main.go 构造 repos/services 后传入（技术选型 §5 分层）。
 type Deps struct {
 	Cfg      *config.Config
@@ -46,6 +51,15 @@ type Deps struct {
 	// M10：邮箱邀请制注册（FR-16）
 	Invite *InviteHandler
 
+	// M12：用户组与组授权（FR-18）
+	Groups *GroupHandler
+
+	// M13：企业单点登录 SSO / OIDC（FR-19）
+	OIDC *OIDCHandler
+
+	// M15：个人 API Token（FR-20）；nil=不注册路由（最小组装兼容）
+	Tokens *APITokenHandler
+
 	KBLookup middleware.KBLookup
 	// OnAdminKBAccess 管理员以非成员身份访问库时回调（审计）
 	OnAdminKBAccess func(ctx context.Context, userID, kbID int64, method, path, ip string)
@@ -53,6 +67,10 @@ type Deps struct {
 	Pinger Pinger // 可选：测试注入探针；为空时由 DB 派生
 	// RedisPinger 可选：Redis（asynq 队列/默认配置缓存）探针；为空时探针视为未配置该依赖（P2-27）
 	RedisPinger Pinger
+
+	// NoRoute 可选：非 API 路径兜底处理器——单二进制部署时内嵌前端 SPA
+	// （internal/web.Handler()，见 scripts/deploy 裸机方案）；为空保持 gin 默认 404。
+	NoRoute gin.HandlerFunc
 }
 
 // NewRouter 装配全局中间件与 /api/v1 路由。
@@ -94,15 +112,31 @@ func NewRouter(d Deps) *gin.Engine {
 		v1.POST("/auth/register/invited", d.Invite.RegisterInvited)
 	}
 
+	// M13：SSO / OIDC（FR-19，公开；未启用时 login 404、前端按钮隐藏）
+	if d.OIDC != nil {
+		v1.GET("/auth/oidc/status", d.OIDC.Status)
+		v1.GET("/auth/oidc/login", d.OIDC.Login)
+		v1.GET("/auth/oidc/callback", d.OIDC.Callback)
+		v1.POST("/auth/oidc/token", d.OIDC.TokenExchange)
+	}
+
 	// auth（登录态）：全局限流（API 设计 §1，阈值可配 RATE_LIMIT_PER_MIN，<=0 关闭）
 	limiter := middleware.NewRateLimiter(cfg.RateLimitPerMin, time.Minute)
-	authed := v1.Group("", middleware.Auth(d.Issuer, userLookup(d.UserRepo)), limiter.Handler(middleware.UserKey))
+	authed := v1.Group("", middleware.Auth(d.Issuer, userLookup(d.UserRepo), apiTokenLookup(d.Tokens)), limiter.Handler(middleware.UserKey))
 	// 改密接口本身（含首登强制改密）不受强制改密拦截；成功后 token_version+1 需重新登录。
 	authed.POST("/auth/password", d.Auth.ChangePassword)
 
 	// 首登强制改密（PRD FR-01 / 审计 P1-4）：除改密白名单外，带 must_change_password 的会话一律 403 AUTH_07。
 	// mustChangeOK 与 authed 权限完全一致，只是多一层状态拦截。
 	mustChangeOK := authed.Group("", middleware.RequirePasswordChanged())
+
+	// 个人 API Token（M15 / FR-20）：仅本人管理；首登未改密的 JWT 会话不可创建
+	// （机器凭证路径 must_change_password 恒为 false，不受此拦截）。
+	if d.Tokens != nil {
+		mustChangeOK.GET("/tokens", d.Tokens.List)
+		mustChangeOK.POST("/tokens", d.Tokens.Create)
+		mustChangeOK.DELETE("/tokens/:id", d.Tokens.Revoke)
+	}
 
 	// 知识库（FR-02）：建/改/删与成员授权仅管理员；库内读取需成员资格（R6 不可见原则）
 	var adminBypass func(*gin.Context, int64, int64)
@@ -125,6 +159,15 @@ func NewRouter(d Deps) *gin.Engine {
 	members.POST("", d.KB.AddMember)
 	members.PATCH("/:user", d.KB.UpdateMemberRole)
 	members.DELETE("/:user", d.KB.RemoveMember)
+
+	// 组授权（FR-18）：管理员或库内管理者
+	if d.Groups != nil {
+		gr := kb.Group("/group-roles", middleware.KBMemberManager())
+		gr.GET("", d.Groups.ListGrants)
+		gr.POST("", d.Groups.Grant)
+		gr.PATCH("/:group", d.Groups.UpdateGrant)
+		gr.DELETE("/:group", d.Groups.RevokeGrant)
+	}
 
 	// 检索（FR-10，API设计.md §3.7）：成员可用（KBAccess 已拦截）
 	if d.Search != nil {
@@ -150,6 +193,11 @@ func NewRouter(d Deps) *gin.Engine {
 		docs.POST("/:doc/sync", middleware.RequireKBEditor(), d.Document.Sync)
 		docs.DELETE("/:doc", middleware.RequireKBOwner(), d.Document.Delete)
 		docs.POST("/:doc/reindex", middleware.RequireKBOwner(), d.Document.Reindex)
+		// M14 Git 自动同步：定时拉取开关 + webhook 验签 token（编辑者+）
+		docs.PATCH("/:doc/auto-sync", middleware.RequireKBEditor(), d.Document.SetAutoSync)
+		docs.POST("/:doc/webhook-secret", middleware.RequireKBEditor(), d.Document.RotateWebhookSecret)
+		// M14 webhook 回调：公开路由（Git 平台调用，X-Woodpecker-Token 校验替代用户认证）
+		v1.POST("/kbs/:kb/documents/:doc/webhook", d.Document.Webhook)
 	}
 
 	// 会话与问答（FR-07/09，API设计.md §3.7）：
@@ -171,7 +219,7 @@ func NewRouter(d Deps) *gin.Engine {
 	// 越权优先返回 FORBIDDEN（不向无权限者泄露账号改密状态），
 	// 管理员一旦被标记改密仍会被 AUTH_07 拦在业务接口之外。
 	admin := v1.Group("/admin",
-		middleware.Auth(d.Issuer, userLookup(d.UserRepo)),
+		middleware.Auth(d.Issuer, userLookup(d.UserRepo), apiTokenLookup(d.Tokens)),
 		limiter.Handler(middleware.UserKey),
 		middleware.Admin(),
 		middleware.RequirePasswordChanged(),
@@ -191,6 +239,25 @@ func NewRouter(d Deps) *gin.Engine {
 			admin.GET("/email-settings", d.Invite.GetEmailSettings)
 			admin.PATCH("/email-settings", d.Invite.UpdateEmailSettings)
 			admin.POST("/email-settings/test", d.Invite.TestEmail)
+		}
+
+		// M12：用户组（FR-18，管理员）
+		if d.Groups != nil {
+			gp := d.Groups
+			admin.GET("/groups", gp.List)
+			admin.POST("/groups", gp.Create)
+			admin.PATCH("/groups/:id", gp.Update)
+			admin.DELETE("/groups/:id", gp.Delete)
+			admin.GET("/groups/:id/members", gp.ListMembers)
+			admin.POST("/groups/:id/members", gp.AddMember)
+			admin.DELETE("/groups/:id/members/:user", gp.RemoveMember)
+		}
+
+		// M13：OIDC 配置（FR-19，管理员）
+		if d.OIDC != nil {
+			admin.GET("/oidc-settings", d.OIDC.GetOidcSettings)
+			admin.PATCH("/oidc-settings", d.OIDC.PatchOidcSettings)
+			admin.POST("/oidc-settings/test", d.OIDC.TestOidcSettings)
 		}
 
 		// 模型服务配置（FR-12）
@@ -218,6 +285,19 @@ func NewRouter(d Deps) *gin.Engine {
 	r.GET("/healthz", Health())                     // 基础设施探针挂在根路径（liveness：仅进程）
 	r.GET("/readyz", Readyz(pinger, d.RedisPinger)) // readiness：依赖就绪判定
 
+	// M17：Streamable HTTP MCP 端点（团队共享部署，免安装 stdio exe）。
+	// 仅 api/all 模式走到这里（NewRouter 不在 worker-only 分支被调）；工具层
+	// （internal/mcpserver）回环调用本进程 /api/v1，权限 = 调用者 token 所属用户。
+	// r.Any 覆盖 POST/GET/DELETE——GET/DELETE 由 SDK 的 stateless 模式回 405。
+	if d.Tokens != nil {
+		r.Any("/mcp", middleware.MCPAuth(apiTokenLookup(d.Tokens)),
+			gin.WrapH(mcpserver.NewHTTPHandler(cfg.MCPSelfURL, cfg.MCPDisableLocalhostProtection)))
+	}
+
+	if d.NoRoute != nil {
+		r.NoRoute(d.NoRoute)
+	}
+
 	return r
 }
 
@@ -233,7 +313,21 @@ func userLookup(users UserLookupRepo) middleware.UserLookup {
 			Status:             u.Status,
 			TokenVersion:       u.TokenVersion,
 			MustChangePassword: u.MustChangePassword,
+			IsAdmin:            u.IsAdmin,
 		}, nil
+	}
+}
+
+// apiTokenLookup Auth 中间件的 API Token 校验闭包（M15 / FR-20）：
+// 明文 wpk_ 串 → service 校验（无效/吊销/过期统一 TOK_002）→ 返回所属用户 ID。
+// 用户状态（禁用即时失效 / CtxIsAdmin）由 Auth 内既有 lookup 回查覆盖。
+// handler 为 nil 时返回 nil（Auth 跳过 token 分流，最小组装兼容）。
+func apiTokenLookup(h *APITokenHandler) middleware.TokenLookup {
+	if h == nil {
+		return nil
+	}
+	return func(c *gin.Context, bearer string) (int64, error) {
+		return h.svc.Validate(c.Request.Context(), bearer)
 	}
 }
 

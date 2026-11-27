@@ -69,6 +69,15 @@ func (r *UserRepo) CountByEmail(ctx context.Context, email string) (int64, error
 	return n, err
 }
 
+// UserExists 用户存在性（FR-18 组员添加前置校验）。
+func (r *UserRepo) UserExists(ctx context.Context, userID int64) (bool, error) {
+	var n int64
+	if err := r.dbx(ctx).Model(&model.User{}).Where("id = ?", userID).Count(&n).Error; err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
 func (r *UserRepo) GetByID(ctx context.Context, id int64) (*model.User, error) {
 	var u model.User
 	if err := r.dbx(ctx).First(&u, id).Error; err != nil {

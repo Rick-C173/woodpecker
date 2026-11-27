@@ -626,6 +626,19 @@ func (f *FakeDocRepo) HasRunningTask(_ context.Context, documentID int64) (bool,
 	return false, nil
 }
 
+// ListAutoSyncDocs 返回 auto_sync 且非 processing 的 git 文档（M14）。
+func (f *FakeDocRepo) ListAutoSyncDocs(_ context.Context) ([]model.Document, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var docs []model.Document
+	for _, d := range f.docs {
+		if d.Type == model.DocTypeGit && d.AutoSync && d.Status != model.DocStatusProcessing {
+			docs = append(docs, *d)
+		}
+	}
+	return docs, nil
+}
+
 func (f *FakeDocRepo) ListTaskHistory(_ context.Context, documentID int64, limit int) ([]repo.TaskRow, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

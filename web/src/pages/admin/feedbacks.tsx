@@ -7,6 +7,7 @@ import { ClipboardList } from 'lucide-react';
 import { QueryBoundary } from '@/components/states/query-boundary';
 import { EmptyState } from '@/components/states/empty-state';
 import { Skeleton } from '@/components/ui/skeleton';
+import { PageHeader } from '@/components/shared/page-header';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -59,16 +60,14 @@ export function AdminFeedbacksPage() {
     filters.kb_id !== null || filters.reason !== null || filters.from !== null || filters.to !== null;
 
   return (
-    <div className="mx-auto w-full max-w-5xl">
-      <div className="mb-4">
-        <h1 className="text-lg font-semibold">反馈列表</h1>
-        <p className="text-sm text-[var(--muted)]">
-          用户点踩反馈汇总（FR-14）：原因分布与被点踩回答摘要，帮助定位检索与模型问题。
-        </p>
-      </div>
+    <div className="w-full">
+      <PageHeader
+        title="反馈列表"
+        description="用户点踩反馈汇总（FR-14）：原因分布与被点踩回答摘要，帮助定位检索与模型问题。"
+      />
 
       {/* 筛选表单 */}
-      <div className="kb-card mb-4">
+      <div className="mb-4 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] p-4 shadow-[var(--shadow)]">
         <div className="grid grid-cols-2 items-end gap-3 md:grid-cols-5">
           <div className="space-y-1.5">
             <Label htmlFor="f-kb">知识库 ID</Label>
@@ -166,7 +165,7 @@ export function AdminFeedbacksPage() {
       >
         {(data) => (
           <>
-            <div className="kb-card p-0">
+            <div className="overflow-hidden rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] shadow-[var(--shadow)]">
               <Table>
                 <TableHeader>
                   <TableRow>

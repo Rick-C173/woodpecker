@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"woodpecker/internal/cache"
 	"woodpecker/internal/config"
@@ -57,5 +58,34 @@ func Run(ctx context.Context, cfg *config.Config) error {
 		go pipeline.RunSweeper(ctx)
 	}
 
+	// Git 定时同步扫描（M14）：周期遍历 auto_sync=true 的 git 文档并入队增量 sync
+	// （内容变化由 sync 任务的 last_commit diff 判定）。<=0 关闭（webhook 触发不受影响）。
+	if cfg.GitAutoSyncMinutes <= 0 {
+		slog.Warn("GIT_AUTO_SYNC_MINUTES<=0：Git 定时同步已关闭（webhook 触发不受影响）")
+	} else {
+		docSvc := service.NewDocumentService(docs, settings, cipher, queue, auditSvc)
+		go RunAutoSyncLoop(ctx, docSvc, cfg.GitAutoSyncMinutes)
+	}
+
 	return NewServer(cfg, pipeline).Run(ctx)
+}
+
+// RunAutoSyncLoop Git 定时同步扫描循环（M14）：每 interval 分钟调一次 DocumentService.AutoSyncAll；
+// 首次扫描延迟一个周期（避免启动高峰与任务恢复抢资源），跟随 ctx 退出。
+func RunAutoSyncLoop(ctx context.Context, docSvc *service.DocumentService, intervalMinutes int) {
+	interval := time.Duration(intervalMinutes) * time.Minute
+	slog.Info("Git 定时同步已启动", "interval", interval)
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			enqueued, skipped := docSvc.AutoSyncAll(ctx)
+			if enqueued > 0 {
+				slog.Info("Git 定时同步扫描完成", "enqueued", enqueued, "skipped", skipped)
+			}
+		}
+	}
 }

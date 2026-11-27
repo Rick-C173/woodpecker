@@ -52,7 +52,7 @@ func truncateAll(db *gorm.DB) {
 	// 容器用户为超级用户可直接装扩展；本地库已装则跳过
 	_ = db.Exec("CREATE EXTENSION IF NOT EXISTS vector").Error
 	_ = db.Exec("CREATE EXTENSION IF NOT EXISTS pg_trgm").Error
-	// 清单须与 internal/repo/it_setup_test.go 的 itTruncate 保持一致（共 16 张），
+	// 清单须与 internal/repo/it_setup_test.go 的 itTruncate 保持一致（共 20 张），
 	// 否则文档/分块用例的脏数据会跨用例累积（审计 §3.4）。
-	_ = db.Exec("TRUNCATE users, audit_logs, settings, model_services, model_entries, knowledge_bases, kb_members, documents, document_files, ingest_tasks, chunks, conversations, messages, message_citations, feedbacks, invites RESTART IDENTITY CASCADE").Error
+	_ = db.Exec("TRUNCATE users, audit_logs, settings, model_services, model_entries, knowledge_bases, kb_members, documents, document_files, ingest_tasks, chunks, conversations, messages, message_citations, feedbacks, invites, user_groups, group_members, kb_group_roles, api_tokens RESTART IDENTITY CASCADE").Error
 }
