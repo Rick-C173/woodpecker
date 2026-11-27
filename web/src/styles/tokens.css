@@ -118,7 +118,8 @@ html[data-theme='dark'] {
   --fs-body: 14px;
 }
 
-html[data-density='compact'] {
+/* 紧凑密度：不限定 html——AdminShell 在子树写局部 data-density='compact' 覆盖全局档位 */
+[data-density='compact'] {
   --row-h: 32px;
   --card-p: 16px;
   --gap: 12px;

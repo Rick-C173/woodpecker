@@ -12,6 +12,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { Bird } from 'lucide-react';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -125,13 +126,16 @@ export function LoginPage() {
   const submitting = form.formState.isSubmitting;
 
   return (
-    <div className="flex h-screen items-center justify-center">
-      <div className="login-card">
-        <div className="login-logo" aria-hidden="true">
-          🐦
+    <div className="flex min-h-svh items-center justify-center bg-[var(--background)] px-4">
+      <div className="w-full max-w-sm rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--card)] p-8 shadow-[var(--shadow)]">
+        <div
+          className="mx-auto mb-4 flex size-11 items-center justify-center rounded-[var(--radius)] bg-[var(--accent)] text-[var(--on-accent)]"
+          aria-hidden="true"
+        >
+          <Bird className="size-5" />
         </div>
-        <h1 className="text-xl">啄木鸟 Woodpecker</h1>
-        <p className="mb-6 mt-1 text-[13px] text-[var(--muted)]">企业内部知识库问答系统</p>
+        <h1 className="text-center text-xl font-semibold">啄木鸟 Woodpecker</h1>
+        <p className="mb-6 mt-1 text-center text-[13px] text-[var(--muted)]">企业内部知识库问答系统</p>
 
         {exchanging ? (
           <p className="mb-4 text-center text-sm text-[var(--muted)]">正在完成企业账号登录…</p>

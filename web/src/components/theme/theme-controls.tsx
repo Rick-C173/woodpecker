@@ -8,6 +8,7 @@
 import { Moon, Sun, SunMoon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { PALETTES, PALETTE_NAMES, usePalette } from './palette-provider';
+import { clearCustomAccent } from './custom-accent';
 import { useTheme, THEME_PREFERENCES, type ThemePreference } from './theme-provider';
 
 const THEME_META: Record<ThemePreference, { label: string }> = {
@@ -54,7 +55,11 @@ export function PaletteDots({ className }: { className?: string }) {
           data-name={PALETTE_NAMES[p]}
           aria-label={'配色方案：' + PALETTE_NAMES[p]}
           title={PALETTE_NAMES[p]}
-          onClick={() => setPalette(p)}
+          onClick={() => {
+            // 内联 --acc-h/s/l（自定义色）优先级高于预设，切预设前必须清除
+            clearCustomAccent();
+            setPalette(p);
+          }}
         />
       ))}
     </div>
